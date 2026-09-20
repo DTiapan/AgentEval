@@ -13,19 +13,24 @@ from agenteval.planning.models import CandidateTest, CoverageReport, TestPack
 
 def build_blackbox_preview(
     card: AgentCard,
-    manifest_path: Path,
+    manifest_path: Path | None,
     prd_path: Path | None,
     max_tests: int,
 ) -> tuple[list[CandidateTest], TestPack, CoverageReport]:
     """Run pool generation + optimization without writing a frozen suite."""
-    fingerprint = SuiteBootstrap.fingerprint_files(manifest_path, prd_path)
+    if manifest_path is not None:
+        fingerprint = SuiteBootstrap.fingerprint_files(manifest_path, prd_path)
+    elif prd_path is not None:
+        fingerprint = SuiteBootstrap.fingerprint_prd(prd_path)
+    else:
+        raise ValueError("manifest_path or prd_path required for preview fingerprint")
     return SuiteBootstrap(max_tests=max_tests).build(card, fingerprint)
 
 
 def render_blackbox_pack_preview(
     console: Console,
     card: AgentCard,
-    manifest_path: Path,
+    manifest_path: Path | None,
     prd_path: Path | None,
     max_tests: int,
 ) -> None:
@@ -71,7 +76,12 @@ def render_blackbox_pack_preview(
         table.add_row(str(index), test.category, test.name, test.id)
 
     console.print(Panel(table, border_style="blue"))
-    console.print(
-        "[dim]Freeze this pack:[/dim] "
-        f"`agenteval suite init -m {manifest_path} -e <endpoint> --max-tests {max_tests}`"
-    )
+    if manifest_path is not None:
+        freeze_cmd = (
+            f"`agenteval suite init -m {manifest_path} -e <endpoint> --max-tests {max_tests}`"
+        )
+    else:
+        freeze_cmd = (
+            f"`agenteval suite init --prd {prd_path} -e <endpoint> --max-tests {max_tests}`"
+        )
+    console.print(f"[dim]Freeze this pack:[/dim] {freeze_cmd}")

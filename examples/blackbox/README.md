@@ -21,6 +21,14 @@ python3 examples/blackbox/refund_agent_server.py
 
 ### Terminal 2 — preview pack (optional, no files written)
 
+**North Star entry (requirements only):**
+
+```bash
+agenteval plan --prd examples/blackbox/requirements.md --max-tests 10
+```
+
+Or with manifest:
+
 ```bash
 agenteval plan --manifest examples/blackbox/refund_agent.card.yaml --max-tests 10
 ```
@@ -28,11 +36,21 @@ agenteval plan --manifest examples/blackbox/refund_agent.card.yaml --max-tests 1
 ### Terminal 2 — bootstrap suite (generate once)
 
 ```bash
+# Requirements only (run later with -e on suite run):
 agenteval suite init \
-  --manifest examples/blackbox/refund_agent.card.yaml \
-  --endpoint http://127.0.0.1:8765/chat \
+  --prd examples/blackbox/requirements.md \
+  --agent-id refund-agent \
+  --max-tests 10
+
+# Requirements + endpoint (probe + store URL):
+agenteval suite init \
+  -e http://127.0.0.1:8765/chat \
+  --prd examples/blackbox/requirements.md \
+  --agent-id refund-agent \
   --max-tests 10
 ```
+
+Writes `derived_agent_card.json`; with `-e`, also `endpoint_probe.json` (inferred tools/JSON shape).
 
 ### Terminal 2 — regression run (no regeneration)
 

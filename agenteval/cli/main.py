@@ -33,6 +33,9 @@ from agenteval.scenarios.compiler import ScenarioCompiler
 from agenteval.scenarios.loader import ScenarioLoader
 from agenteval.scenarios.schema import TestScenario
 from agenteval.cli.suite import suite_app
+from agenteval.ingest.bootstrap import AgentBootstrap
+from agenteval.ingest.probe_render import render_endpoint_probe
+from agenteval.ingest.requirements import RequirementsIngestor
 from agenteval.planning.plan_preview import render_blackbox_pack_preview
 
 app = typer.Typer(
@@ -197,6 +200,8 @@ def plan(
     compiled_scenarios: list[TestScenario] = []
     matched_personas: list[tuple[RankedPersonaCandidate, str]] = []
     blackbox_manifest: Path | None = None
+    blackbox_prd: Path | None = None
+    probe_result = None
     dyn_gen = DynamicPersonaGenerator()
 
     if persona_path:
@@ -212,21 +217,21 @@ def plan(
         compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
     elif prd_path:
         prd_text = prd_path.read_text(encoding="utf-8")
-        probe_card = AgentCard(
-            id=prd_path.stem,
-            name=prd_path.stem.replace("-", " ").title(),
-            capabilities=PersonaIntrospector._extract_capabilities(prd_text),
-        )
+        probe_result = None
+        if endpoint:
+            card, _, probe_result = AgentBootstrap.from_prd(
+                prd_path, endpoint_url=endpoint, probe_endpoint=True
+            )
+        else:
+            card = RequirementsIngestor.from_file(prd_path)
+        blackbox_prd = prd_path
         ranked_cands = dyn_gen.discover_and_rank_personas(
-            probe_card, top_k=top_personas, customer_context=prd_text
+            card, top_k=top_personas, customer_context=prd_text
         )
         for cand in ranked_cands:
-            c_card, status = dyn_gen.synthesize_or_load(cand, probe_card)
+            _, status = dyn_gen.synthesize_or_load(cand, card)
             matched_personas.append((cand, status))
 
-        primary_cand = ranked_cands[0]
-        card, _ = dyn_gen.synthesize_or_load(primary_cand, probe_card)
-        card.id = prd_path.stem
         jev_res = JevClassifierClient().classify_agent(card)
         plan_obj = MetricRouter().recommend(card)
         compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
@@ -354,10 +359,17 @@ def plan(
             s_table.add_row(sc.id, sc.name, fault_desc, str(sc.max_steps))
         console.print(Panel(s_table, border_style="cyan"))
 
-    if blackbox_manifest is not None:
+    if blackbox_manifest is not None or blackbox_prd is not None:
         render_blackbox_pack_preview(
-            console, card, blackbox_manifest, prd_path, max_tests=max_tests
+            console,
+            card,
+            blackbox_manifest,
+            blackbox_prd or prd_path,
+            max_tests=max_tests,
         )
+
+    if prd_path and endpoint and probe_result is not None:
+        render_endpoint_probe(console, probe_result)
 
 
 @app.command("run")

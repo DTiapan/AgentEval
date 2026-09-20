@@ -8,6 +8,10 @@ from rich.console import Console
 from rich.table import Table
 
 from agenteval.core.manifest import AgentCard
+from agenteval.ingest.bootstrap import AgentBootstrap
+from agenteval.ingest.endpoint_probe import EndpointProber
+from agenteval.ingest.probe_render import render_endpoint_probe
+from agenteval.ingest.requirements import RequirementsIngestor
 from agenteval.planning.blackbox_runner import BlackboxRunner
 from agenteval.planning.bootstrap import SuiteBootstrap
 from agenteval.planning.coverage import CoverageMapper
@@ -26,17 +30,31 @@ console = Console()
 
 @suite_app.command("init")
 def suite_init(
-    manifest: Annotated[
-        Path,
-        typer.Option("--manifest", "-m", exists=True, dir_okay=False, readable=True),
-    ],
     endpoint: Annotated[
-        str,
-        typer.Option("--endpoint", "-e", help="HTTP agent endpoint URL"),
-    ],
+        str | None,
+        typer.Option(
+            "--endpoint",
+            "-e",
+            help="HTTP agent URL (optional at init; required for suite run unless stored)",
+        ),
+    ] = None,
+    manifest: Annotated[
+        Path | None,
+        typer.Option("--manifest", "-m", exists=True, dir_okay=False, readable=True),
+    ] = None,
     prd: Annotated[
         Path | None,
-        typer.Option("--prd", exists=True, dir_okay=False, readable=True),
+        typer.Option(
+            "--prd",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+            help="Functional requirements (North Star entry; no AgentCard YAML required)",
+        ),
+    ] = None,
+    agent_id: Annotated[
+        str | None,
+        typer.Option("--agent-id", "-a", help="Agent id when using --prd only"),
     ] = None,
     max_tests: Annotated[int, typer.Option("--max-tests", min=1, max=50)] = 10,
     suite_root: Annotated[
@@ -49,8 +67,29 @@ def suite_init(
     ] = False,
 ) -> None:
     """Generate pool + optimized pack once and persist (DR-010)."""
-    card = AgentCard.from_yaml(manifest)
-    fp = SuiteBootstrap.fingerprint_files(manifest, prd)
+    if manifest is None and prd is None:
+        console.print("[bold red]Error:[/bold red] Provide --prd or --manifest.")
+        raise typer.Exit(code=1)
+
+    probe_result = None
+    if manifest is not None:
+        card = AgentCard.from_yaml(manifest)
+        fp = SuiteBootstrap.fingerprint_files(manifest, prd)
+        source_label = str(manifest)
+    else:
+        assert prd is not None
+        card, fp, probe_result = AgentBootstrap.from_prd(
+            prd,
+            agent_id=agent_id,
+            endpoint_url=endpoint,
+            probe_endpoint=endpoint is not None,
+        )
+        source_label = str(prd)
+
+    if endpoint and manifest is not None:
+        probe_result = EndpointProber().probe(endpoint)
+        card = EndpointProber.merge_tools(card, probe_result)
+
     bootstrap = SuiteBootstrap(max_tests=max_tests)
     try:
         pool, pack, coverage = bootstrap.build(card, fp)
@@ -59,14 +98,30 @@ def suite_init(
         raise typer.Exit(code=1) from None
 
     store = SuiteStore(suite_root)
-    manifest_obj = SuiteStore.new_manifest(card.id, fp, endpoint)
+    manifest_obj = SuiteStore.new_manifest(card.id, fp, endpoint or "")
     try:
         out = store.init_suite(manifest_obj, pool, pack, force=force_new_version)
     except SuiteExistsError as e:
         console.print(f"[bold red]{e}[/bold red]")
         raise typer.Exit(code=1) from None
 
+    derived = out / "derived_agent_card.json"
+    derived.write_text(card.model_dump_json(indent=2), encoding="utf-8")
+    if probe_result is not None:
+        (out / "endpoint_probe.json").write_text(
+            probe_result.model_dump_json(indent=2), encoding="utf-8"
+        )
+        render_endpoint_probe(console, probe_result)
+
     console.print(f"[green]Suite initialized at[/green] {out}")
+    console.print(f"  source: {source_label}")
+    if prd and manifest is None:
+        console.print(f"  derived AgentCard: {derived}")
+    if not endpoint:
+        console.print(
+            "[yellow]No endpoint stored.[/yellow] Run with "
+            f"`agenteval suite run --agent-id {card.id} -e <url>` when ready."
+        )
     console.print(f"  candidate_pool: {len(pool)} tests")
     console.print(f"  optimized_pack: {len(pack.tests)} tests")
     if coverage.critical_uncovered:

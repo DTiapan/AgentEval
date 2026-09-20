@@ -45,6 +45,11 @@ class SuiteBootstrap:
         digest = hashlib.sha256(b"".join(parts)).hexdigest()
         return digest[:16]
 
+    @staticmethod
+    def fingerprint_prd(prd_path: Path) -> str:
+        digest = hashlib.sha256(prd_path.read_bytes()).hexdigest()
+        return digest[:16]
+
     def build(
         self,
         card: AgentCard,
