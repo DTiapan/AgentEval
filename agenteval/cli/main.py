@@ -19,15 +19,13 @@ from agenteval.adapters.callable import CallableAdapter
 from agenteval.adapters.http import HTTPAdapter
 from agenteval.adapters.tool import LocalToolAdapter
 from agenteval.core.loop import AgentLoopEngine
-from agenteval.core.manifest import AgentCard
+from agenteval.core.manifest import AgentCard, ToolRequirement
 from agenteval.core.models import StepRecord, ToolCall, Verdict
 from agenteval.engine.verdict import VerdictEngine
 from agenteval.faults.injector import ToolFaultInjector
 from agenteval.introspect.persona import PersonaIntrospector
-from agenteval.personas.registry import PersonaCandidate
-from agenteval.personas.synthesizer import PersonaSynthesizer
+from agenteval.personas.dynamic import DynamicPersonaGenerator, RankedPersonaCandidate
 from agenteval.recommender.jev_client import JevClassifierClient
-from agenteval.recommender.persona_selector import JevPersonaSelector
 from agenteval.recommender.router import MetricRouter
 from agenteval.replay.player import TraceReplayer
 from agenteval.sandbox.local import LocalSandbox
@@ -165,6 +163,16 @@ def plan(
             readable=True,
         ),
     ] = None,
+    top_personas: Annotated[
+        int,
+        typer.Option(
+            "--top-personas",
+            "-k",
+            help="Number of top stack-ranked personas to formulate and test (default: 3)",
+            min=1,
+            max=10,
+        ),
+    ] = 3,
 ) -> None:
     """Generate and preview a calibrated evaluation plan for an agent."""
     if not manifest_path and not agent_spec and not persona_path and not endpoint and not prd_path:
@@ -174,7 +182,8 @@ def plan(
         raise typer.Exit(code=1)
 
     compiled_scenarios: list[TestScenario] = []
-    matched_personas: list[tuple[PersonaCandidate, bool]] = []
+    matched_personas: list[tuple[RankedPersonaCandidate, str]] = []
+    dyn_gen = DynamicPersonaGenerator()
 
     if persona_path:
         card = PersonaIntrospector.parse_file(persona_path)
@@ -188,33 +197,39 @@ def plan(
         compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
     elif prd_path:
         prd_text = prd_path.read_text(encoding="utf-8")
-        selector = JevPersonaSelector()
-        cands = selector.select_personas(context=prd_text, limit=3)
-        synthesizer = PersonaSynthesizer()
-        for cand in cands:
-            c_card, is_cached = synthesizer.get_or_synthesize(cand, agent_context=prd_text)
-            matched_personas.append((cand, is_cached))
+        probe_card = AgentCard(
+            id=prd_path.stem,
+            name=prd_path.stem.replace("-", " ").title(),
+            capabilities=PersonaIntrospector._extract_capabilities(prd_text),
+        )
+        ranked_cands = dyn_gen.discover_and_rank_personas(
+            probe_card, top_k=top_personas, customer_context=prd_text
+        )
+        for cand in ranked_cands:
+            c_card, status = dyn_gen.synthesize_or_load(cand, probe_card)
+            matched_personas.append((cand, status))
 
-        primary_cand = cands[0]
-        card, _ = synthesizer.get_or_synthesize(primary_cand, agent_context=prd_text)
+        primary_cand = ranked_cands[0]
+        card, _ = dyn_gen.synthesize_or_load(primary_cand, probe_card)
         card.id = prd_path.stem
         jev_res = JevClassifierClient().classify_agent(card)
         plan_obj = MetricRouter().recommend(card)
         compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
     elif endpoint:
-        selector = JevPersonaSelector()
-        cands = selector.select_personas(context=f"HTTP Endpoint: {endpoint}", limit=3)
-        synthesizer = PersonaSynthesizer()
-        for cand in cands:
-            c_card, is_cached = synthesizer.get_or_synthesize(
-                cand, agent_context=f"HTTP Endpoint: {endpoint}"
-            )
-            matched_personas.append((cand, is_cached))
-
-        primary_cand = cands[0]
-        card, _ = synthesizer.get_or_synthesize(
-            primary_cand, agent_context=f"HTTP Endpoint: {endpoint}"
+        clean_name = endpoint.split("/")[-1] or "chat"
+        probe_card = AgentCard(
+            id=f"endpoint:{endpoint}",
+            name=f"HTTP Agent ({clean_name})",
         )
+        ranked_cands = dyn_gen.discover_and_rank_personas(
+            probe_card, top_k=top_personas, customer_context=f"HTTP Endpoint: {endpoint}"
+        )
+        for cand in ranked_cands:
+            c_card, status = dyn_gen.synthesize_or_load(cand, probe_card)
+            matched_personas.append((cand, status))
+
+        primary_cand = ranked_cands[0]
+        card, _ = dyn_gen.synthesize_or_load(primary_cand, probe_card)
         card.id = f"endpoint:{endpoint}"
         jev_res = JevClassifierClient().classify_agent(card)
         plan_obj = MetricRouter().recommend(card)
@@ -224,15 +239,21 @@ def plan(
         try:
             fn, tools = _load_agent_callable(agent_spec)
             context = getattr(fn, "__doc__", agent_spec) or agent_spec
-            selector = JevPersonaSelector()
-            cands = selector.select_personas(context=context, tools=list(tools.keys()), limit=3)
-            synthesizer = PersonaSynthesizer()
-            for cand in cands:
-                c_card, is_cached = synthesizer.get_or_synthesize(cand, agent_context=context)
-                matched_personas.append((cand, is_cached))
+            clean_name = agent_spec.split(":")[-1].replace("_", " ").title()
+            probe_card = AgentCard(
+                id=agent_spec,
+                name=clean_name,
+                tools_required=[ToolRequirement(name=t_name) for t_name in tools.keys()],
+            )
+            ranked_cands = dyn_gen.discover_and_rank_personas(
+                probe_card, top_k=top_personas, customer_context=context
+            )
+            for cand in ranked_cands:
+                c_card, status = dyn_gen.synthesize_or_load(cand, probe_card)
+                matched_personas.append((cand, status))
 
-            primary_cand = cands[0]
-            card, _ = synthesizer.get_or_synthesize(primary_cand, agent_context=context)
+            primary_cand = ranked_cands[0]
+            card, _ = dyn_gen.synthesize_or_load(primary_cand, probe_card)
             card.id = agent_spec
             jev_res = JevClassifierClient().classify_agent(card)
             plan_obj = MetricRouter().recommend(card)
@@ -286,16 +307,24 @@ def plan(
         console.print(Panel(f_table, border_style="red"))
 
     if matched_personas:
-        p_table = Table(title="🎯 Dynamic Persona Synthesis (Jev On-The-Fly Matching)", box=None)
-        p_table.add_column("Persona Name", style="bold cyan")
-        p_table.add_column("Domain", style="dim")
-        p_table.add_column("Archetype", style="magenta")
+        p_table = Table(title="🎯 Dynamic Stack-Ranked Personas (LiteLLM Discovery)", box=None)
+        p_table.add_column("Rank", style="bold cyan", width=6)
+        p_table.add_column("Persona Name", style="bold")
+        p_table.add_column("Operational Tier", style="magenta")
+        p_table.add_column("Est. Volume", style="dim", justify="right", width=12)
         p_table.add_column("Status", style="bold")
-        p_table.add_column("Description")
-        for cand, is_cached in matched_personas:
-            status_badge = "[green]CACHED[/green]" if is_cached else "[yellow]SYNTHESIZED[/yellow]"
+        p_table.add_column("Testing Intent / Invariants")
+        for cand, status_str in matched_personas:
+            status_badge = (
+                "[green]CACHED[/green]" if status_str == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
+            )
             p_table.add_row(
-                cand.name, cand.domain, cand.archetype.value, status_badge, cand.description
+                f"#{cand.rank}",
+                cand.name,
+                cand.tier.value,
+                f"{cand.estimated_volume_pct}%",
+                status_badge,
+                cand.key_intent,
             )
         console.print(Panel(p_table, border_style="cyan"))
 
@@ -384,9 +413,20 @@ def run(
             help="Custom root directory for the sandbox execution environment",
         ),
     ] = None,
+    top_personas: Annotated[
+        int,
+        typer.Option(
+            "--top-personas",
+            "-k",
+            help="Number of top stack-ranked personas to consider (default: 3)",
+            min=1,
+            max=10,
+        ),
+    ] = 3,
 ) -> None:
     """Execute a scenario against an agent in a sealed sandbox with fault injection."""
     # 1. Resolve Scenario
+    dyn_gen = DynamicPersonaGenerator()
     if scenario_path:
         try:
             scenario = ScenarioLoader.from_yaml(scenario_path)
@@ -403,10 +443,15 @@ def run(
         scenario = scenarios[0]
     elif prd_path:
         prd_text = prd_path.read_text(encoding="utf-8")
-        selector = JevPersonaSelector()
-        cands = selector.select_personas(context=prd_text, limit=1)
-        synthesizer = PersonaSynthesizer()
-        card, is_cached = synthesizer.get_or_synthesize(cands[0], agent_context=prd_text)
+        probe_card = AgentCard(
+            id=prd_path.stem,
+            name=prd_path.stem.replace("-", " ").title(),
+            capabilities=PersonaIntrospector._extract_capabilities(prd_text),
+        )
+        ranked_cands = dyn_gen.discover_and_rank_personas(
+            probe_card, top_k=top_personas, customer_context=prd_text
+        )
+        card, status = dyn_gen.synthesize_or_load(ranked_cands[0], probe_card)
         scenarios = ScenarioCompiler.compile_scenarios(card)
         if not scenarios:
             console.print(
@@ -414,17 +459,20 @@ def run(
             )
             raise typer.Exit(code=1)
         scenario = scenarios[0]
-        status_str = "[green]CACHED[/green]" if is_cached else "[yellow]SYNTHESIZED[/yellow]"
+        status_str = "[green]CACHED[/green]" if status == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
         console.print(
-            f"[dim]Auto-selected Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
+            f"[dim]Auto-selected #{ranked_cands[0].rank} {ranked_cands[0].tier.value} Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
         )
     elif endpoint:
-        selector = JevPersonaSelector()
-        cands = selector.select_personas(context=f"HTTP Endpoint: {endpoint}", limit=1)
-        synthesizer = PersonaSynthesizer()
-        card, is_cached = synthesizer.get_or_synthesize(
-            cands[0], agent_context=f"HTTP Endpoint: {endpoint}"
+        clean_name = endpoint.split("/")[-1] or "chat"
+        probe_card = AgentCard(
+            id=f"endpoint:{endpoint}",
+            name=f"HTTP Agent ({clean_name})",
         )
+        ranked_cands = dyn_gen.discover_and_rank_personas(
+            probe_card, top_k=top_personas, customer_context=f"HTTP Endpoint: {endpoint}"
+        )
+        card, status = dyn_gen.synthesize_or_load(ranked_cands[0], probe_card)
         scenarios = ScenarioCompiler.compile_scenarios(card)
         if not scenarios:
             console.print(
@@ -432,18 +480,24 @@ def run(
             )
             raise typer.Exit(code=1)
         scenario = scenarios[0]
-        status_str = "[green]CACHED[/green]" if is_cached else "[yellow]SYNTHESIZED[/yellow]"
+        status_str = "[green]CACHED[/green]" if status == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
         console.print(
-            f"[dim]Auto-selected Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
+            f"[dim]Auto-selected #{ranked_cands[0].rank} {ranked_cands[0].tier.value} Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
         )
     elif agent_spec:
         try:
             fn, tools = _load_agent_callable(agent_spec)
             context = getattr(fn, "__doc__", agent_spec) or agent_spec
-            selector = JevPersonaSelector()
-            cands = selector.select_personas(context=context, tools=list(tools.keys()), limit=1)
-            synthesizer = PersonaSynthesizer()
-            card, is_cached = synthesizer.get_or_synthesize(cands[0], agent_context=context)
+            clean_name = agent_spec.split(":")[-1].replace("_", " ").title()
+            probe_card = AgentCard(
+                id=agent_spec,
+                name=clean_name,
+                tools_required=[ToolRequirement(name=t_name) for t_name in tools.keys()],
+            )
+            ranked_cands = dyn_gen.discover_and_rank_personas(
+                probe_card, top_k=top_personas, customer_context=context
+            )
+            card, status = dyn_gen.synthesize_or_load(ranked_cands[0], probe_card)
             scenarios = ScenarioCompiler.compile_scenarios(card)
             if not scenarios:
                 console.print(
@@ -451,9 +505,9 @@ def run(
                 )
                 raise typer.Exit(code=1)
             scenario = scenarios[0]
-            status_str = "[green]CACHED[/green]" if is_cached else "[yellow]SYNTHESIZED[/yellow]"
+            status_str = "[green]CACHED[/green]" if status == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
             console.print(
-                f"[dim]Auto-selected Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
+                f"[dim]Auto-selected #{ranked_cands[0].rank} {ranked_cands[0].tier.value} Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
             )
         except Exception as e:
             console.print(f"[bold red]Failed to inspect agent '{agent_spec}':[/bold red] {e}")

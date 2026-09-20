@@ -11,11 +11,11 @@ runner = CliRunner()
 
 
 def test_cli_plan_dynamic_persona_synthesis_and_caching() -> None:
-    # 1. First run: should synthesize and cache
+    # 1. First run: should discover, rank, synthesize and cache
     res1 = runner.invoke(app, ["plan", "--endpoint", "http://localhost:8000/db-service"])
     assert res1.exit_code == 0
-    assert "Dynamic Persona Synthesis" in res1.output
-    assert "SRE Engineer" in res1.output or "Database Reliability" in res1.output
+    assert "Dynamic Stack-Ranked Personas" in res1.output
+    assert "SRE Engineer" in res1.output or "Database Reliability" in res1.output or "FREQUENT_OPERATION" in res1.output
 
     # 2. Second run: should show CACHED
     res2 = runner.invoke(app, ["plan", "--endpoint", "http://localhost:8000/db-service"])
@@ -37,5 +37,5 @@ def test_cli_run_dynamic_persona_auto_selection() -> None:
     with patch("urllib.request.urlopen", return_value=mock_resp):
         res = runner.invoke(app, ["run", "--endpoint", "http://localhost:8000/db-service"])
         assert res.exit_code in [0, 1]
-        assert "Auto-selected Persona:" in res.output
+        assert "Auto-selected" in res.output and "Persona:" in res.output
         assert "Assurance Scorecard" in res.output

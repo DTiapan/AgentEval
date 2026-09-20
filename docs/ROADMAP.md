@@ -76,12 +76,12 @@ AgentEval attacks **nine planes** of agent assurance, requirement engineering, a
 
 | Plane | What It Covers | Key Components |
 |---|---|---|
-| **0. Agent Contract, Discovery & Requirements** | Auto-discover tools, ingest natural language PRDs into test scenarios, manage `AgentCard` manifests | PRD-to-Scenario Compiler, MCP/OpenAPI Auto-Introspector, Declarative `AgentCard` Manifest, Behavioral Invariant Miner |
+| **0. Agent Contract, Discovery & Requirements** | Auto-discover tools, ingest natural language PRDs, dynamically synthesize stack-ranked personas (LiteLLM), manage `AgentCard` manifests | DynamicPersonaGenerator (LiteLLM + 5-Tier Stack-Ranking), PRD-to-Scenario Compiler, MCP/OpenAPI Auto-Introspector, Declarative `AgentCard` Manifest, Behavioral Invariant Miner |
 | **1. Pluggable Agent Interface (BYOA)** | Connect any agent (in-process, HTTP, MCP, CLI) with zero code changes | `HTTPAdapter`, `MCPAdapter`, `CallableAdapter`, `CLIAdapter` |
 | **2. Trajectory & Agent Loop Verification** | Validate the multi-turn loop, iteration limits, thrashing, and tool sequences | `ToolSequenceEvaluator`, `StepEfficiencyEvaluator`, Loop/Thrashing Guard |
 | **3. Sandbox & Side-Effect Proof** | Execute tools in isolation, capture state diffs ($\Delta S$), assert mutations | Ephemeral sandbox (local → OpenShell/Docker), `StateDiffEvaluator` |
 | **4. Chaos Engineering & Fault Injection** | Inject synthetic faults into tools, network, state, and context | `ToolFaultInjector`, `CrashRecoveryHarness`, `ContextPressureInjector`, `IdempotencyScorer` |
-| **5. Hybrid Evaluation Engine & Metric Router** | Archetype-aware metric selection, deterministic checks, Jev fast judge, calibrated LLM rubrics | Jev-Powered Metric Router, Archetype Profiles (Tool, RAG, Code, Support), Deterministic assertions ($0), Jev System One typed scoring ($0.04/M), calibrated G-Eval |
+| **5. Hybrid Evaluation Engine & Metric Router** | Archetype-aware metric selection, deterministic checks, Jev fast judge, calibrated LLM rubrics via LiteLLM multi-vendor gateway | LiteLLM Gateway (100+ model providers), Jev-Powered Metric Router, Archetype Profiles (Tool, RAG, Code, Support), Deterministic assertions ($0), Jev System One typed scoring ($0.04/M), calibrated G-Eval |
 | **6. Real-Time & Interactive Replay** | Replay runs in real-time or step-by-step; time-travel debugging | `agenteval replay`, Live Streaming Engine, Time-Travel Scrubber, Side-by-Side Diff Player |
 | **7. Continuous Golden Dataset Loop** | Auto-mine production traces into regression suites with 12-class error taxonomy | Production trace ingestion, failure clustering, adversarial synthesis |
 | **8. Observability, Economics & CI/CD Gate** | Telemetry, cost-per-success, latency breakdown, and PR regression gating | OTel/OpenInference, latency/cost breakdown, CLI exit codes, GitHub Actions PR bot |
@@ -353,6 +353,8 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 ### What Ships (Incremental on v0.1)
 | Component | Scope |
 |---|---|
+| **DynamicPersonaGenerator** | On-the-fly persona discovery, 5-tier operational stack-ranking (frequent users → edge cases → adversaries), and `--top-personas` windowing via LiteLLM |
+| **LiteLLMGateway** | Multi-vendor LLM provider gateway for dynamic synthesis, scenario generation, and LLM judge rubrics across 100+ model providers |
 | **ProtocolAutoIntrospector** | Auto-discovers exposed tool catalogs and Pydantic/JSON schemas via MCP (`tools/list`) and REST (`/openapi.json`) |
 | **DeclarativeAgentCard** | Standardized `agenteval.manifest.yaml` format for declaring agent intent, required sandbox dependencies, and invariants |
 | **AssuranceProfileRouter** | Automatically selects metric profiles based on agent archetype (Tool-Action, RAG, Code, Enterprise Support) |

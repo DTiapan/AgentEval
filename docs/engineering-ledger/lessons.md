@@ -8,6 +8,17 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 |----|-------|--------|-------|----------|
 | LL-001 | Rich Terminal Bracket Escaping and Pydantic Model Reordering | logged | project | architecture / tooling |
 | LL-002 | Disk-Cached Persona Synthesis for Sub-50ms CLI Startup and Zero-Token Re-runs | logged | project | performance / architecture |
+| LL-003 | Operational Tier Stack-Ranking & Multi-Vendor LLM Gateway via LiteLLM | logged | project | architecture / llm |
+
+---
+
+## LL-003: Operational Tier Stack-Ranking & Multi-Vendor LLM Gateway via LiteLLM
+
+- **Date**: 2026-09-20
+- **Scope**: project
+- **Context**: Static persona catalogs suffer from maintenance burden and cannot capture bespoke customer niches. Pointing raw LLMs at persona generation produces unstructured, unranked lists that vary wildly across vendors.
+- **Root Cause**: Without standard operational tiers and unified API abstractions, teams end up hardcoding vendor SDKs (OpenAI, Anthropic, Gemini) and testing dozens of low-value edge personas.
+- **Lesson / Rule**: Use `litellm` as the universal provider gateway. Constrain dynamic persona generation to 5 operational tiers (Frequent Users, Power Users, Adversaries, Novice, Security Auditors) with strict Pydantic JSON schema validation and `--top-personas` windowing to control test suite breadth.
 
 ---
 
