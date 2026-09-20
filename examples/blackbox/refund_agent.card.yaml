@@ -1,0 +1,22 @@
+id: refund-agent
+name: Customer Refund Assistant
+version: "0.1.0"
+archetype: TOOL_ACTION
+capabilities:
+  - name: Issue Refund
+    description: >-
+      Process customer refunds for valid paid orders after verifying the order
+      belongs to the authenticated customer. Uses payment integration APIs.
+    idempotency_supported: true
+tools_required:
+  - name: process_refund
+    description: Submit a refund to the payment provider for an order
+    required: true
+  - name: lookup_order
+    description: Fetch order status and ownership for validation
+    required: true
+invariants:
+  max_steps: 8
+  forbidden_tools: []
+  approval_required_tools:
+    - process_refund

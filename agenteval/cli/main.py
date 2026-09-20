@@ -32,6 +32,7 @@ from agenteval.sandbox.local import LocalSandbox
 from agenteval.scenarios.compiler import ScenarioCompiler
 from agenteval.scenarios.loader import ScenarioLoader
 from agenteval.scenarios.schema import TestScenario
+from agenteval.cli.suite import suite_app
 
 app = typer.Typer(
     name="agenteval",
@@ -39,6 +40,8 @@ app = typer.Typer(
     no_args_is_help=True,
 )
 console = Console()
+
+app.add_typer(suite_app, name="suite")
 
 
 def _load_agent_callable(

@@ -23,8 +23,8 @@
 3. [x] **B2** — Bounded candidate pool (`agenteval/planning/generator.py`); wire JSON persist in B8.
 4. [x] **B4** — Optimizer: mandatory security floor + greedy set cover (`agenteval/planning/optimizer.py`).
 5. [x] **B5 (MVP)** — Post-run coverage map + critical uncovered (`agenteval/planning/coverage.py`).
-6. [ ] **B7** — `blackbox` + `ObservationBundle` on **HTTP** `HTTPAdapter` only.
-7. [ ] **B8 (MVP)** — `agenteval plan` (pool vs pack, limitations); **`suite init`** (bootstrap + persist); **`suite run`** (regression, load frozen pack, diff — [DR-010](decisions.md#active-index)).
+6. [x] **B7** — `blackbox_runner` + `ObservationBundle` + `ObservableScorer` (Tier 0, no LLM judge).
+7. [x] **B8 (MVP)** — `suite init` / `suite run`, `SuiteStore`, sample `examples/blackbox/` ([DR-010](decisions.md#active-index)).
 
 **Phase A first code increment:** B0 + B4 + B5 (MVP) with fixture pools → then B1 → B2 → B7 → B8 (include suite persistence in B8).
 

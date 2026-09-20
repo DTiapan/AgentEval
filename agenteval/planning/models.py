@@ -140,6 +140,45 @@ class CoverageReport(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class ObservationBundle(BaseModel):
+    """Black-box observable capture for one test invocation (B7)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    test_id: str
+    user_prompt: str
+    response_text: str
+    http_status: int = Field(default=200)
+    latency_ms: float = Field(default=0.0)
+    raw_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class TestCaseResult(BaseModel):
+    """Rule-based outcome for one candidate test (no LLM judge)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    test_id: str
+    verdict: str = Field(description="PASS | FAIL | UNVERIFIABLE")
+    observation: ObservationBundle
+    rationale: str = ""
+
+
+class SuiteRunReport(BaseModel):
+    """Aggregated suite execution report."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str
+    run_id: str
+    suite_version: int
+    results: list[TestCaseResult] = Field(default_factory=list)
+    passed: int = 0
+    failed: int = 0
+    unverifiable: int = 0
+    coverage_report: CoverageReport | None = None
+
+
 class SuiteManifest(BaseModel):
     """Frozen regression suite metadata on disk (DR-010)."""
 
