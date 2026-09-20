@@ -236,6 +236,14 @@ sequenceDiagram
   - **Side-by-Side Dual Replay**: Synchronously plays a passing golden run alongside a failing run, visually pinpointing the exact divergence point.
   - **Self-Contained Export**: Generates standalone `.html` replay players embeddable in GitHub PRs and CI reports.
 
+### 7. Chaos Engineering & Fault Injection Subsystem (`agenteval/faults/`)
+* **Tool Call Interceptor Proxy**: Sits transparently between the Agent Adapter and Environment tools.
+* **Failure Injection Modes**:
+  - **Network & Tool Faults**: Timeouts, HTTP 500, HTTP 429 with `Retry-After`, payload corruption, delayed returns.
+  - **Idempotency & Retry Verification**: Asserts that tool retries safely supply idempotency keys and produce zero duplicate state mutations (`duplicate_side_effect_rate == 0`).
+  - **Process Crash & Checkpoint Recovery**: Simulates runtime crashes (`SIGKILL` at Step $k$) and verifies agent state restoration from checkpoints without re-executing irreversible actions.
+  - **Context Pressure & Degradation**: Injects history clutter and contradictory facts to measure critical fact retention.
+
 ---
 
 ## 5. Architectural Trade-offs & Justification

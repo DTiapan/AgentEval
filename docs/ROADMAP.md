@@ -72,17 +72,18 @@ AgentEval gives them **sealed, deterministic proof — or honestly tells them wh
 
 ## Architecture Overview (All Planes)
 
-AgentEval attacks **six planes** of agent assurance through a single unified platform:
+AgentEval attacks **eight planes** of agent assurance and production reliability through a single unified platform:
 
 | Plane | What It Covers | Key Components |
 |---|---|---|
-| **1. Pluggable Agent Interface (BYOA)** | Connect any agent with zero code changes | `HTTPAdapter`, `MCPAdapter`, `CallableAdapter`, `CLIAdapter` |
-| **2. Trajectory & Tool-Call Verification** | Validate every step of the reasoning chain | `ToolSchemaEvaluator`, `StepEfficiencyEvaluator`, Loop/Thrashing Guard |
-| **3. Sandbox & Side-Effect Proof** | Execute tool calls in isolation, capture state diffs | Ephemeral sandbox (local → OpenShell/Docker), `StateDiffEvaluator` |
-| **4. Hybrid Evaluation Engine** | Score with deterministic checks + optional LLM/Jev judge | Deterministic assertions ($0), Jev System One typed scoring ($0.04/M tokens), calibrated G-Eval/CoT (opt-in) |
-| **5. Continuous Golden Dataset Loop** | Auto-mine failures into regression suites | Production trace ingestion, failure clustering, adversarial synthesis |
-| **6. Observability & CI/CD Quality Gate** | Telemetry, reporting, and PR gating | OTel/OpenInference, flame graphs, CLI exit codes, markdown reports |
-| **7. Real-Time & Interactive Replay** | Replay runs in real-time or step-by-step; jump to exact failure point | `agenteval replay`, Live Streaming Engine, Time-Travel Scrubber, Side-by-Side Diff Player |
+| **1. Pluggable Agent Interface (BYOA)** | Connect any agent (in-process, HTTP, MCP, CLI) with zero code changes | `HTTPAdapter`, `MCPAdapter`, `CallableAdapter`, `CLIAdapter` |
+| **2. Trajectory & Agent Loop Verification** | Validate the multi-turn loop, iteration limits, thrashing, and tool sequences | `ToolSequenceEvaluator`, `StepEfficiencyEvaluator`, Loop/Thrashing Guard |
+| **3. Sandbox & Side-Effect Proof** | Execute tools in isolation, capture state diffs ($\Delta S$), assert mutations | Ephemeral sandbox (local → OpenShell/Docker), `StateDiffEvaluator` |
+| **4. Chaos Engineering & Fault Injection** | Inject synthetic faults into tools, network, state, and context | `ToolFaultInjector`, `CrashRecoveryHarness`, `ContextPressureInjector`, `IdempotencyScorer` |
+| **5. Hybrid Evaluation Engine** | Score with deterministic checks, Jev fast judge, and calibrated LLM rubrics | Deterministic assertions ($0), Jev System One typed scoring ($0.04/M tokens), calibrated G-Eval/CoT (opt-in) |
+| **6. Real-Time & Interactive Replay** | Replay runs in real-time or step-by-step; time-travel debugging | `agenteval replay`, Live Streaming Engine, Time-Travel Scrubber, Side-by-Side Diff Player |
+| **7. Continuous Golden Dataset Loop** | Auto-mine production traces into regression suites with 12-class error taxonomy | Production trace ingestion, failure clustering, adversarial synthesis |
+| **8. Observability, Economics & CI/CD Gate** | Telemetry, cost-per-success, latency breakdown, and PR regression gating | OTel/OpenInference, latency/cost breakdown, CLI exit codes, GitHub Actions PR bot |
 
 ### Verdict Taxonomy (Core Innovation)
 Every evaluation produces one of four explicit verdicts:
@@ -280,17 +281,21 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 ### What Ships
 | Component | Scope | Files |
 |---|---|---|
-| **Core Domain Models** | `Trajectory`, `Step`, `ToolCall`, `Observation`, `EvaluationResult`, `Verdict`, `TestScenario` | `agenteval/core/models.py` |
+| **Core Domain Models** | `ExecutionTrace`, `StepRecord`, `ToolCall`, `ToolResult`, `StateSnapshot`, `Verdict`, `ReliabilityScorecard` | `agenteval/core/models.py` |
+| **Agent Loop Engine & Metrics** | Tracks `agent_loop_iterations`, `duplicate_actions`, `termination_reason`, `tokens_consumed`, `time_to_completion` | `agenteval/core/loop.py` |
 | **CallableAdapter** | In-process Python agent execution (LangGraph, CrewAI, any callable) | `agenteval/adapters/callable.py`, `agenteval/adapters/base.py` |
-| **TrajectoryRecorder** | Event-bus capturing high-resolution timestamps, state snapshots, tool arguments, and environment mutations per step | `agenteval/core/recorder.py` |
-| **Scenario Loader** | YAML/JSON test scenario definitions with expected outcomes | `agenteval/scenarios/loader.py`, `agenteval/scenarios/schema.py` |
+| **TrajectoryRecorder** | Event-bus capturing microsecond timestamps, state snapshots, tool arguments, and environment mutations per step | `agenteval/core/recorder.py` |
+| **Tool Fault Injector (Basic)** | Intercepts tool calls between agent and environment; injects timeouts, HTTP 500, and fixed delays to evaluate agent recovery | `agenteval/faults/injector.py` |
+| **ToolContractValidator** | Pre-execution validation of tool names, arguments, types, and parameter boundaries | `agenteval/evaluators/contract.py` |
+| **Idempotency & Retry Scorer** | Detects whether tool retries after timeout create duplicate mutations (`duplicate_side_effect_rate`) | `agenteval/evaluators/idempotency.py` |
+| **Scenario Loader** | YAML/JSON test scenario definitions with expected outcomes, initial state, and fault injection rules | `agenteval/scenarios/loader.py`, `agenteval/scenarios/schema.py` |
 | **Basic Sandbox** | Temp directory + SQLite + function call capture | `agenteval/sandbox/local.py` |
 | **ToolSchemaEvaluator** | Validates tool names and arguments against JSON schemas | `agenteval/evaluators/tool_schema.py` |
 | **StateDiffEvaluator** | Compares pre/post environment state (files, DB rows) | `agenteval/evaluators/state_diff.py` |
 | **Verdict Engine** | Aggregates evaluator scores → `PASS` / `FAIL` / `UNVERIFIABLE` | `agenteval/engine/verdict.py` |
 | **CLI Runner & Live Stream** | `agenteval run --scenario tests/ [--live]` with real-time streaming step cards | `agenteval/cli/main.py` |
 | **Interactive CLI Replayer** | `agenteval replay <run-id> [--tui \| --web \| --jump-to-fail]` (real-time playback, step navigation, failure spotlight) | `agenteval/cli/replay.py`, `agenteval/tui/replay_player.py` |
-| **Example Agent + Test Suite** | A sample agent with a sample test scenario demonstrating the full loop | `examples/` |
+| **Example Agent + Test Suite** | A sample agent with test scenarios demonstrating the full reliability loop | `examples/` |
 
 ### What Doesn't Ship (Yet)
 - HTTP, MCP, CLI adapters
@@ -307,7 +312,9 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 - [ ] `agenteval run --live` streams step execution in real time with animated status
 - [ ] `agenteval replay <run-id>` allows interactive step-by-step playback with `n` (next), `p` (prev), `space` (pause/play), and `--jump-to-fail`
 - [ ] `agenteval replay <run-id> --web` launches browser-based trajectory viewer
-- [ ] At least one `PASS`, one `FAIL`, and one `UNVERIFIABLE` example scenario
+- [ ] At least one clean `PASS`, one `FAIL`, and one `UNVERIFIABLE` example scenario
+- [ ] At least one **Tool Fault Injection scenario** (e.g. injected timeout followed by agent recovery)
+- [ ] At least one **Idempotency scenario** (detecting duplicate side-effects on retry)
 - [ ] `pytest tests/` passes with ≥85% coverage on core modules
 - [ ] README with quickstart that a developer can follow in < 5 minutes
 
@@ -326,9 +333,9 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 
 ---
 
-## v0.2 — "Multi-Protocol BYOA + StepEfficiency + Time-Travel Replay" (Expanding the Blast Radius)
+## v0.2 — "Multi-Protocol BYOA + Crash-Recovery + Context Pressure + Time-Travel Replay" (Expanding the Blast Radius)
 
-> **Goal**: Support all four agent protocols (HTTP, MCP, CLI, Python callable). Add loop/thrashing detection and the `ANOMALOUS` verdict. Advance replay with Time-Travel Debugging and side-by-side golden vs failed trajectory comparison.
+> **Goal**: Support all four agent protocols (HTTP, MCP, CLI, Python callable). Add process crash & checkpoint recovery testing, context pressure degradation, advanced tool chaos, and non-deterministic variance ($pass^k$).
 
 ### What Ships (Incremental on v0.1)
 | Component | Scope |
@@ -336,8 +343,12 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 | **HTTPAdapter** | Connect to any REST/webhook agent endpoint |
 | **MCPAdapter** | Native MCP client (stdio + SSE transport) |
 | **CLIAdapter** | Subprocess agent execution with stdin/stdout capture |
+| **CrashRecoveryHarness** | Simulates process crashes (`SIGKILL` after Step $k$), restarts from checkpoint, asserts state consistency and zero duplicate irreversible side-effects |
+| **ContextPressureInjector** | Tests context window degradation, history truncation, and contradictory context; measures `critical_fact_retention` |
+| **Advanced Tool Faults** | Injects HTTP 429 rate-limiting with `Retry-After`, malformed JSON, partial/empty responses, and delayed tool responses |
+| **NonDeterminismEvaluator** | Evaluates outcome distributions over $N$ repeated runs; measures $pass^k$ (reliability floor) alongside $pass@k$ (capability ceiling) |
 | **StepEfficiencyEvaluator** | Loop detection (sliding-window hash), token budget enforcement, backtrack scoring |
-| **`ANOMALOUS` Verdict** | Fires when task completes but with concerning efficiency signals |
+| **`ANOMALOUS` Verdict** | Fires when task completes but with concerning efficiency signals or excessive retries |
 | **Mock HTTP Server** | Local proxy that records outgoing API calls for assertion |
 | **Time-Travel Debugger** | Pause at step $k$, inspect exact sandbox filesystem/DB snapshot, fork with modified tool output |
 | **Side-by-Side Dual Replayer** | `agenteval replay <run-id> --diff <golden-id>` playing passing vs failing trajectories synchronously |
@@ -345,59 +356,63 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 
 ### Definition of Done
 - [ ] All four adapters pass integration tests against sample agents
+- [ ] Crash & recovery harness tests pass: an agent killed at Step 2 successfully resumes from checkpoint without repeating Step 1/2 side effects
+- [ ] Context pressure test verifies critical facts survive 15,000-token compression
+- [ ] Non-determinism evaluator computes $pass^k$ and latency/cost variance across $N=10$ runs
 - [ ] Loop detection correctly flags a deliberately looping agent as `ANOMALOUS`
 - [ ] Mock HTTP server captures and replays external API calls
 - [ ] `agenteval record` captures a live agent run and saves it as a replayable scenario
 
 ---
 
-## v0.3 — "LLM Judge + OpenShell Sandbox + OTel Tracing"
+## v0.3 — "Tiered Judges (Jev + LLM) + HITL Policy + OpenShell Sandbox + OTel Tracing"
 
-> **Goal**: Add calibrated LLM-as-a-Judge for subjective criteria. Integrate NVIDIA OpenShell for kernel-level sandbox isolation. Emit OpenTelemetry traces.
->
-> **User Story**: *"My agent generates customer support responses. I need to verify it's not only calling the right tools but also that the final response is helpful, safe, and on-policy — and I need my security team to trust the sandbox."*
+> **Goal**: Add high-speed Jev typed scoring with LLM fallback, Human-in-the-Loop policy boundary evaluation, permission/auth verification, and kernel-level sandbox isolation.
 
 ### What Ships (Incremental on v0.2)
 | Component | Scope |
 |---|---|
 | **JevScorer** | TypeSafe AI System One integration for high-speed typed evaluation (Choice/Score/Noul primitives) with confidence gating to LLM fallback |
 | **LLMJudgeEvaluator** | Calibrated Chain-of-Thought scoring with configurable rubrics (helpfulness, safety, policy compliance, reasoning quality) |
-| **Judge Calibration Pipeline** | Pairwise comparison, position bias detection, human label alignment scoring |
+| **HITLPolicyEvaluator** | Human-in-the-Loop approval verification: categorizes actions into risk classes (Low, Medium, High, Irreversible); verifies agent requests approval before executing destructive actions |
+| **PermissionsAuthEvaluator** | Evaluates whether agent enforces authorization boundaries, blocks confused deputy attacks, and prevents credential leakage |
 | **OpenShell Sandbox Backend** | Optional NVIDIA OpenShell integration for Landlock/seccomp/network namespace isolation (as Inspect AI sandbox plugin) |
 | **Docker Sandbox Backend** | Ephemeral Docker container execution for tool calls (via Inspect AI built-in) |
-| **OpenTelemetry Exporter** | Emit trajectory spans in OpenInference format to any OTel-compatible backend |
+| **OpenTelemetry Exporter** | Emit trajectory spans in OpenInference format (structured execution metadata without private CoT requirement) |
+| **Cost & Latency Breakdown** | Deconstructs latency (model vs tool vs retry vs queue) and cost (`cost_per_successful_task` vs `cost_per_request`) |
 | **Trace Ingestion** | Import traces from Langfuse, Arize Phoenix, or raw OTel OTLP for offline evaluation |
 | **NeMo Guardrails Integration** | Optional: Test whether NeMo Guardrails policies hold under adversarial inputs |
 | **Drift Detection (Prompt + Judge)** | Hash-based prompt version tracking + periodic judge calibration checks |
 
 ### Definition of Done
-- [ ] LLM judge scores correlate with human labels at ≥0.75 Cohen's kappa on a validation set
-- [ ] OpenShell sandbox correctly prevents unauthorized file/network access in test scenarios
-- [ ] OTel traces visible in Jaeger/Grafana when connected
+- [ ] HITL evaluator correctly flags an agent executing high-risk tool calls without seeking approval
+- [ ] Permissions evaluator prevents unauthorized resource access in test scenarios
+- [ ] Jev Tier 1 scorer executes typed evaluations at <50ms with confidence gating to Tier 2 LLM judge
+- [ ] OpenShell sandbox correctly isolates file/network access in destructive test scenarios
+- [ ] OTel traces visible in Jaeger/Grafana with full latency breakdowns
 - [ ] `agenteval run --judge gpt-4o --sandbox openshell` works end-to-end
 
 ---
 
-## v0.4 — "Golden Dataset Flywheel + CI/CD Quality Gate"
+## v0.4 — "Golden Dataset Flywheel + 12-Class Failure Taxonomy + CI/CD Gate"
 
-> **Goal**: Close the loop — production failures automatically become regression tests. Ship the CI/CD quality gate that blocks PRs on regression.
->
-> **User Story**: *"My agent broke in production last week. I want that failure to automatically become a test case so it never happens again. And I want my CI pipeline to block any PR that would cause a regression."*
+> **Goal**: Close the loop — production failures automatically become regression tests using a standard 12-class error taxonomy. Ship the CI/CD quality gate that blocks PRs on regression.
 
 ### What Ships (Incremental on v0.3)
 | Component | Scope |
 |---|---|
+| **12-Class Failure Taxonomy** | Standard failure classification: `MODEL`, `TOOL`, `NETWORK`, `STATE`, `CONTEXT`, `AUTH`, `PERMISSION`, `CHECKPOINT`, `IDEMPOTENCY`, `GUARDRAIL`, `RETRIEVAL`, `EXTERNAL` |
 | **Production Trace Miner** | Ingest production traces (OTel/Langfuse/Phoenix), cluster failures by error taxonomy, extract minimal reproducible scenarios |
 | **Adversarial Scenario Generator** | Synthesize edge cases: prompt injections, schema corruptions, malformed tool returns, rate-limit simulations |
 | **Golden Dataset Manager** | Versioned, immutable dataset store with semantic deduplication |
-| **Regression Gate** | `agenteval gate --threshold 0.95` exits non-zero if pass rate drops below threshold |
+| **Regression Gate** | `agenteval gate --threshold 0.95 --max-cost-per-success 0.05` exits non-zero if pass rate drops below threshold |
 | **GitHub Actions Integration** | Pre-built workflow template: run AgentEval on PR, post markdown summary with trace links |
 | **GitLab CI Template** | Same for GitLab |
 | **PR Comment Bot** | Auto-posts regression table + flame graph link as a PR comment |
 
 ### Definition of Done
-- [ ] A production failure trace is ingested and converted into a replayable scenario within 60 seconds
-- [ ] `agenteval gate` correctly blocks a PR that introduces a regression
+- [ ] A production failure trace is ingested, classified into the 12-class failure taxonomy, and converted into a replayable scenario within 60 seconds
+- [ ] `agenteval gate` correctly blocks a PR that introduces a regression or exceeds cost thresholds
 - [ ] GitHub Actions workflow runs end-to-end on a sample repo
 - [ ] Golden dataset deduplication prevents duplicate scenarios from accumulating
 

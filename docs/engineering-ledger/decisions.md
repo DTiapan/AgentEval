@@ -11,6 +11,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-002 | Adopt pass^k (reliability floor) alongside pass@k (capability ceiling) as dual metrics. Research shows 60% pass@1 agents can drop to 25% pass^3. Ships in v0.2. | Accepted | 2026-09-20 |
 | DR-003 | Implement FirstUnrecoverableStepScorer for compounding error root-cause attribution (inspired by AgentRx). Ships in v0.2. | Accepted | 2026-09-20 |
 | DR-004 | Implement Real-Time & Interactive Trajectory Replay (`agenteval replay` & live streaming) as a core capability. Enables step-by-step playback, time-travel debugging, jump-to-failure spotlighting, and side-by-side golden vs failing diff. Ships starting in v0.1. | Accepted | 2026-09-20 |
+| DR-005 | Adopt 8-Plane Agent Reliability & Chaos Engineering Architecture. Extends evaluation unit from (Prompt -> Response) to (Agent x Environment x Scenario x FaultPlan). Incorporates ToolFaultInjector, IdempotencyScorer (duplicate_side_effect_rate), and Process Crash/Recovery Harness. | Accepted | 2026-09-20 |
 
 ---
 
