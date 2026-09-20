@@ -23,11 +23,12 @@ Bootstrapping AgentEval — an enterprise-grade, trajectory-first AI Agent Assur
 
 ## Quick links
 
+- [**Idea Refinement One-Pager (Shape Gate)**](../ideas/agent-assurance-platform.md)
 - [**Product Roadmap (v0.1→v1.0)**](../ROADMAP.md)
 - [Architecture & System Design](../design/architecture.md)
 - [Interactive Architecture Diagram](../design/architecture.html)
 - [Constraints & Quality Floor](../../CONSTRAINTS.md)
-- [Phases](phases.md)
+- [Phases & Quality Gates](phases.md)
 - [Attack plans](attack-plans.md)
 - [Decisions](decisions.md)
 - [Lessons](lessons.md)
