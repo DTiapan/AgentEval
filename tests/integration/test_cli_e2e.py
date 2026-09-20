@@ -117,3 +117,40 @@ def test_cli_invalid_scenario_file() -> None:
     """Test CLI error handling for non-existent scenario file."""
     result = runner.invoke(app, ["run", "--scenario", "non_existent.yaml"])
     assert result.exit_code != 0
+
+
+def test_cli_plan_command_with_agent() -> None:
+    """Test 'agenteval plan --agent <spec>' generates calibrated evaluation plan."""
+    result = runner.invoke(
+        app,
+        ["plan", "--agent", "examples/agents/order_processor.py:run_agent"],
+    )
+    assert result.exit_code == 0
+    assert "AgentEval Metric Recommender Plan" in result.stdout
+    assert "TOOL_ACTION" in result.stdout
+    assert "Group A: Universal Core Metrics" in result.stdout
+    assert "Group B: Domain-Specific Metrics" in result.stdout
+    assert "state_diff_delta_s" in result.stdout
+
+
+def test_cli_plan_command_with_manifest(tmp_path: Path) -> None:
+    """Test 'agenteval plan --manifest <path>' reads AgentCard and recommends plan."""
+    manifest_file = tmp_path / "agenteval.manifest.yaml"
+    manifest_file.write_text(
+        """
+id: "rag-assistant"
+name: "Documentation Search"
+archetype: "RAG"
+capabilities:
+  - name: "doc_qa"
+    description: "Answers user questions using vector search"
+""",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["plan", "--manifest", str(manifest_file)])
+    assert result.exit_code == 0
+    assert "rag-assistant" in result.stdout
+    assert "RAG" in result.stdout
+    assert "rag_faithfulness" in result.stdout
+    assert "rag_context_precision" in result.stdout

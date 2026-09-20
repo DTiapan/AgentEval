@@ -17,9 +17,12 @@ from agenteval import __version__
 from agenteval.adapters.callable import CallableAdapter
 from agenteval.adapters.tool import LocalToolAdapter
 from agenteval.core.loop import AgentLoopEngine
+from agenteval.core.manifest import AgentCard
 from agenteval.core.models import StepRecord, ToolCall, Verdict
 from agenteval.engine.verdict import VerdictEngine
 from agenteval.faults.injector import ToolFaultInjector
+from agenteval.introspect.models import AgentDNA, IntrospectedTool
+from agenteval.recommender.router import MetricRouter
 from agenteval.replay.player import TraceReplayer
 from agenteval.sandbox.local import LocalSandbox
 from agenteval.scenarios.loader import ScenarioLoader
@@ -102,6 +105,99 @@ def replay(
     """Scrub through an agent execution timeline with Rich visual diagnostics."""
     replayer = TraceReplayer(console=console)
     replayer.render(trace_file, jump_to_fail=jump_to_fail)
+
+
+@app.command("plan")
+def plan(
+    manifest_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--manifest",
+            "-m",
+            help="Path to an AgentCard manifest YAML file",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ] = None,
+    agent_spec: Annotated[
+        str | None,
+        typer.Option(
+            "--agent",
+            "-a",
+            help="Agent entrypoint (format: 'module:function' or 'path/to/script.py:function')",
+        ),
+    ] = None,
+) -> None:
+    """Generate and preview a calibrated evaluation plan for an agent."""
+    if not manifest_path and not agent_spec:
+        console.print("[bold red]Error:[/bold red] Please provide either --manifest or --agent.")
+        raise typer.Exit(code=1)
+
+    if manifest_path:
+        card = AgentCard.from_yaml(manifest_path)
+        plan_obj = MetricRouter().recommend(card)
+    else:
+        assert agent_spec is not None
+        try:
+            fn, tools = _load_agent_callable(agent_spec)
+            dna = AgentDNA(
+                prompt_intent=getattr(fn, "__doc__", None),
+                tools=[
+                    IntrospectedTool(
+                        name=t_name,
+                        description=getattr(t_fn, "__doc__", None),
+                    )
+                    for t_name, t_fn in tools.items()
+                ],
+            )
+            plan_obj = MetricRouter().recommend(dna)
+            plan_obj.agent_id = agent_spec
+        except Exception as e:
+            console.print(f"[bold red]Failed to inspect agent '{agent_spec}':[/bold red] {e}")
+            raise typer.Exit(code=1) from None
+
+    # Render Plan with Rich
+    console.print(
+        Panel(
+            f"[bold]Target Agent:[/bold] [cyan]{plan_obj.agent_id}[/cyan]\n"
+            f"[bold]Classified Archetype:[/bold] [bold magenta]{plan_obj.primary_archetype.value}[/bold magenta] "
+            f"([dim]Confidence: {plan_obj.confidence * 100:.0f}%[/dim])",
+            title="🎯 AgentEval Metric Recommender Plan",
+            border_style="cyan",
+        )
+    )
+
+    # Universal Core Table (Group A)
+    u_table = Table(title="Group A: Universal Core Metrics (Mandatory)", box=None)
+    u_table.add_column("Metric Name", style="bold green")
+    u_table.add_column("Plane", style="dim", width=8)
+    u_table.add_column("Description")
+
+    for m in plan_obj.universal_metrics:
+        u_table.add_row(m.name, f"Plane {m.plane}", m.description)
+
+    console.print(Panel(u_table, border_style="green"))
+
+    # Domain Specific Table (Group B)
+    d_table = Table(
+        title=f"Group B: Domain-Specific Metrics ({plan_obj.primary_archetype.value})", box=None
+    )
+    d_table.add_column("Metric Name", style="bold yellow")
+    d_table.add_column("Plane", style="dim", width=8)
+    d_table.add_column("Description")
+
+    for m in plan_obj.domain_metrics:
+        d_table.add_row(m.name, f"Plane {m.plane}", m.description)
+
+    console.print(Panel(d_table, border_style="yellow"))
+
+    if plan_obj.fault_suggestions:
+        f_table = Table(title="Suggested Chaos Engineering & Fault Scenarios", box=None)
+        f_table.add_column("Fault Injection Rule", style="bold red")
+        for f_sug in plan_obj.fault_suggestions:
+            f_table.add_row(f"⚡ {f_sug}")
+        console.print(Panel(f_table, border_style="red"))
 
 
 @app.command("run")
