@@ -40,7 +40,7 @@
 9. [ ] **B5 (full)** — Gap detector → targeted candidates → incremental re-optimize.
 10. [ ] **B6** — Metric applicability on `MetricRouter` + pack.
 11. [ ] **B8 (full)** — Risk map, metric rationale, efficiency dashboards in CLI/reports.
-12. [ ] **B8 (report)** — Allure-class HTML run report from `SuiteRunReport` + pack (hierarchy, drill-down, attachments); optional `suite report` / open in browser; shared evidence schema with dashboard—not JUnit/CSV flat exports.
+12. [x] **B8 (report)** — Allure-class HTML run report from `SuiteRunReport` + pack (hierarchy, drill-down, attachments); optional `suite report` / open in browser; shared evidence schema with dashboard—not JUnit/CSV flat exports. Shipped `HTMLReportGenerator`, `agenteval suite report`, `GET /v1/suites/{id}/report`, console link.
 13. [ ] **B9** — Inspect AI plan compiler (AP-002 step 6).
 14. [ ] **Optional** — LLM hypothesis expansion; HYPOTHESIZED provenance layer; MCP/CLI black-box ingress.
 

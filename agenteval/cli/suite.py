@@ -11,7 +11,6 @@ from agenteval.core.manifest import AgentCard
 from agenteval.ingest.bootstrap import AgentBootstrap
 from agenteval.ingest.endpoint_probe import EndpointProber
 from agenteval.ingest.probe_render import render_endpoint_probe
-from agenteval.ingest.requirements import RequirementsIngestor
 from agenteval.planning.blackbox_runner import BlackboxRunner
 from agenteval.planning.bootstrap import SuiteBootstrap
 from agenteval.planning.coverage import CoverageMapper
@@ -237,3 +236,44 @@ def suite_sync(
     if result.added_capabilities:
         console.print(f"  [cyan]Added capabilities:[/cyan] {result.added_capabilities}")
     console.print(f"  pool: {result.pool_size} tests | pack: {result.pack_size} tests")
+
+
+@suite_app.command("report")
+def suite_report(
+    agent_id: Annotated[str, typer.Option("--agent-id", "-a", help="Agent id from frozen suite")],
+    run_id: Annotated[
+        str | None,
+        typer.Option("--run-id", "-r", help="Specific run ID (defaults to latest)"),
+    ] = None,
+    output: Annotated[
+        Path | None,
+        typer.Option("--output", "-o", help="Output path for standalone HTML report"),
+    ] = None,
+    open_browser: Annotated[
+        bool,
+        typer.Option("--open", help="Open generated HTML report in default browser"),
+    ] = False,
+    suite_root: Annotated[Path, typer.Option("--suite-root")] = Path(".agenteval/suites"),
+) -> None:
+    """Generate self-contained Allure-class HTML report for a suite run (B8 report)."""
+    import webbrowser
+
+    from agenteval.services.suite_workflow import SuiteWorkflow
+
+    workflow = SuiteWorkflow(suite_root=suite_root)
+    try:
+        html_content = workflow.generate_html_report(agent_id, run_id=run_id)
+    except FileNotFoundError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1) from None
+
+    target_path = output or (
+        suite_root / agent_id / (f"report_{run_id}.html" if run_id else "latest_report.html")
+    )
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.write_text(html_content, encoding="utf-8")
+
+    console.print(f"[green]HTML report generated:[/green] {target_path}")
+    if open_browser:
+        console.print("[dim]Opening report in browser...[/dim]")
+        webbrowser.open(target_path.resolve().as_uri())

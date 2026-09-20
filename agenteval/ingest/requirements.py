@@ -4,7 +4,7 @@ import hashlib
 import re
 from pathlib import Path
 
-from agenteval.core.manifest import AgentArchetype, AgentCapability, AgentCard, AgentInvariants
+from agenteval.core.manifest import AgentCapability, AgentCard, AgentInvariants
 from agenteval.introspect.persona import PersonaIntrospector
 
 
@@ -99,6 +99,9 @@ class RequirementsIngestor:
                     description=clean,
                 )
             )
+
+        if capabilities:
+            return capabilities[:12]
 
         mission_caps = PersonaIntrospector._extract_capabilities(text)
         if mission_caps and mission_caps[0].name not in ("default_task", "default_mission"):

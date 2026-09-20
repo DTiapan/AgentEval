@@ -41,7 +41,7 @@ def test_optimizer_reduces_pool_and_keeps_mandatory_security() -> None:
                 f"happy-{i}",
                 "order",
                 "frequent",
-                [f"cap:order", f"persona:frequent", f"failure:happy_{i % 3}"],
+                ["cap:order", "persona:frequent", f"failure:happy_{i % 3}"],
             )
         )
     pool.append(

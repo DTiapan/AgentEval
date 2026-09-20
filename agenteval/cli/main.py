@@ -18,13 +18,19 @@ from agenteval.adapters.base import AgentAdapter
 from agenteval.adapters.callable import CallableAdapter
 from agenteval.adapters.http import HTTPAdapter
 from agenteval.adapters.tool import LocalToolAdapter
+from agenteval.cli.serve import serve_app
+from agenteval.cli.suite import suite_app
 from agenteval.core.loop import AgentLoopEngine
 from agenteval.core.manifest import AgentCard, ToolRequirement
 from agenteval.core.models import StepRecord, ToolCall, Verdict
 from agenteval.engine.verdict import VerdictEngine
 from agenteval.faults.injector import ToolFaultInjector
+from agenteval.ingest.bootstrap import AgentBootstrap
+from agenteval.ingest.probe_render import render_endpoint_probe
+from agenteval.ingest.requirements import RequirementsIngestor
 from agenteval.introspect.persona import PersonaIntrospector
 from agenteval.personas.dynamic import DynamicPersonaGenerator, RankedPersonaCandidate
+from agenteval.planning.plan_preview import render_blackbox_pack_preview
 from agenteval.recommender.jev_client import JevClassifierClient
 from agenteval.recommender.router import MetricRouter
 from agenteval.replay.player import TraceReplayer
@@ -32,12 +38,6 @@ from agenteval.sandbox.local import LocalSandbox
 from agenteval.scenarios.compiler import ScenarioCompiler
 from agenteval.scenarios.loader import ScenarioLoader
 from agenteval.scenarios.schema import TestScenario
-from agenteval.cli.serve import serve_app
-from agenteval.cli.suite import suite_app
-from agenteval.ingest.bootstrap import AgentBootstrap
-from agenteval.ingest.probe_render import render_endpoint_probe
-from agenteval.ingest.requirements import RequirementsIngestor
-from agenteval.planning.plan_preview import render_blackbox_pack_preview
 
 app = typer.Typer(
     name="agenteval",

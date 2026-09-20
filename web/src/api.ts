@@ -1,49 +1,12 @@
+import {
+  PreviewResponse,
+  SuiteDetailResult,
+  SuiteInitResult,
+  SuiteListItem,
+  SuiteRunReport,
+} from "./types";
+
 const API_BASE = "";
-
-export type SuiteListItem = {
-  agent_id: string;
-  suite_version: number;
-  requirements_fingerprint: string;
-  endpoint_profile: string;
-  pack_size: number;
-  pool_size: number;
-  has_latest_run: boolean;
-};
-
-export type CandidateTest = {
-  id: string;
-  name: string;
-  category: string;
-  user_prompt: string;
-  expected_behavior: string;
-};
-
-export type TestPack = {
-  tests: CandidateTest[];
-  requirements_fingerprint: string;
-};
-
-export type SuiteRunReport = {
-  run_id: string;
-  agent_id: string;
-  suite_version: number;
-  passed: number;
-  failed: number;
-  unverifiable: number;
-  results: {
-    test_id: string;
-    verdict: string;
-    rationale: string;
-  }[];
-};
-
-export type PreviewResponse = {
-  agent_card: { id: string; name: string };
-  requirements_fingerprint: string;
-  candidate_pool: unknown[];
-  optimized_pack: TestPack;
-  coverage: { axes: Record<string, number>; critical_uncovered: string[] };
-};
 
 async function parseJson<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => ({}));
@@ -66,6 +29,11 @@ export async function listSuites(): Promise<SuiteListItem[]> {
   const res = await fetch(`${API_BASE}/v1/suites`);
   const body = await parseJson<{ suites: SuiteListItem[] }>(res);
   return body.suites;
+}
+
+export async function getSuiteDetail(agentId: string): Promise<SuiteDetailResult> {
+  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}`);
+  return parseJson(res);
 }
 
 export async function previewSuite(payload: {
@@ -92,7 +60,7 @@ export async function initSuite(payload: {
   endpoint_url?: string;
   max_tests?: number;
   force_new_version?: boolean;
-}): Promise<{ agent_id: string; optimized_pack_size: number }> {
+}): Promise<SuiteInitResult> {
   const res = await fetch(`${API_BASE}/v1/suites`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -118,10 +86,12 @@ export async function runSuite(
   return parseJson(res);
 }
 
-export async function getSuiteDetail(agentId: string): Promise<{
-  optimized_pack: TestPack;
-  latest_run: SuiteRunReport | null;
-}> {
-  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}`);
+export async function getLatestRun(agentId: string): Promise<SuiteRunReport> {
+  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs/latest`);
   return parseJson(res);
+}
+
+export function getSuiteReportUrl(agentId: string, runId?: string): string {
+  const params = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
+  return `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/report${params}`;
 }

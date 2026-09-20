@@ -5,7 +5,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from agenteval import __version__
@@ -107,6 +107,19 @@ def create_app() -> FastAPI:
         if report is None:
             raise HTTPException(status_code=404, detail=f"No runs for agent '{agent_id}'.")
         return JSONResponse(content=report.model_dump(mode="json"))
+
+    @app.get("/v1/suites/{agent_id}/report", response_class=HTMLResponse)
+    def suite_report(
+        agent_id: str,
+        run_id: str | None = None,
+        suite_root: str = ".agenteval/suites",
+    ) -> HTMLResponse:
+        workflow = SuiteWorkflow(suite_root=suite_root)
+        try:
+            html_content = workflow.generate_html_report(agent_id, run_id=run_id)
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from None
+        return HTMLResponse(content=html_content)
 
     ui_dist = Path(os.environ.get("AGENTEVAL_UI_DIST", str(_REPO_UI_DIST)))
     if os.environ.get("AGENTEVAL_SERVE_UI", "0") == "1" and ui_dist.is_dir():

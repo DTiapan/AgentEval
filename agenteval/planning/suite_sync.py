@@ -1,6 +1,5 @@
 """Suite maintenance: prune tests for removed capabilities, extend for new ones (DR-011)."""
 
-import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,7 +12,6 @@ from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.generator import CandidatePoolGenerator
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
 from agenteval.planning.models import (
-    CandidateTest,
     OptimizerConfig,
     SuiteManifest,
     SuiteSyncChangelog,

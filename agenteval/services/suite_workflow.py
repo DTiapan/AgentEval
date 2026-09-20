@@ -208,3 +208,19 @@ class SuiteWorkflow:
             candidate_pool_size=len(pool),
             latest_run=store.load_latest_run(agent_id),
         )
+
+    def generate_html_report(self, agent_id: str, run_id: str | None = None) -> str:
+        store = SuiteStore(self.suite_root)
+        manifest = store.load_manifest(agent_id)
+        pack = store.load_pack(agent_id)
+        report = (
+            store.load_run(agent_id, run_id)
+            if run_id
+            else store.load_latest_run(agent_id)
+        )
+        if report is None:
+            target = f"run '{run_id}'" if run_id else "latest run"
+            raise FileNotFoundError(f"No execution {target} found for agent '{agent_id}'")
+        from agenteval.reporting.html_report import HTMLReportGenerator
+
+        return HTMLReportGenerator.generate(report, pack, manifest=manifest)

@@ -86,6 +86,12 @@ class SuiteStore:
             return None
         return SuiteRunReport.model_validate_json(path.read_text(encoding="utf-8"))
 
+    def load_run(self, agent_id: str, run_id: str) -> SuiteRunReport | None:
+        path = self.agent_dir(agent_id) / "runs" / f"{run_id}.json"
+        if not path.exists():
+            return None
+        return SuiteRunReport.model_validate_json(path.read_text(encoding="utf-8"))
+
     def apply_sync(
         self,
         agent_id: str,

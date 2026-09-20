@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from agenteval.core.manifest import AgentCard
-from agenteval.ingest.endpoint_probe import EndpointProbeResult, EndpointProber
+from agenteval.ingest.endpoint_probe import EndpointProber, EndpointProbeResult
 from agenteval.ingest.requirements import RequirementsIngestor
 from agenteval.planning.bootstrap import SuiteBootstrap
 
