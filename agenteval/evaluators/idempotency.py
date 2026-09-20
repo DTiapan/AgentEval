@@ -18,7 +18,9 @@ class IdempotencyEvaluationResult:
 class IdempotencyScorer:
     """Evaluates retry safety and detects duplicate side-effect mutations across tool calls."""
 
-    def evaluate(self, tool_pairs: list[tuple[ToolCall, ToolResult]]) -> IdempotencyEvaluationResult:
+    def evaluate(
+        self, tool_pairs: list[tuple[ToolCall, ToolResult]]
+    ) -> IdempotencyEvaluationResult:
         """Analyze tool invocations to identify duplicate mutations on retry."""
         seen_calls: dict[str, list[tuple[ToolCall, ToolResult]]] = {}
 
@@ -42,7 +44,7 @@ class IdempotencyScorer:
             mutations_count = sum(1 for _, res in history if res.mutated_state)
             if mutations_count > 1:
                 # Multiple mutations for identical tool call
-                duplicate_side_effects += (mutations_count - 1)
+                duplicate_side_effects += mutations_count - 1
                 unsafe_retries += 1
             else:
                 # Check idempotency keys on retries

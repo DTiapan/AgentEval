@@ -31,7 +31,9 @@ class StateDiffEvaluationResult:
 class StateDiffEvaluator:
     """Evaluates actual StateDiff (Delta S) against StateDiffAssertion."""
 
-    def evaluate(self, actual_diff: StateDiff, assertion: StateDiffAssertion) -> StateDiffEvaluationResult:
+    def evaluate(
+        self, actual_diff: StateDiff, assertion: StateDiffAssertion
+    ) -> StateDiffEvaluationResult:
         """Assert whether actual mutations satisfy expected criteria."""
         missing_files: list[str] = []
         for expected_file in assertion.expected_files_created:
@@ -48,14 +50,22 @@ class StateDiffEvaluator:
 
         # Check DB mutations
         actual_mutated_tables = {m.get("table") for m in actual_diff.db_mutations if m.get("table")}
-        missing_db_tables = [t for t in assertion.expected_db_mutations if t not in actual_mutated_tables]
+        missing_db_tables = [
+            t for t in assertion.expected_db_mutations if t not in actual_mutated_tables
+        ]
 
         # Check forbidden files
-        unexpected_files = [f for f in actual_diff.files_modified if f in assertion.forbidden_files_modified]
+        unexpected_files = [
+            f for f in actual_diff.files_modified if f in assertion.forbidden_files_modified
+        ]
 
-        passed = len(missing_files) == 0 and len(missing_db_tables) == 0 and len(unexpected_files) == 0
+        passed = (
+            len(missing_files) == 0 and len(missing_db_tables) == 0 and len(unexpected_files) == 0
+        )
 
-        details = "All expected state mutations verified." if passed else "State diff assertions failed."
+        details = (
+            "All expected state mutations verified." if passed else "State diff assertions failed."
+        )
 
         return StateDiffEvaluationResult(
             passed=passed,

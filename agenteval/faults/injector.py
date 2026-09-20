@@ -14,8 +14,13 @@ class FaultRule(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tool_name: str
-    trigger_step: int | None = Field(default=None, description="Step number on which to trigger, or None for any")
-    trigger_occurrence: int | None = Field(default=None, description="Which occurrence of this tool call triggers the fault, or None for any")
+    trigger_step: int | None = Field(
+        default=None, description="Step number on which to trigger, or None for any"
+    )
+    trigger_occurrence: int | None = Field(
+        default=None,
+        description="Which occurrence of this tool call triggers the fault, or None for any",
+    )
     fault_type: FailureClass = Field(default=FailureClass.TOOL_FAILURE)
     inject_timeout: bool = Field(default=False)
     inject_status_code: int | None = Field(default=None)
@@ -43,7 +48,10 @@ class ToolFaultInjector:
                 continue
             if rule.trigger_step is not None and rule.trigger_step != step_number:
                 continue
-            if rule.trigger_occurrence is not None and rule.trigger_occurrence != current_occurrence:
+            if (
+                rule.trigger_occurrence is not None
+                and rule.trigger_occurrence != current_occurrence
+            ):
                 continue
 
             # Fault rule matches! Inject failure.

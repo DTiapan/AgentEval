@@ -41,7 +41,9 @@ class LocalSandbox(Sandbox):
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")
+            cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            )
             tables = [row[0] for row in cursor.fetchall()]
 
             for table in tables:
@@ -86,7 +88,9 @@ class LocalSandbox(Sandbox):
 
         files_added = sorted([f for f in post_files if f not in pre_files])
         files_deleted = sorted([f for f in pre_files if f not in post_files])
-        files_modified = sorted([f for f in post_files if f in pre_files and post_files[f] != pre_files[f]])
+        files_modified = sorted(
+            [f for f in post_files if f in pre_files and post_files[f] != pre_files[f]]
+        )
 
         db_mutations: list[dict[str, str]] = []
         all_tables = set(pre_snapshot.db_hashes.keys()) | set(post_snapshot.db_hashes.keys())
@@ -94,12 +98,16 @@ class LocalSandbox(Sandbox):
             pre_hash = pre_snapshot.db_hashes.get(table)
             post_hash = post_snapshot.db_hashes.get(table)
             if pre_hash != post_hash:
-                db_mutations.append({
-                    "table": table,
-                    "status": "MUTATED" if (pre_hash and post_hash) else ("ADDED" if post_hash else "DELETED"),
-                    "pre_hash": pre_hash or "",
-                    "post_hash": post_hash or "",
-                })
+                db_mutations.append(
+                    {
+                        "table": table,
+                        "status": "MUTATED"
+                        if (pre_hash and post_hash)
+                        else ("ADDED" if post_hash else "DELETED"),
+                        "pre_hash": pre_hash or "",
+                        "post_hash": post_hash or "",
+                    }
+                )
 
         return StateDiff(
             pre_snapshot_id=pre_snapshot.snapshot_id,

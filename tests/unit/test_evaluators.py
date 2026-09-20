@@ -9,6 +9,7 @@ from agenteval.evaluators.state_diff import StateDiffAssertion, StateDiffEvaluat
 # 1. ToolContractValidator Tests
 # -------------------------------------------------------------
 
+
 def test_contract_validator_valid_call() -> None:
     """Test clean parameter validation."""
     spec = ToolSpec(
@@ -20,7 +21,9 @@ def test_contract_validator_valid_call() -> None:
     )
     validator = ToolContractValidator(specs={"transfer": spec})
 
-    call = ToolCall(call_id="c1", tool_name="transfer", arguments={"account": "acc-1", "amount": 50.0})
+    call = ToolCall(
+        call_id="c1", tool_name="transfer", arguments={"account": "acc-1", "amount": 50.0}
+    )
     result = validator.validate(call)
     assert result.is_valid
     assert len(result.violations) == 0
@@ -48,6 +51,7 @@ def test_contract_validator_violations() -> None:
 # -------------------------------------------------------------
 # 2. StateDiffEvaluator Tests
 # -------------------------------------------------------------
+
 
 def test_state_diff_evaluator_matching_assertion() -> None:
     """Test state diff matching expected files and DB tables."""
@@ -88,14 +92,21 @@ def test_state_diff_evaluator_missing_side_effects() -> None:
 # 3. IdempotencyScorer Tests
 # -------------------------------------------------------------
 
+
 def test_idempotency_safe_retry() -> None:
     """Test retrying with identical idempotency key does not penalize score."""
-    call1 = ToolCall(call_id="c1", tool_name="charge", arguments={"amt": 100}, idempotency_key="key-123")
+    call1 = ToolCall(
+        call_id="c1", tool_name="charge", arguments={"amt": 100}, idempotency_key="key-123"
+    )
     res1 = ToolResult(call_id="c1", tool_name="charge", is_error=True, error_message="timeout")
 
     # Retry with same idempotency key
-    call2 = ToolCall(call_id="c2", tool_name="charge", arguments={"amt": 100}, idempotency_key="key-123")
-    res2 = ToolResult(call_id="c2", tool_name="charge", output={"status": "paid"}, mutated_state=True)
+    call2 = ToolCall(
+        call_id="c2", tool_name="charge", arguments={"amt": 100}, idempotency_key="key-123"
+    )
+    res2 = ToolResult(
+        call_id="c2", tool_name="charge", output={"status": "paid"}, mutated_state=True
+    )
 
     scorer = IdempotencyScorer()
     scorecard = scorer.evaluate([(call1, res1), (call2, res2)])

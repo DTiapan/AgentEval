@@ -72,6 +72,7 @@ def test_fault_injector_status_code_500() -> None:
 
 def test_tool_adapter_catches_exception() -> None:
     """Test tool raising an unhandled exception."""
+
     def broken_tool() -> None:
         raise ValueError("Database connection lost")
 
@@ -105,4 +106,3 @@ def test_fault_injector_step_matching() -> None:
     call2 = ToolCall(call_id="c2", tool_name="add", arguments={"a": 2, "b": 2})
     res2 = injector.execute(call2, step_number=3)
     assert res2.is_error
-
