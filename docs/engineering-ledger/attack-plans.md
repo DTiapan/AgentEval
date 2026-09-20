@@ -26,7 +26,7 @@
 6. [x] **B7** — `blackbox_runner` + `ObservationBundle` + `ObservableScorer` (Tier 0, no LLM judge).
 7. [x] **B8 (MVP)** — `suite init` / `suite run`, `SuiteStore`, sample `examples/blackbox/` ([DR-010](decisions.md#active-index)); `agenteval plan --manifest` → black-box pack preview (`plan_preview.py`, same `SuiteBootstrap` as init).
 
-**North Star entry (active, [DR-012](decisions.md#active-index)):** E1 requirements → `AgentCard` + `SuiteBootstrap` (**shipped** `RequirementsIngestor`, `suite init --prd`); E2 endpoint probe + optional init without URL (**shipped** `EndpointProber`, `endpoint_probe.json`); E3 API façade (**shipped** `SuiteWorkflow`, `agenteval serve`, `/v1/suites/*`); E4 UI (**shipped** `web/` console, `agenteval serve --with-ui`). **Deprioritize** new harness scenario YAML work.
+**North Star entry (active, [DR-021](decisions.md#active-index)):** PRD + URL in **Studio** → freeze via **`POST /v1/suites`** → SQLite (`SuiteRepository`); Assurance + Replay read persisted runs. E1–E4 **shipped**; engineering CLI (`suite init`, `suite sync`) retained for CI/tests only. **Next:** spec drift + sync through **API/UI**, workspace-scoped agents, gap loop (B5 full). **Deprioritize** new harness scenario YAML and CLI-only product features.
 
 **Phase A first code increment:** B0 + B4 + B5 (MVP) with fixture pools → then B1 → B2 → B7 → B8 (include suite persistence in B8).
 
@@ -37,7 +37,7 @@
 ### Phase B — Later (v0.3+)
 
 8. [ ] **B3** — Full configurable risk scorer (six dimensions).
-9. [ ] **B5 (full)** — Gap detector → targeted candidates → incremental re-optimize.
+9. [x] **B5 (full)** — Gap loop: post-run coverage → append pool tests → suite version bump (`SuiteGapExtender`, `POST /v1/suites/{id}/extend-gaps`, Assurance **Close gaps**).
 10. [ ] **B6** — Metric applicability on `MetricRouter` + pack.
 11. [ ] **B8 (full)** — Risk map, metric rationale, efficiency dashboards in CLI/reports.
 12. [x] **B8 (report)** — Allure-class HTML run report from `SuiteRunReport` + pack (hierarchy, drill-down, attachments); optional `suite report` / open in browser; shared evidence schema with dashboard—not JUnit/CSV flat exports. Shipped `HTMLReportGenerator`, `agenteval suite report`, `GET /v1/suites/{id}/report`, console link.

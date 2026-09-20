@@ -81,6 +81,34 @@ export type SuitePreviewResult = {
 
 export type PreviewResponse = SuitePreviewResult;
 
+export type SuiteGapLoopResult = {
+  agent_id: string;
+  previous_version: number;
+  new_version: number;
+  triggered_by_run_id?: string | null;
+  targeted_tags: string[];
+  added_test_ids: string[];
+  remaining_gaps: string[];
+  pack_size: number;
+  pool_size: number;
+  coverage_before: CoverageReport;
+  coverage_after: CoverageReport;
+  noop: boolean;
+};
+
+export type SuiteSyncResult = {
+  agent_id: string;
+  previous_version: number;
+  new_version: number;
+  requirements_fingerprint: string;
+  removed_capabilities: string[];
+  added_capabilities: string[];
+  removed_test_ids: string[];
+  pool_size: number;
+  pack_size: number;
+  noop: boolean;
+};
+
 export type SuiteInitResult = {
   suite_path: string;
   agent_id: string;
@@ -112,11 +140,25 @@ export type ObservationBundle = {
   raw_json: Record<string, unknown>;
 };
 
+export type ExecutionStep = {
+  step_id: string;
+  kind: string;
+  label: string;
+  thought?: string;
+  action_tool?: string;
+  action_args?: Record<string, unknown>;
+  observation?: string;
+  http_status?: number | null;
+  latency_ms?: number | null;
+  is_failure?: boolean;
+};
+
 export type TestCaseResult = {
   test_id: string;
   verdict: "PASS" | "FAIL" | "UNVERIFIABLE";
   observation: ObservationBundle;
   rationale: string;
+  trajectory?: ExecutionStep[];
 };
 
 export type VerdictChange = {
@@ -160,6 +202,8 @@ export type SuiteDetailResult = {
   };
   optimized_pack: TestPack;
   candidate_pool_size: number;
+  requirements_text?: string;
+  coverage?: CoverageReport | null;
   latest_run?: SuiteRunReport | null;
 };
 

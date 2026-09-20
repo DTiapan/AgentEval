@@ -12,6 +12,7 @@ from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.generator import CandidatePoolGenerator
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
 from agenteval.planning.models import (
+    CandidateTest,
     OptimizerConfig,
     SuiteManifest,
     SuiteSyncChangelog,
@@ -38,6 +39,18 @@ class SuiteSyncResult(BaseModel):
     noop: bool = False
 
 
+class SuiteSyncOutcome(BaseModel):
+    """In-memory sync result; persist when ``changelog`` is set."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    result: SuiteSyncResult
+    manifest: SuiteManifest | None = None
+    pool: list[CandidateTest] | None = None
+    pack: TestPack | None = None
+    changelog: SuiteSyncChangelog | None = None
+
+
 class SuiteSynchronizer:
     """Align frozen suite with an updated AgentCard manifest."""
 
@@ -49,23 +62,21 @@ class SuiteSynchronizer:
     def capability_ids(card: AgentCard) -> set[str]:
         return {slugify(cap.name) for cap in card.capabilities}
 
-    def sync(
+    def compute_sync(
         self,
-        store: SuiteStore,
+        *,
         agent_id: str,
         card: AgentCard,
-        manifest_path: Path,
-        prd_path: Path | None,
-    ) -> SuiteSyncResult:
+        new_fingerprint: str,
+        old_manifest: SuiteManifest,
+        old_pool: list[CandidateTest],
+        old_pack: TestPack,
+        endpoint_profile: str | None = None,
+    ) -> SuiteSyncOutcome:
         if card.id != agent_id:
             raise ValueError(
-                f"Manifest agent id '{card.id}' does not match --agent-id '{agent_id}'."
+                f"Manifest agent id '{card.id}' does not match suite agent '{agent_id}'."
             )
-
-        new_fingerprint = SuiteBootstrap.fingerprint_files(manifest_path, prd_path)
-        old_manifest = store.load_manifest(agent_id)
-        old_pack = store.load_pack(agent_id)
-        old_pool = store.load_pool(agent_id)
 
         new_caps = self.capability_ids(card)
         if not new_caps:
@@ -80,14 +91,16 @@ class SuiteSynchronizer:
             and not added_caps
             and old_manifest.requirements_fingerprint == new_fingerprint
         ):
-            return SuiteSyncResult(
-                agent_id=agent_id,
-                previous_version=old_manifest.version,
-                new_version=old_manifest.version,
-                requirements_fingerprint=new_fingerprint,
-                pool_size=len(old_pool),
-                pack_size=len(old_pack.tests),
-                noop=True,
+            return SuiteSyncOutcome(
+                result=SuiteSyncResult(
+                    agent_id=agent_id,
+                    previous_version=old_manifest.version,
+                    new_version=old_manifest.version,
+                    requirements_fingerprint=new_fingerprint,
+                    pool_size=len(old_pool),
+                    pack_size=len(old_pack.tests),
+                    noop=True,
+                ),
             )
 
         pruned_pool = [t for t in old_pool if t.capability_id in new_caps]
@@ -138,24 +151,60 @@ class SuiteSynchronizer:
             archived_tests=archived,
         )
 
+        profile = endpoint_profile if endpoint_profile is not None else old_manifest.endpoint_profile
         updated_manifest = SuiteManifest(
             agent_id=old_manifest.agent_id,
             version=new_version,
             requirements_fingerprint=new_fingerprint,
             created_at=old_manifest.created_at,
-            endpoint_profile=old_manifest.endpoint_profile,
+            endpoint_profile=profile,
         )
-        store.apply_sync(agent_id, updated_manifest, pool, pack, changelog)
         CoverageMapper().report_from_config(pool, pack.tests, config)
 
-        return SuiteSyncResult(
-            agent_id=agent_id,
-            previous_version=old_manifest.version,
-            new_version=new_version,
-            requirements_fingerprint=new_fingerprint,
-            removed_capabilities=removed_caps,
-            added_capabilities=added_caps,
-            removed_test_ids=removed_test_ids,
-            pool_size=len(pool),
-            pack_size=len(pack.tests),
+        return SuiteSyncOutcome(
+            result=SuiteSyncResult(
+                agent_id=agent_id,
+                previous_version=old_manifest.version,
+                new_version=new_version,
+                requirements_fingerprint=new_fingerprint,
+                removed_capabilities=removed_caps,
+                added_capabilities=added_caps,
+                removed_test_ids=removed_test_ids,
+                pool_size=len(pool),
+                pack_size=len(pack.tests),
+            ),
+            manifest=updated_manifest,
+            pool=pool,
+            pack=pack,
+            changelog=changelog,
         )
+
+    def sync(
+        self,
+        store: SuiteStore,
+        agent_id: str,
+        card: AgentCard,
+        manifest_path: Path,
+        prd_path: Path | None,
+    ) -> SuiteSyncResult:
+        new_fingerprint = SuiteBootstrap.fingerprint_files(manifest_path, prd_path)
+        old_manifest = store.load_manifest(agent_id)
+        old_pack = store.load_pack(agent_id)
+        old_pool = store.load_pool(agent_id)
+        outcome = self.compute_sync(
+            agent_id=agent_id,
+            card=card,
+            new_fingerprint=new_fingerprint,
+            old_manifest=old_manifest,
+            old_pool=old_pool,
+            old_pack=old_pack,
+        )
+        if outcome.changelog is not None and outcome.manifest and outcome.pool and outcome.pack:
+            store.apply_sync(
+                agent_id,
+                outcome.manifest,
+                outcome.pool,
+                outcome.pack,
+                outcome.changelog,
+            )
+        return outcome.result

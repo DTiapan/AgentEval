@@ -66,7 +66,19 @@ class RequirementsIngestor:
         )
         for heading, body in section_blocks:
             heading_lower = heading.strip().lower()
-            if "requirement" not in heading_lower and "capability" not in heading_lower:
+            is_cap_section = "requirement" in heading_lower or "capabilit" in heading_lower
+            is_invariant_section = "invariant" in heading_lower or "security" in heading_lower
+            if not is_cap_section and not is_invariant_section:
+                continue
+            bullets = cls._bullets_from_body(body)
+            if bullets:
+                for bullet in bullets:
+                    capabilities.append(
+                        AgentCapability(
+                            name=cls._short_name(bullet),
+                            description=bullet,
+                        )
+                    )
                 continue
             desc = " ".join(line.strip() for line in body.strip().splitlines() if line.strip())
             if not desc:
@@ -115,6 +127,18 @@ class RequirementsIngestor:
                 )
             )
         return capabilities[:12]
+
+    @staticmethod
+    def _bullets_from_body(body: str) -> list[str]:
+        items: list[str] = []
+        for line in body.splitlines():
+            stripped = line.strip()
+            match = re.match(r"^[-*]\s+(.+)$", stripped)
+            if match:
+                text = match.group(1).strip()
+                if len(text) >= 8:
+                    items.append(text)
+        return items
 
     @staticmethod
     def _capability_name_from_heading(heading: str, description: str) -> str:

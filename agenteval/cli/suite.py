@@ -1,4 +1,8 @@
-"""CLI: frozen regression suite init and run (B8, DR-010)."""
+"""Engineering CLI for frozen suites (B8, DR-010).
+
+Product default: Studio + Assurance in the Web Console (`agenteval serve`, DR-021).
+These commands remain for CI, scripts, and filesystem-backed tests — not onboarding.
+"""
 
 from pathlib import Path
 from typing import Annotated
@@ -11,17 +15,16 @@ from agenteval.core.manifest import AgentCard
 from agenteval.ingest.bootstrap import AgentBootstrap
 from agenteval.ingest.endpoint_probe import EndpointProber
 from agenteval.ingest.probe_render import render_endpoint_probe
-from agenteval.planning.blackbox_runner import BlackboxRunner
 from agenteval.planning.bootstrap import SuiteBootstrap
-from agenteval.planning.coverage import CoverageMapper
-from agenteval.planning.run_diff import SuiteRunDiff, diff_suite_runs
+from agenteval.planning.run_diff import SuiteRunDiff
 from agenteval.planning.run_diff_render import render_run_diff
 from agenteval.planning.suite_store import SuiteExistsError, SuiteStore
 from agenteval.planning.suite_sync import SuiteSynchronizer
+from agenteval.services.workflow_factory import create_suite_workflow
 
 suite_app = typer.Typer(
     name="suite",
-    help="Frozen regression suites: init once, run many (no implicit regeneration).",
+    help="[Advanced] Filesystem suite ops — prefer Web Console or POST /v1/suites.",
     no_args_is_help=True,
 )
 console = Console()
@@ -112,6 +115,15 @@ def suite_init(
         )
         render_endpoint_probe(console, probe_result)
 
+    workflow = create_suite_workflow(suite_root, max_tests=max_tests)
+    workflow.write_init_to_sqlite(
+        manifest_obj,
+        pool,
+        pack,
+        force=force_new_version,
+        agent_card_json=card.model_dump_json(),
+    )
+
     console.print(f"[green]Suite initialized at[/green] {out}")
     console.print(f"  source: {source_label}")
     if prd and manifest is None:
@@ -137,40 +149,19 @@ def suite_run(
     suite_root: Annotated[Path, typer.Option("--suite-root")] = Path(".agenteval/suites"),
 ) -> None:
     """Execute frozen test pack only (no generation)."""
-    store = SuiteStore(suite_root)
+    workflow = create_suite_workflow(suite_root)
     try:
-        manifest = store.load_manifest(agent_id)
-        pack = store.load_pack(agent_id)
+        report = workflow.run_suite(agent_id, endpoint_url=endpoint)
     except FileNotFoundError:
         console.print(
             f"[bold red]No suite for '{agent_id}'. Run `agenteval suite init` first.[/bold red]"
         )
         raise typer.Exit(code=1) from None
-
-    url = endpoint or manifest.endpoint_profile
-    if not url:
+    except ValueError:
         console.print("[bold red]Endpoint missing; pass --endpoint[/bold red]")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from None
 
-    previous_run = store.load_latest_run(agent_id)
-
-    runner = BlackboxRunner(endpoint_url=url)
-    report = runner.run_pack(pack)
-    pool = store.load_pool(agent_id)
-    coverage = CoverageMapper().report(pool, pack.tests)
-    report.coverage_report = coverage
-
-    if previous_run is not None:
-        run_diff = diff_suite_runs(previous_run, report)
-        if run_diff is not None:
-            report.run_diff = run_diff.model_dump(mode="json")
-        elif previous_run.suite_version != report.suite_version:
-            console.print(
-                "[yellow]Skipping verdict diff:[/yellow] suite version changed "
-                f"(v{previous_run.suite_version} → v{report.suite_version})."
-            )
-
-    store.save_run(agent_id, report)
+    coverage = report.coverage_report
 
     table = Table(title=f"Suite run {report.run_id} (v{report.suite_version})")
     table.add_column("Test", style="cyan")
@@ -184,7 +175,7 @@ def suite_run(
         f"\nSummary: {report.passed} passed, {report.failed} failed, "
         f"{report.unverifiable} unverifiable (rule-based, no LLM judge)"
     )
-    if coverage.critical_uncovered:
+    if coverage is not None and coverage.critical_uncovered:
         console.print(f"[yellow]Coverage gaps:[/yellow] {coverage.critical_uncovered}")
 
     if report.run_diff:
@@ -258,9 +249,7 @@ def suite_report(
     """Generate self-contained Allure-class HTML report for a suite run (B8 report)."""
     import webbrowser
 
-    from agenteval.services.suite_workflow import SuiteWorkflow
-
-    workflow = SuiteWorkflow(suite_root=suite_root)
+    workflow = create_suite_workflow(suite_root)
     try:
         html_content = workflow.generate_html_report(agent_id, run_id=run_id)
     except FileNotFoundError as exc:

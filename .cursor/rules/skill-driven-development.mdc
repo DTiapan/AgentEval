@@ -35,7 +35,7 @@ Do **not** stack multiple primary skills. Do **not** implement without naming th
 
 ## UI / API
 
-Core logic lives in **library + Pydantic models** under `agenteval/`; CLI is a thin wrapper. New features must be callable without Typer so HTTP API and UI reuse the same services ([DR-012](docs/engineering-ledger/decisions.md)).
+Core logic lives in **library + Pydantic models** under `agenteval/`; **Web UI + `/v1/*`** are the default product surfaces ([DR-021](docs/engineering-ledger/decisions.md)). Typer is a thin engineering wrapper. New features must be callable without Typer so API and UI reuse the same services ([DR-012](docs/engineering-ledger/decisions.md)).
 
 **Any `web/` or user-facing UI work:** primary **`frontend-ui-engineering`**, required overlay **`ui-ux-pro-max`**, follow [ui-frontend-strict.mdc](ui-frontend-strict.mdc). Skipping skill reads or `search.py` is treated as rule violation, not “MVP exception.”
 

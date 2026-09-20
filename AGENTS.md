@@ -19,3 +19,5 @@ Welcome agent! This file defines repository rules, operating principles, and wor
 4. **Autonomous Golden Dataset Loop**: Continuously curate failure traces from telemetry into regression test suites with adversarial perturbations.
 5. **No Guesswork Verdicts**: Explicitly flag unprovable actions as `UNVERIFIABLE` rather than assuming silent passes or guessed failures.
 6. **Open Standards First**: Native OpenTelemetry and OpenInference compliance for traces, spans, and telemetry.
+7. **Real Data in the UI**: Product surfaces never fake execution (no client-side “demo” trajectories or placeholder run data). See [`.cursor/rules/no-demo-ui-data.mdc`](.cursor/rules/no-demo-ui-data.mdc) and `CONSTRAINTS.md`.
+8. **Web UI-First Delivery**: Ship product flows via **`agenteval serve`** + **`web/`** + **`/v1/suites/*`** ([DR-021](docs/engineering-ledger/decisions.md#active-index)). Library + Pydantic first for logic; Typer CLI is for `serve`, harness, and engineering automation—not default onboarding.

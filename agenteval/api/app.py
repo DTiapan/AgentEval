@@ -9,9 +9,15 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from agenteval import __version__
-from agenteval.api.schemas import PrdBootstrapRequest, SuiteInitRequest, SuiteRunRequest
+from agenteval.api.schemas import (
+    PrdBootstrapRequest,
+    SuiteInitRequest,
+    SuiteRunRequest,
+    SuiteGapExtendRequest,
+    SuiteSyncRequest,
+)
 from agenteval.planning.suite_store import SuiteExistsError
-from agenteval.services.suite_workflow import SuiteWorkflow
+from agenteval.services.workflow_factory import create_suite_workflow, persistence_status
 
 _REPO_UI_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 
@@ -32,12 +38,16 @@ def create_app() -> FastAPI:
     )
 
     @app.get("/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok", "version": __version__}
+    def health() -> dict[str, str | bool | dict[str, str | bool | None]]:
+        return {
+            "status": "ok",
+            "version": __version__,
+            "persistence": persistence_status(),
+        }
 
     @app.get("/v1/suites")
     def list_suites(suite_root: str = ".agenteval/suites") -> JSONResponse:
-        workflow = SuiteWorkflow(suite_root=suite_root)
+        workflow = create_suite_workflow(suite_root=suite_root)
         items = workflow.list_suites()
         return JSONResponse(
             content={"suites": [item.model_dump(mode="json") for item in items]}
@@ -45,7 +55,7 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/suites/{agent_id}")
     def get_suite(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
-        workflow = SuiteWorkflow(suite_root=suite_root)
+        workflow = create_suite_workflow(suite_root=suite_root)
         try:
             detail = workflow.get_suite(agent_id)
         except FileNotFoundError:
@@ -57,7 +67,9 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/suites/preview")
     def preview_suite(body: PrdBootstrapRequest) -> JSONResponse:
-        workflow = SuiteWorkflow(suite_root=body.suite_root, max_tests=body.max_tests)
+        workflow = create_suite_workflow(
+            suite_root=body.suite_root, max_tests=body.max_tests
+        )
         try:
             result = workflow.preview_from_prd_text(
                 body.requirements_text,
@@ -71,7 +83,9 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/suites")
     def init_suite(body: SuiteInitRequest) -> JSONResponse:
-        workflow = SuiteWorkflow(suite_root=body.suite_root, max_tests=body.max_tests)
+        workflow = create_suite_workflow(
+            suite_root=body.suite_root, max_tests=body.max_tests
+        )
         try:
             result = workflow.init_from_prd_text(
                 body.requirements_text,
@@ -86,9 +100,48 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         return JSONResponse(content=result.model_dump(mode="json"), status_code=201)
 
+    @app.post("/v1/suites/{agent_id}/extend-gaps")
+    def extend_suite_gaps(agent_id: str, body: SuiteGapExtendRequest) -> JSONResponse:
+        workflow = create_suite_workflow(suite_root=body.suite_root)
+        try:
+            result = workflow.extend_gaps_from_latest_run(
+                agent_id,
+                max_add=body.max_add,
+                run_id=body.run_id,
+            )
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No suite or run for agent '{agent_id}'. Freeze suite and run assurance first.",
+            ) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return JSONResponse(content=result.model_dump(mode="json"))
+
+    @app.post("/v1/suites/{agent_id}/sync")
+    def sync_suite(agent_id: str, body: SuiteSyncRequest) -> JSONResponse:
+        workflow = create_suite_workflow(
+            suite_root=body.suite_root, max_tests=body.max_tests
+        )
+        try:
+            result = workflow.sync_from_prd_text(
+                agent_id,
+                body.requirements_text,
+                endpoint_url=body.endpoint_url,
+                probe_endpoint=body.probe_endpoint,
+            )
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No suite for agent '{agent_id}'. POST /v1/suites first.",
+            ) from None
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from None
+        return JSONResponse(content=result.model_dump(mode="json"))
+
     @app.post("/v1/suites/{agent_id}/runs")
     def run_suite(agent_id: str, body: SuiteRunRequest) -> JSONResponse:
-        workflow = SuiteWorkflow(suite_root=body.suite_root)
+        workflow = create_suite_workflow(suite_root=body.suite_root)
         try:
             report = workflow.run_suite(agent_id, endpoint_url=body.endpoint_url)
         except FileNotFoundError:
@@ -102,7 +155,7 @@ def create_app() -> FastAPI:
 
     @app.get("/v1/suites/{agent_id}/runs/latest")
     def latest_run(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
-        workflow = SuiteWorkflow(suite_root=suite_root)
+        workflow = create_suite_workflow(suite_root=suite_root)
         report = workflow.latest_run(agent_id)
         if report is None:
             raise HTTPException(status_code=404, detail=f"No runs for agent '{agent_id}'.")
@@ -114,7 +167,7 @@ def create_app() -> FastAPI:
         run_id: str | None = None,
         suite_root: str = ".agenteval/suites",
     ) -> HTMLResponse:
-        workflow = SuiteWorkflow(suite_root=suite_root)
+        workflow = create_suite_workflow(suite_root=suite_root)
         try:
             html_content = workflow.generate_html_report(agent_id, run_id=run_id)
         except FileNotFoundError as exc:

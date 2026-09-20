@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -10,9 +10,9 @@ import {
   Save,
   Terminal,
 } from "lucide-react";
-import { initSuite, previewSuite } from "../api";
+import { extendSuiteGaps, getSuiteDetail, initSuite, previewSuite, syncSuite } from "../api";
 import { useWorkspace } from "../context/WorkspaceContext";
-import { CandidateTest, SuitePreviewResult } from "../types";
+import { CandidateTest, CoverageReport, SuiteDetailResult, SuitePreviewResult } from "../types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -28,6 +28,7 @@ import {
   LOCAL_AGENT_ENDPOINT,
   refundAgentPrdMarkdown,
 } from "@/lib/product";
+import { formatTestTabLabel } from "@/lib/format-test-label";
 
 const PRD_PRESETS = [
   {
@@ -54,68 +55,79 @@ const PRD_PRESETS = [
 ];
 
 export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreated }) => {
-  const { addToast, refreshSuites, setActiveAgentId } = useWorkspace();
+  const { addToast, refreshSuites, setActiveAgentId, activeAgentId } = useWorkspace();
 
   const [agentId, setAgentId] = useState(DEMO_AGENT_ID);
   const [endpointUrl, setEndpointUrl] = useState(DEMO_STAGING_ENDPOINT);
   const [requirementsText, setRequirementsText] = useState(PRD_PRESETS[0].text);
   const [maxTests, setMaxTests] = useState(FROZEN_TEST_PACK_SIZE);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [isLoadingFrozen, setIsLoadingFrozen] = useState(false);
   const [isSavingSuite, setIsSavingSuite] = useState(false);
+  const [isExtendingGaps, setIsExtendingGaps] = useState(false);
+  /** Live preview from POST /v1/suites/preview (unsaved). */
   const [previewData, setPreviewData] = useState<SuitePreviewResult | null>(null);
+  /** Frozen pack from GET /v1/suites/{agent_id} (persisted engine state). */
+  const [frozenDetail, setFrozenDetail] = useState<SuiteDetailResult | null>(null);
   const [activeTestIndex, setActiveTestIndex] = useState(0);
   const [activeBottomTab, setActiveBottomTab] = useState<"gaps" | "floors" | "compression">("gaps");
   const [terminalViewMode, setTerminalViewMode] = useState<"cards" | "monaco">("cards");
 
-  // Auto-generate preview on mount
-  useEffect(() => {
-    if (requirementsText.trim() && agentId.trim()) {
-      setIsLoadingPreview(true);
-      previewSuite({
-        requirements_text: requirementsText,
-        agent_id: agentId,
-        endpoint_url: endpointUrl.trim() || undefined,
-        max_tests: maxTests,
-      })
-        .then((data) => {
-          setPreviewData(data);
-          setActiveTestIndex(0);
-        })
-        .catch((err) => {
-          console.warn("Auto-preview failed", err);
-        })
-        .finally(() => {
-          setIsLoadingPreview(false);
-        });
+  const loadFrozenSuite = useCallback(async (id: string) => {
+    if (!id.trim()) {
+      setFrozenDetail(null);
+      return;
+    }
+    setIsLoadingFrozen(true);
+    try {
+      const detail = await getSuiteDetail(id);
+      setFrozenDetail(detail);
+      if (detail.manifest.endpoint_profile) {
+        setEndpointUrl(detail.manifest.endpoint_profile);
+      }
+      if (detail.requirements_text?.trim()) {
+        setRequirementsText(detail.requirements_text);
+      }
+      setPreviewData(null);
+      setActiveTestIndex(0);
+    } catch {
+      setFrozenDetail(null);
+    } finally {
+      setIsLoadingFrozen(false);
     }
   }, []);
+
+  useEffect(() => {
+    const id = activeAgentId || DEMO_AGENT_ID;
+    setAgentId(id);
+    setPreviewData(null);
+    loadFrozenSuite(id);
+  }, [activeAgentId, loadFrozenSuite]);
 
   const handleApplyPreset = (preset: typeof PRD_PRESETS[0]) => {
     setAgentId(preset.agent_id);
     setEndpointUrl(preset.endpoint);
     setRequirementsText(preset.text);
+    setPreviewData(null);
+    setActiveAgentId(preset.agent_id);
     addToast({
       type: "info",
       title: `Loaded preset: ${preset.name}`,
+      message: "PRD filled locally. Test pack loads from frozen suite or Preview Pack.",
     });
-    setIsLoadingPreview(true);
-    previewSuite({
-      requirements_text: preset.text,
-      agent_id: preset.agent_id,
-      endpoint_url: preset.endpoint.trim() || undefined,
-      max_tests: maxTests,
-    })
-      .then((data) => {
-        setPreviewData(data);
-        setActiveTestIndex(0);
-      })
-      .catch((err) => {
-        console.warn("Auto-preview failed", err);
-      })
-      .finally(() => {
-        setIsLoadingPreview(false);
-      });
+    loadFrozenSuite(preset.agent_id);
   };
+
+  const optimizedPack = previewData?.optimized_pack ?? frozenDetail?.optimized_pack ?? null;
+  const coverageReport: CoverageReport | null | undefined =
+    previewData?.coverage ?? frozenDetail?.coverage ?? null;
+  const candidatePoolSize =
+    previewData?.candidate_pool?.length ?? frozenDetail?.candidate_pool_size ?? 0;
+  const packProvenance = previewData
+    ? "preview"
+    : frozenDetail
+      ? `frozen v${frozenDetail.manifest.version}`
+      : null;
 
   const handlePreview = async () => {
     if (!requirementsText.trim() || !agentId.trim()) {
@@ -137,6 +149,7 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
       });
       setPreviewData(data);
       setActiveTestIndex(0);
+      setFrozenDetail(null);
       addToast({
         type: "success",
         title: "Preview Synthesized",
@@ -154,6 +167,41 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
     }
   };
 
+  const handleExtendGaps = async () => {
+    if (!agentId.trim() || !frozenDetail?.latest_run) {
+      addToast({
+        type: "warning",
+        title: "Run assurance first",
+        message: "Gap loop needs a completed assurance run with coverage.",
+      });
+      return;
+    }
+    setIsExtendingGaps(true);
+    try {
+      const result = await extendSuiteGaps(agentId, { max_add: 5 });
+      if (result.noop) {
+        addToast({
+          type: "info",
+          title: "No pack changes",
+          message: "No additional pool tests could close the reported gaps.",
+        });
+      } else {
+        addToast({
+          type: "success",
+          title: "Gap loop applied",
+          message: `Added ${result.added_test_ids.length} tests (v${result.new_version}).`,
+        });
+      }
+      await refreshSuites();
+      await loadFrozenSuite(agentId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast({ type: "error", title: "Extend gaps failed", message: msg });
+    } finally {
+      setIsExtendingGaps(false);
+    }
+  };
+
   const handleSaveSuite = async () => {
     if (!requirementsText.trim() || !agentId.trim()) {
       addToast({
@@ -166,26 +214,58 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
 
     setIsSavingSuite(true);
     try {
-      const result = await initSuite({
-        requirements_text: requirementsText,
-        agent_id: agentId,
-        endpoint_url: endpointUrl.trim() || undefined,
-        max_tests: maxTests,
-        force_new_version: true,
-      });
-      addToast({
-        type: "success",
-        title: "Regression Suite Frozen",
-        message: `Suite for ${result.agent_id} saved (${result.optimized_pack_size} tests).`,
-      });
+      const endpoint = endpointUrl.trim() || undefined;
+      if (frozenDetail?.manifest) {
+        const sync = await syncSuite(agentId, {
+          requirements_text: requirementsText,
+          endpoint_url: endpoint,
+          max_tests: maxTests,
+        });
+        if (sync.noop) {
+          addToast({
+            type: "info",
+            title: "No changes",
+            message: "Requirements and capabilities match the frozen pack (v" + sync.new_version + ").",
+          });
+        } else {
+          const removed =
+            sync.removed_capabilities.length > 0
+              ? ` Removed caps: ${sync.removed_capabilities.join(", ")}.`
+              : "";
+          const added =
+            sync.added_capabilities.length > 0
+              ? ` Added caps: ${sync.added_capabilities.join(", ")}.`
+              : "";
+          addToast({
+            type: "success",
+            title: "Pack updated",
+            message: `v${sync.previous_version} → v${sync.new_version} (${sync.pack_size} tests).${removed}${added}`,
+          });
+        }
+      } else {
+        const result = await initSuite({
+          requirements_text: requirementsText,
+          agent_id: agentId,
+          endpoint_url: endpoint,
+          max_tests: maxTests,
+          force_new_version: false,
+        });
+        addToast({
+          type: "success",
+          title: "Regression Suite Frozen",
+          message: `Suite for ${result.agent_id} saved (${result.optimized_pack_size} tests).`,
+        });
+      }
       await refreshSuites();
-      setActiveAgentId(result.agent_id);
+      setActiveAgentId(agentId);
+      setPreviewData(null);
+      await loadFrozenSuite(agentId);
       if (onSuiteCreated) onSuiteCreated();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       addToast({
         type: "error",
-        title: "Save Failed",
+        title: frozenDetail ? "Sync Failed" : "Save Failed",
         message: msg,
       });
     } finally {
@@ -239,7 +319,7 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
   const capabilityCount = (requirementsText.match(/^[-*]\s+.+$/gm) || []).length;
 
   const currentTest: CandidateTest | undefined =
-    previewData?.optimized_pack?.tests?.[activeTestIndex];
+    optimizedPack?.tests?.[activeTestIndex];
 
   const generatedTypeScriptCode = currentTest
     ? `// Auto-generated AgentEval Test Spec
@@ -319,6 +399,13 @@ test("${currentTest.id}", async ({ agent }) => {
                     type="text"
                     value={agentId}
                     onChange={(e) => setAgentId(e.target.value)}
+                    onBlur={() => {
+                      const id = agentId.trim();
+                      if (!id) return;
+                      setPreviewData(null);
+                      setActiveAgentId(id);
+                      loadFrozenSuite(id);
+                    }}
                     placeholder="e.g. refund-bot"
                     className="font-mono text-xs"
                   />
@@ -436,7 +523,7 @@ test("${currentTest.id}", async ({ agent }) => {
                   ) : (
                     <Save className="h-3.5 w-3.5 mr-2" />
                   )}
-                  <span>Freeze Suite</span>
+                  <span>{frozenDetail ? "Update Pack" : "Freeze Suite"}</span>
                 </Button>
               </div>
             </CardContent>
@@ -499,106 +586,117 @@ test("${currentTest.id}", async ({ agent }) => {
                     <span>Copy Prompt</span>
                   </Button>
                 )}
-                {previewData?.optimized_pack?.tests && (
+                {optimizedPack?.tests && (
                   <Badge variant="outline" className="font-mono text-[11px]">
-                    {previewData.optimized_pack.tests.length} tests selected
+                    {optimizedPack.tests.length} tests
+                    {packProvenance ? ` · ${packProvenance}` : ""}
                   </Badge>
+                )}
+                {(isLoadingFrozen || isLoadingPreview) && (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
                 )}
               </div>
             </div>
 
-            {/* Test Tabs Strip */}
-            {previewData?.optimized_pack?.tests && previewData.optimized_pack.tests.length > 0 ? (
-              <div className="flex overflow-x-auto border-b border-border bg-muted/10 px-3 py-1.5 scrollbar-none">
-                {previewData.optimized_pack.tests.map((test, idx) => {
-                  const cleanTabLabel =
-                    test.name && test.name.length <= 18
-                      ? test.name
-                      : test.id
-                          .replace(/^test-/, "")
-                          .replace(/-adversary|-happy_path|-boundary|-edge_case/g, "")
-                          .slice(0, 16);
-                  return (
-                    <button
-                      key={test.id}
-                      onClick={() => setActiveTestIndex(idx)}
-                      className={`flex items-center gap-1.5 whitespace-nowrap rounded px-2.5 py-1 font-mono text-xs transition-colors cursor-pointer ${
-                        activeTestIndex === idx
-                          ? "bg-card text-foreground font-semibold border-b-2 border-primary shadow-xs"
-                          : "text-muted-foreground hover:text-foreground"
-                      }`}
-                    >
-                      <span className="text-[10px] text-muted-foreground">[{String(idx + 1).padStart(2, "0")}]</span>
-                      <span>{cleanTabLabel}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            {/* Code / Verification Body */}
-            <div className="flex-1 p-5 bg-card">
-              {terminalViewMode === "monaco" ? (
-                <CodeViewer
-                  code={generatedTypeScriptCode}
-                  language="typescript"
-                  height="360px"
-                  readOnly={true}
-                />
-              ) : currentTest ? (
-                <div className="space-y-4">
-                  {/* Metadata Chips */}
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge variant="outline" className="font-mono text-[10px]">
-                      cap: {currentTest.capability_id}
-                    </Badge>
-                    <Badge variant="outline" className="font-mono text-[10px]">
-                      persona: {currentTest.persona_id}
-                    </Badge>
-                    <Badge variant="outline" className="font-mono text-[10px]">
-                      category: {currentTest.category}
-                    </Badge>
-                    {currentTest.is_mandatory && (
-                      <Badge variant="warn" className="text-[10px]">
-                        ⚡ Mandatory Floor
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Input Prompt Box */}
-                  <div>
-                    <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                      // Input Prompt (Sent to Target Agent Endpoint)
-                    </div>
-                    <div className="rounded-lg border border-border bg-muted/20 p-3.5 font-mono text-xs text-foreground leading-relaxed">
-                      {currentTest.user_prompt}
+            {/* Test pack: vertical list + detail (Card View) or Monaco */}
+            <div className="flex min-h-[420px] max-h-[min(72vh,640px)] flex-col bg-card">
+              {optimizedPack?.tests && optimizedPack.tests.length > 0 ? (
+                <>
+                  <div
+                    className="shrink-0 border-b border-border bg-muted/10 px-3 py-2"
+                    role="listbox"
+                    aria-label="Optimized test pack"
+                  >
+                    <p className="mb-2 px-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      Test cases ({optimizedPack.tests.length})
+                    </p>
+                    <div className="max-h-[220px] space-y-1.5 overflow-y-auto pr-1">
+                      {optimizedPack.tests.map((test, idx) => {
+                        const label = formatTestTabLabel(test, idx);
+                        const selected = activeTestIndex === idx;
+                        return (
+                          <button
+                            key={test.id}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            onClick={() => setActiveTestIndex(idx)}
+                            className={`flex w-full items-start rounded-md border px-3 py-2.5 text-left font-mono text-xs leading-snug transition-colors cursor-pointer ${
+                              selected
+                                ? "border-primary bg-primary/5 text-foreground shadow-xs ring-1 ring-primary/25"
+                                : "border-border bg-card text-muted-foreground hover:border-border/80 hover:bg-muted/30 hover:text-foreground"
+                            }`}
+                          >
+                            <span className="line-clamp-2">{label}</span>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* Observable Expectation Box */}
-                  <div>
-                    <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                      // Expected Observable Behavior (Verification Criterion)
-                    </div>
-                    <div className="rounded-lg border-l-2 border-primary border-y border-r border-border bg-primary/5 p-3.5 font-mono text-xs text-foreground leading-relaxed">
-                      {currentTest.expected_behavior}
-                    </div>
-                  </div>
+                  <div className="flex-1 overflow-y-auto p-5">
+                    {terminalViewMode === "monaco" ? (
+                      <CodeViewer
+                        code={generatedTypeScriptCode}
+                        language="typescript"
+                        height="320px"
+                        readOnly={true}
+                      />
+                    ) : currentTest ? (
+                      <div className="space-y-4" aria-live="polite">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="font-mono text-[10px]">
+                            cap: {currentTest.capability_id}
+                          </Badge>
+                          <Badge variant="outline" className="font-mono text-[10px]">
+                            persona: {currentTest.persona_id}
+                          </Badge>
+                          <Badge variant="outline" className="font-mono text-[10px]">
+                            category: {currentTest.category}
+                          </Badge>
+                          {currentTest.is_mandatory && (
+                            <Badge variant="warn" className="text-[10px]">
+                              Mandatory floor
+                            </Badge>
+                          )}
+                        </div>
 
-                  {/* Failure Mode & Rationale */}
-                  {currentTest.rationale && (
-                    <div className="text-xs text-muted-foreground">
-                      <span className="font-semibold text-foreground">Hypothesis rationale:</span>{" "}
-                      {currentTest.rationale}
-                    </div>
-                  )}
-                </div>
+                        <div>
+                          <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                            // Input Prompt (Sent to Target Agent Endpoint)
+                          </div>
+                          <div className="rounded-lg border border-border bg-muted/20 p-3.5 font-mono text-xs text-foreground leading-relaxed">
+                            {currentTest.user_prompt}
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                            // Expected Observable Behavior (Verification Criterion)
+                          </div>
+                          <div className="rounded-lg border-l-2 border-primary border-y border-r border-border bg-primary/5 p-3.5 font-mono text-xs text-foreground leading-relaxed">
+                            {currentTest.expected_behavior}
+                          </div>
+                        </div>
+
+                        {currentTest.rationale && (
+                          <div className="text-xs text-muted-foreground">
+                            <span className="font-semibold text-foreground">
+                              Hypothesis rationale:
+                            </span>{" "}
+                            {currentTest.rationale}
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+                </>
               ) : (
-                <div className="flex h-64 flex-col items-center justify-center text-center">
+                <div className="flex flex-1 flex-col items-center justify-center p-5 text-center">
                   <Terminal className="mb-3 h-10 w-10 text-muted-foreground/40" />
                   <p className="text-sm font-medium text-foreground">No test pack generated yet</p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Click &quot;Preview Pack&quot; to synthesize test candidates and optimize with set-cover.
+                    Freeze a suite or run &quot;Preview Pack&quot; to load tests from the engine API.
                   </p>
                 </div>
               )}
@@ -628,16 +726,16 @@ test("${currentTest.id}", async ({ agent }) => {
                 </div>
 
                 <div className="p-4 text-xs max-h-44 overflow-y-auto">
-                  {!previewData?.coverage ? (
+                  {!coverageReport ? (
                     <div className="text-muted-foreground italic">
-                      Run preview to analyze coverage axes and set-cover metrics.
+                      No coverage data yet. Load a frozen suite or run Preview Pack via the API.
                     </div>
                   ) : (
                     <>
                   <TabsContent value="gaps" className="mt-0">
                     <div className="space-y-2.5">
                       <div className="grid grid-cols-3 gap-2.5">
-                        {Object.entries(previewData.coverage.axes).map(([axis, ratio]) => (
+                        {Object.entries(coverageReport.axes).map(([axis, ratio]) => (
                           <div
                             key={axis}
                             className="rounded border border-border bg-card p-2.5 shadow-xs"
@@ -657,13 +755,30 @@ test("${currentTest.id}", async ({ agent }) => {
                           </div>
                         ))}
                       </div>
-                      {previewData.coverage.critical_uncovered?.length > 0 && (
-                        <div className="flex items-center gap-2 rounded border border-amber-500/30 bg-amber-500/10 p-2.5 text-amber-700 dark:text-amber-400">
-                          <AlertCircle className="h-4 w-4 shrink-0" />
-                          <span>
-                            Critical uncovered tags:{" "}
-                            {previewData.coverage.critical_uncovered.join(", ")}
-                          </span>
+                      {coverageReport.critical_uncovered?.length > 0 && (
+                        <div className="flex flex-col gap-2 rounded border border-amber-500/30 bg-amber-500/10 p-2.5 text-amber-700 dark:text-amber-400">
+                          <div className="flex items-center gap-2">
+                            <AlertCircle className="h-4 w-4 shrink-0" />
+                            <span>
+                              Critical uncovered tags:{" "}
+                              {coverageReport.critical_uncovered.join(", ")}
+                            </span>
+                          </div>
+                          {frozenDetail?.latest_run && (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-8 w-fit text-xs"
+                              disabled={isExtendingGaps}
+                              onClick={handleExtendGaps}
+                            >
+                              {isExtendingGaps ? (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                              ) : null}
+                              Close gaps from pool
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -685,13 +800,13 @@ test("${currentTest.id}", async ({ agent }) => {
                       <div>
                         Candidate pool:{" "}
                         <span className="text-foreground font-semibold">
-                          {previewData.candidate_pool?.length ?? 0}
+                          {candidatePoolSize}
                         </span>
                       </div>
                       <div>
                         Optimized pack:{" "}
                         <span className="text-primary font-bold">
-                          {previewData.optimized_pack?.tests?.length ?? 0} tests
+                          {optimizedPack?.tests?.length ?? 0} tests
                         </span>
                       </div>
                       <div className="text-[11px] text-muted-foreground">

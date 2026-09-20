@@ -6,6 +6,7 @@ from pathlib import Path
 
 from agenteval.planning.models import (
     CandidateTest,
+    SuiteGapChangelog,
     SuiteManifest,
     SuiteRunReport,
     SuiteSyncChangelog,
@@ -126,6 +127,31 @@ class SuiteStore:
                 )
                 + "\n"
             )
+
+        (directory / "suite.manifest.json").write_text(
+            manifest.model_dump_json(indent=2), encoding="utf-8"
+        )
+        (directory / "candidate_pool.json").write_text(
+            json.dumps([t.model_dump() for t in pool], indent=2), encoding="utf-8"
+        )
+        (directory / "test_pack.json").write_text(pack.model_dump_json(indent=2), encoding="utf-8")
+
+    def apply_gap_extend(
+        self,
+        agent_id: str,
+        manifest: SuiteManifest,
+        pool: list[CandidateTest],
+        pack: TestPack,
+        changelog: SuiteGapChangelog,
+    ) -> None:
+        """Persist gap-loop pack extension and append audit changelog (B5 full)."""
+        directory = self.agent_dir(agent_id)
+        if not directory.exists():
+            raise FileNotFoundError(f"No suite at {directory}")
+
+        changelog_path = directory / "sync_changelog.jsonl"
+        with changelog_path.open("a", encoding="utf-8") as handle:
+            handle.write(changelog.model_dump_json() + "\n")
 
         (directory / "suite.manifest.json").write_text(
             manifest.model_dump_json(indent=2), encoding="utf-8"

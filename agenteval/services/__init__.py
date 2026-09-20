@@ -1,4 +1,4 @@
-"""Library services shared by CLI and HTTP API (DR-012)."""
+"""Library services shared by HTTP API / Web UI and engineering CLI (DR-012, DR-021)."""
 
 from agenteval.services.suite_workflow import (
     SuiteDetailResult,

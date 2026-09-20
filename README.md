@@ -10,27 +10,42 @@ AgentEval is an enterprise-grade agent assurance platform designed to test auton
 ## Core Philosophy
 
 - **BYOA (Bring Your Own Agent)**: Connect any agent (Python in-process, HTTP, MCP, CLI) with zero code rewrites.
-- **Trajectory-First Assurance**: Verify the full thought $\to$ action $\to$ observation chain, not just the final output string.
-- **Sealed Execution Evidence**: Assert real environmental mutations ($\Delta S$: disk, database rows, mock API calls).
+- **Trajectory-First Assurance**: Verify the full thought → action → observation chain, not just the final output string.
+- **Sealed Execution Evidence**: Assert real environmental mutations (ΔS: disk, database rows, mock API calls).
 - **Chaos & Fault Injection**: Inject synthetic timeouts, HTTP 500s, 429s, and process crashes (`SIGKILL`) to evaluate recovery and idempotency (`duplicate_side_effect_rate`).
-- **Interactive Time-Travel Replay**: Play back runs live (`--live`) or step-by-step (`agenteval replay <run-id>`) with direct jumps to the root-cause failure point (`--jump-to-fail`).
+- **Interactive Time-Travel Replay**: Play back runs step-by-step with jumps to the root-cause failure point (Web Console or `agenteval replay` for harness traces).
 - **No Guesswork Verdicts**: Explicit `UNVERIFIABLE` verdict when environmental evidence cannot be proven.
 
-## Quickstart
+## Quickstart (Web Console — product default)
+
+Upload **requirements (PRD)** and an optional **agent URL** in Studio; freeze the pack, run assurance, inspect trajectories and reports. Data is persisted in SQLite when you use `agenteval serve` (default).
 
 ```bash
-# Install in editable mode with dev dependencies
+# Install
 uv pip install -e ".[dev]"
 
-# Run test scenarios against your agent
-agenteval run --scenario examples/scenarios/
+# Build the console once
+cd web && npm install && npm run build && cd ..
 
-# Run with live-streaming step execution
-agenteval run --scenario examples/scenarios/ --live
+# API + Web UI + SQLite persistence (opens http://127.0.0.1:8766/)
+agenteval serve
 
-# Replay an execution interactively
-agenteval replay <run-id> --jump-to-fail
+# API only (no web/dist)
+agenteval serve --no-ui
 ```
+
+For local UI development with hot reload, run `npm run dev` in `web/` (proxies API to port 8766) alongside `agenteval serve --no-ui` or full `agenteval serve`.
+
+## Advanced: harness & engineering CLI
+
+Scenario YAML and in-process sandbox proof remain supported for framework users and CI — not the default onboarding path.
+
+```bash
+agenteval run --scenario examples/scenarios/
+agenteval suite init --prd path/to/requirements.md --endpoint http://127.0.0.1:8080/agent
+```
+
+See [Product Roadmap](docs/ROADMAP.md) and [DR-021](docs/engineering-ledger/decisions.md#active-index) (Web UI-first delivery).
 
 ## Architecture & Roadmap
 

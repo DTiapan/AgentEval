@@ -154,6 +154,7 @@ const MainContent: React.FC<{ onBackToMarketing?: () => void }> = ({
         setActiveTab={setConsoleTab}
         onBrandClick={onBackToMarketing}
         hideNavTabs={consoleView === "replay"}
+        lockAgentSwitcher={consoleView === "replay"}
       />
 
       <main className="flex-1 pb-10">

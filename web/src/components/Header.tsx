@@ -21,6 +21,8 @@ interface HeaderProps {
   setActiveTab: (tab: ConsoleView) => void;
   onBrandClick?: () => void;
   hideNavTabs?: boolean;
+  /** Sealed replay context — do not switch agent while debugging a run. */
+  lockAgentSwitcher?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -28,6 +30,7 @@ export const Header: React.FC<HeaderProps> = ({
   setActiveTab,
   onBrandClick,
   hideNavTabs = false,
+  lockAgentSwitcher = false,
 }) => {
   const {
     workspace,
@@ -122,7 +125,13 @@ export const Header: React.FC<HeaderProps> = ({
                 <select
                   value={activeAgentId || ""}
                   onChange={(e) => setActiveAgentId(e.target.value || null)}
-                  className="appearance-none rounded-md border border-border bg-card py-1.5 pl-2.5 pr-7 font-mono text-xs font-medium text-foreground hover:border-border/80 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                  disabled={lockAgentSwitcher}
+                  title={
+                    lockAgentSwitcher
+                      ? "Agent locked to sealed replay — return to Assurance Runs to switch"
+                      : undefined
+                  }
+                  className="appearance-none rounded-md border border-border bg-card py-1.5 pl-2.5 pr-7 font-mono text-xs font-medium text-foreground hover:border-border/80 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                   {suites.map((s) => (
                     <option key={s.agent_id} value={s.agent_id}>
@@ -165,8 +174,15 @@ export const Header: React.FC<HeaderProps> = ({
             {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
           </Button>
 
-          {/* Live Engine Pulse */}
-          <div className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground">
+          {/* Live Engine Pulse + persistence mode (from /health) */}
+          <div
+            className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground"
+            title={
+              engineHealth?.persistence?.sqlite_enabled
+                ? `SQLite: ${engineHealth.persistence.database_path ?? "enabled"}`
+                : "Runs stored as JSON under .agenteval/suites"
+            }
+          >
             <span
               className={`h-1.5 w-1.5 rounded-full ${
                 engineHealth?.status === "ok" ? "bg-emerald-500" : "bg-amber-500"
@@ -175,6 +191,14 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="font-mono text-[11px]">
               {engineHealth?.status === "ok" ? "Engine 8766" : "Offline"}
             </span>
+            {engineHealth?.persistence?.sqlite_enabled && (
+              <Badge
+                variant="secondary"
+                className="ml-0.5 px-1 py-0 font-mono text-[9px] uppercase tracking-wide"
+              >
+                SQLite
+              </Badge>
+            )}
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { fetchHealth, listSuites } from "../api";
+import { EngineHealth, fetchHealth, listSuites } from "../api";
 import { SuiteListItem, Workspace } from "../types";
 
 export type ToastMessage = {
@@ -18,7 +18,7 @@ interface WorkspaceContextValue {
   setActiveAgentId: (id: string | null) => void;
   refreshSuites: () => Promise<void>;
   isLoadingSuites: boolean;
-  engineHealth: { status: string; version: string } | null;
+  engineHealth: EngineHealth | null;
   toasts: ToastMessage[];
   addToast: (toast: Omit<ToastMessage, "id">) => void;
   removeToast: (id: string) => void;
@@ -55,7 +55,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const [suites, setSuites] = useState<SuiteListItem[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [isLoadingSuites, setIsLoadingSuites] = useState(false);
-  const [engineHealth, setEngineHealth] = useState<{ status: string; version: string } | null>(null);
+  const [engineHealth, setEngineHealth] = useState<EngineHealth | null>(null);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = (toast: Omit<ToastMessage, "id">) => {

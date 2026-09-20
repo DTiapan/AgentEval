@@ -18,6 +18,7 @@ from agenteval.adapters.base import AgentAdapter
 from agenteval.adapters.callable import CallableAdapter
 from agenteval.adapters.http import HTTPAdapter
 from agenteval.adapters.tool import LocalToolAdapter
+from agenteval.cli.db import db_app
 from agenteval.cli.serve import serve_app
 from agenteval.cli.suite import suite_app
 from agenteval.core.loop import AgentLoopEngine
@@ -47,6 +48,7 @@ app = typer.Typer(
 console = Console()
 
 app.add_typer(suite_app, name="suite")
+app.add_typer(db_app, name="db")
 app.add_typer(serve_app, name="serve")
 
 

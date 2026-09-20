@@ -20,30 +20,39 @@ AgentEval **derives** personas, candidate pool, optimized pack, and run artifact
 | **AgentCard YAML** | Generated or power-user override — not the default onboarding |
 | **Scenario YAML (`agenteval run`)** | **Low priority** — harness / engineering framework; stays supported, not promoted |
 
-### Delivery layers — CLI first, API-ready, UI later
+### Delivery layers — library → API → Web UI (v0.2.x+)
 
 ```mermaid
 flowchart TD
-  subgraph now["Now — v0.2.x"]
-    CORE["Domain services: planning, suite store, runner, scorers"]
-    CLI["Typer CLI thin wrapper"]
-    CORE --> CLI
+  subgraph core["Core (shipped)"]
+    SVC["SuiteWorkflow + planning + runner + scorers"]
+    DB["SQLite SuiteRepository (ADR-004) — product SoT"]
+    SVC --> DB
   end
-  subgraph next["Next"]
-    API["HTTP API same contracts as CLI"]
-    CORE --> API
+  subgraph surfaces["Product surfaces (default)"]
+    UI["web/ — Studio + Assurance + Replay"]
+    API["FastAPI /v1/suites/*"]
   end
-  subgraph later["Later — v0.4+"]
-    UI["Web UI: upload requirements, watch generate + run, navigate results"]
-    API --> UI
+  SVC --> API
+  API --> UI
+  subgraph eng["Engineering / CI only"]
+    CLI["Typer: serve, suite *, db import, harness run"]
+    FS["SuiteStore JSON — tests & --no-sqlite debug"]
+  end
+  SVC --> CLI
+  CLI --> FS
+  subgraph next["Next — v0.2.x polish"]
+    P1["Spec drift + sync via API/UI (not CLI-first)"]
+    P2["Workspace-scoped agent listing"]
+    P3["Studio run + Assurance polish on real traces"]
   end
 ```
 
-**Build rule:** Core logic lives in **library modules** with **Pydantic models** and stable artifacts under `.agenteval/` (or future object store). CLI commands call those services; a future UI calls the **same** services via API — no duplicate business logic in the terminal layer.
+**Build rule ([DR-021](engineering-ledger/decisions.md#active-index)):** Core logic lives in **library modules** with **Pydantic models**. **Customers** use **`agenteval serve`** (Web Console + `/v1/*` + SQLite). **CLI** (`suite init`, harness `run`, `db import-suites`) is for automation, contributors, and filesystem-backed tests — not promoted onboarding.
 
-**UI vision (roadmap only, not v0.2 scope):** Upload requirements → see generated scenarios/tests → trigger run → navigate pack, per-test verdicts, diffs, coverage, and limitations (Allure-class experience aligned with [suite run report](#later--after-black-box-mvp)). Backend and artifact schema must be UI-friendly from day one (IDs, versions, run history, JSON already on disk).
+**UI (shipped E4):** Upload/edit requirements → preview/freeze pack → assurance run → per-test verdicts, diffs, coverage, HTML report, trajectory replay (engine artifacts only; no client-side demo runs). **Persistence:** SQLite-primary when `agenteval serve` (default `--sqlite`); JSON under `.agenteval/suites/` is optional export/debug.
 
-**Harness note:** `agenteval run --scenario *.yaml` remains for in-process sandbox proof; it is **deprioritized** for product GTM in favor of requirements-driven black-box suite bootstrap.
+**Harness note:** `agenteval run --scenario *.yaml` remains for in-process sandbox proof; it is **deprioritized** for product GTM in favor of requirements-driven black-box suite bootstrap via the console.
 
 ---
 
@@ -465,8 +474,9 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 |-------|--------|--------|
 | **E1 — Requirements bootstrap** | `prd` → internal `AgentCard` + capabilities (LLM/rules) → same `SuiteBootstrap` as today | Single command path; manifest YAML optional output, not input |
 | **E2 — Endpoint attach** | Optional `-e` on bootstrap; run when URL present | URL-only introspection (tools/caps) follows in v0.3 |
-| **E3 — API façade** | REST (or RPC) over suite init/run/preview/status | Same Pydantic payloads CLI uses; enables UI without rewrite |
-| **E4 — UI** | Upload + navigate | **Deferred** — see [Delivery layers](#delivery-layers--cli-first-api-ready-ui-later) |
+| **E3 — API façade** | REST over suite init/run/preview/status | **Shipped** — `agenteval serve`, `/v1/suites/*`, `create_suite_workflow()` |
+| **E4 — UI** | Studio + Assurance + Replay | **Shipped** — `web/`, `agenteval serve --with-ui`, Vite proxy to API |
+| **P1 — SQLite persistence** | PRD + URL → generated tests → DB | **In progress** — [ADR-004](decisions/ADR-004-sqlite-local-persistence.md), [DR-020](engineering-ledger/decisions.md#active-index); `serve` defaults SQLite on; next: SQL-primary writes + PRD on freeze |
 
 **Paused / low priority:** New scenario YAML features, YAML-first docs, harness-only onboarding.
 

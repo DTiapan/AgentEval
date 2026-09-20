@@ -153,6 +153,25 @@ class ObservationBundle(BaseModel):
     raw_json: dict[str, Any] = Field(default_factory=dict)
 
 
+class ExecutionStep(BaseModel):
+    """One sealed step in a black-box run (persisted with TestCaseResult)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step_id: str
+    kind: str = Field(
+        description="user_message | agent_thought | tool_call | http_response | invariant_check"
+    )
+    label: str
+    thought: str = ""
+    action_tool: str = ""
+    action_args: dict[str, Any] = Field(default_factory=dict)
+    observation: str = ""
+    http_status: int | None = None
+    latency_ms: float | None = None
+    is_failure: bool = False
+
+
 class TestCaseResult(BaseModel):
     """Rule-based outcome for one candidate test (no LLM judge)."""
 
@@ -162,6 +181,10 @@ class TestCaseResult(BaseModel):
     verdict: str = Field(description="PASS | FAIL | UNVERIFIABLE")
     observation: ObservationBundle
     rationale: str = ""
+    trajectory: list[ExecutionStep] = Field(
+        default_factory=list,
+        description="Sealed steps derived at run time from HTTP observation (not UI fiction).",
+    )
 
 
 class SuiteRunReport(BaseModel):
@@ -207,3 +230,35 @@ class SuiteSyncChangelog(BaseModel):
     added_capabilities: list[str] = Field(default_factory=list)
     removed_test_ids: list[str] = Field(default_factory=list)
     archived_tests: list[CandidateTest] = Field(default_factory=list)
+
+
+class SuiteGapChangelog(BaseModel):
+    """Recorded B5 gap-loop extend event (append-only pack growth)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    event: str = Field(default="gap_extend")
+    suite_version: int
+    timestamp: str
+    triggered_by_run_id: str | None = None
+    targeted_tags: list[str] = Field(default_factory=list)
+    added_test_ids: list[str] = Field(default_factory=list)
+
+
+class SuiteGapLoopResult(BaseModel):
+    """Outcome of explicit gap-driven pack extension (never on plain suite run)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str
+    previous_version: int
+    new_version: int
+    triggered_by_run_id: str | None = None
+    targeted_tags: list[str] = Field(default_factory=list)
+    added_test_ids: list[str] = Field(default_factory=list)
+    remaining_gaps: list[str] = Field(default_factory=list)
+    pack_size: int
+    pool_size: int
+    coverage_before: CoverageReport
+    coverage_after: CoverageReport
+    noop: bool = False

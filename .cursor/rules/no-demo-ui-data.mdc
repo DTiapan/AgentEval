@@ -1,0 +1,40 @@
+---
+description: Product UI and reports must use real engine/API data only — no demo, synthetic, or reconstructed execution presented as truth
+alwaysApply: true
+---
+
+# AgentEval — Real data only (no demo UI)
+
+**North star:** If the user can see it in the product console, reports, or CLI output, it must come from **observable engine state** (API, persisted runs, sealed evidence). Demo narratives, hardcoded “happy path” copy, and client-side reconstruction of trajectories **are not allowed** in product surfaces.
+
+Aligns with [DR-012](docs/engineering-ledger/decisions.md) (library + Pydantic → API → UI) and `CONSTRAINTS.md` (deterministic evidence, `UNVERIFIABLE` when proof is missing).
+
+## Forbidden
+
+- **Synthetic execution UX:** Building multi-turn “replay,” timeline, thought/action/observation panels from heuristics, templates, or marketing constants (e.g. invented `process_refund` steps) when the run only stored HTTP black-box fields.
+- **Fake live state:** Hardcoded dollar amounts, verdicts, run IDs, agent names, or metrics in product views unless they are the **actual** values from the current API response.
+- **“Looks done” stubs:** UI that renders plausible debugger chrome without wiring to the same services the CLI uses.
+- **Demo mode in product routes:** `#/console`, Assurance, Studio, Replay, reports — **no** “for illustration” data paths. Marketing/landing may show **labeled** static references (e.g. Stitch PNGs), not fake live tables.
+
+## Required
+
+1. **Single source of truth:** Extend `agenteval/` models and services first; expose via `/v1/...` (or documented CLI); UI reads typed API responses only ([DR-012](docs/engineering-ledger/decisions.md)).
+2. **Honest gaps:** If the engine does not yet emit trajectory spans, show an **empty state** or **UNVERIFIABLE / not captured** — do **not** fabricate steps. Ship the **backend slice** that records spans, then the UI.
+3. **Black-box honesty:** When only `ObservationBundle` exists, UI may show **exactly** those fields (prompt, response, HTTP status, latency, `raw_json`, rationale) — not a fictional turn sequence.
+4. **Verify:** Slice is done only when a command or API call proves the on-screen fields match persisted run artifacts (e.g. suite run JSON on disk, `GET` suite detail).
+
+## When designing a new screen
+
+| Question | Pass | Fail |
+|----------|------|------|
+| Where does each field come from? | Named API field or file artifact | “We’ll fill with demo later” |
+| Missing data? | Empty / disabled / explicit label | Generated placeholder |
+| Replay / trajectory? | Stored trace from runner or harness | `buildXFromResult()` fiction in `web/` |
+
+## Fix direction (example: Trajectory Replay)
+
+Remove client-side trajectory synthesis. Persist **real** step records from `BlackboxRunner` / harness execution (or expose existing `agenteval/replay` trace JSON via API). UI maps **only** that payload to the timeline.
+
+## Agent obligation
+
+Before merging UI that shows execution or verdicts: state **data provenance** in the PR/slice note (endpoint + model). If provenance is missing, **do not ship the UI** — ship the data pipeline first.

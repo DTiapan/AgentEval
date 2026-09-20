@@ -4,6 +4,8 @@ import {
   SuiteInitResult,
   SuiteListItem,
   SuiteRunReport,
+  SuiteGapLoopResult,
+  SuiteSyncResult,
 } from "./types";
 
 const API_BASE = "";
@@ -20,7 +22,19 @@ async function parseJson<T>(response: Response): Promise<T> {
   return body as T;
 }
 
-export async function fetchHealth(): Promise<{ status: string; version: string }> {
+export type EnginePersistence = {
+  sqlite_enabled: boolean;
+  database_path: string | null;
+  suite_root: string;
+};
+
+export type EngineHealth = {
+  status: string;
+  version: string;
+  persistence?: EnginePersistence;
+};
+
+export async function fetchHealth(): Promise<EngineHealth> {
   const res = await fetch(`${API_BASE}/health`);
   return parseJson(res);
 }
@@ -68,6 +82,44 @@ export async function initSuite(payload: {
       probe_endpoint: Boolean(payload.endpoint_url),
       max_tests: payload.max_tests ?? 10,
       force_new_version: payload.force_new_version ?? false,
+      ...payload,
+    }),
+  });
+  return parseJson(res);
+}
+
+export async function extendSuiteGaps(
+  agentId: string,
+  payload?: { max_add?: number; run_id?: string },
+): Promise<SuiteGapLoopResult> {
+  const res = await fetch(
+    `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/extend-gaps`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        max_add: payload?.max_add ?? 5,
+        run_id: payload?.run_id ?? null,
+      }),
+    },
+  );
+  return parseJson(res);
+}
+
+export async function syncSuite(
+  agentId: string,
+  payload: {
+    requirements_text: string;
+    endpoint_url?: string;
+    max_tests?: number;
+  },
+): Promise<SuiteSyncResult> {
+  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      probe_endpoint: Boolean(payload.endpoint_url),
+      max_tests: payload.max_tests ?? 10,
       ...payload,
     }),
   });

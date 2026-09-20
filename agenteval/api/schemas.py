@@ -25,3 +25,21 @@ class SuiteRunRequest(BaseModel):
 
     endpoint_url: str | None = None
     suite_root: str = ".agenteval/suites"
+
+
+class SuiteGapExtendRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    max_add: int = Field(default=5, ge=1, le=25)
+    run_id: str | None = None
+    suite_root: str = ".agenteval/suites"
+
+
+class SuiteSyncRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    requirements_text: str = Field(min_length=1, description="Updated functional requirements")
+    endpoint_url: str | None = None
+    probe_endpoint: bool = False
+    max_tests: int = Field(default=10, ge=1, le=50)
+    suite_root: str = ".agenteval/suites"

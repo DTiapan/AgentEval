@@ -16,7 +16,7 @@ import {
   Waypoints,
   XCircle,
 } from "lucide-react";
-import { getSuiteDetail, getSuiteReportUrl, runSuite } from "../api";
+import { extendSuiteGaps, getSuiteDetail, getSuiteReportUrl, runSuite } from "../api";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { SuiteDetailResult, SuiteRunReport, TestCaseResult } from "../types";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,7 @@ export const AssuranceView: React.FC = () => {
   const [suiteDetail, setSuiteDetail] = useState<SuiteDetailResult | null>(null);
   const [latestRun, setLatestRun] = useState<SuiteRunReport | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [isExtendingGaps, setIsExtendingGaps] = useState(false);
   const [, setIsLoadingDetail] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterVerdict, setFilterVerdict] = useState<"ALL" | "PASS" | "FAIL" | "UNVERIFIABLE">("ALL");
@@ -86,6 +87,42 @@ export const AssuranceView: React.FC = () => {
     }
   }, [activeAgentId]);
 
+  const runCoverage =
+    latestRun?.coverage_report ?? suiteDetail?.latest_run?.coverage_report ?? null;
+  const hasCoverageGaps =
+    (runCoverage?.uncovered_tags?.length ?? 0) > 0 ||
+    (runCoverage?.critical_uncovered?.length ?? 0) > 0;
+
+  const handleExtendGaps = async () => {
+    if (!activeAgentId) return;
+    setIsExtendingGaps(true);
+    try {
+      const result = await extendSuiteGaps(activeAgentId, { max_add: 5 });
+      if (result.noop) {
+        addToast({
+          type: "info",
+          title: "No pack changes",
+          message:
+            result.remaining_gaps.length > 0
+              ? `Gaps remain but no pool tests to add (${result.remaining_gaps.slice(0, 3).join(", ")}…).`
+              : "Coverage already satisfied for the executed pack.",
+        });
+      } else {
+        addToast({
+          type: "success",
+          title: "Gap loop applied",
+          message: `v${result.previous_version} → v${result.new_version}: +${result.added_test_ids.length} tests.`,
+        });
+      }
+      await loadSuiteData(activeAgentId);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast({ type: "error", title: "Extend gaps failed", message: msg });
+    } finally {
+      setIsExtendingGaps(false);
+    }
+  };
+
   const handleRunSuite = async () => {
     if (!activeAgentId) return;
     setIsRunning(true);
@@ -113,8 +150,24 @@ export const AssuranceView: React.FC = () => {
     }
   };
 
+  const openReplayForTest = (test: TestCaseResult) => {
+    if (!activeAgentId || !latestRun) {
+      addToast({
+        type: "warning",
+        title: "Replay unavailable",
+        message: "Complete an assurance run first.",
+      });
+      return;
+    }
+    openTrajectoryReplay({
+      agentId: activeAgentId,
+      runId: latestRun.run_id,
+      test,
+    });
+  };
+
   const handleOpenReplay = () => {
-    if (!selectedTest || !activeAgentId || !latestRun) {
+    if (!selectedTest) {
       addToast({
         type: "warning",
         title: "Replay unavailable",
@@ -122,11 +175,7 @@ export const AssuranceView: React.FC = () => {
       });
       return;
     }
-    openTrajectoryReplay({
-      agentId: activeAgentId,
-      runId: latestRun.run_id,
-      test: selectedTest,
-    });
+    openReplayForTest(selectedTest);
   };
 
   const handleCopyEvidence = () => {
@@ -267,6 +316,23 @@ export const AssuranceView: React.FC = () => {
             )}
             <span>Execute Run</span>
           </Button>
+
+          {activeAgentId && latestRun && hasCoverageGaps && (
+            <Button
+              variant="secondary"
+              onClick={handleExtendGaps}
+              disabled={isExtendingGaps || isRunning}
+              className="cursor-pointer"
+              title="Append pool tests targeting uncovered tags (B5 gap loop)"
+            >
+              {isExtendingGaps ? (
+                <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+              ) : (
+                <Waypoints className="h-3.5 w-3.5 mr-1.5" />
+              )}
+              <span>Close gaps</span>
+            </Button>
+          )}
 
           {/* HTML Report Trigger */}
           {activeAgentId && latestRun && (
@@ -529,7 +595,23 @@ export const AssuranceView: React.FC = () => {
                           {Math.round(r.observation.latency_ms)}ms
                         </TableCell>
                         <TableCell>
-                          <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          {isFail ? (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              title="Trajectory replay (jump to fail)"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedTest(r);
+                                openReplayForTest(r);
+                              }}
+                            >
+                              <Waypoints className="h-3.5 w-3.5 text-primary" />
+                            </Button>
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                          )}
                         </TableCell>
                       </TableRow>
                     );
@@ -609,11 +691,19 @@ export const AssuranceView: React.FC = () => {
               {selectedTest && (
                 <div className="flex items-center gap-2">
                   <Button
-                    variant="default"
+                    variant={
+                      (selectedTest.verdict || "").toUpperCase() === "FAIL"
+                        ? "default"
+                        : "outline"
+                    }
                     size="sm"
                     onClick={handleOpenReplay}
                     className="h-6 px-2 text-[10px] cursor-pointer"
-                    title="Open trajectory replay debugger"
+                    title={
+                      (selectedTest.verdict || "").toUpperCase() === "FAIL"
+                        ? "Open trajectory replay (jump-to-fail available)"
+                        : "Open thin HTTP replay (passed test)"
+                    }
                   >
                     <Waypoints className="h-3 w-3 mr-1" />
                     <span>Trajectory replay</span>

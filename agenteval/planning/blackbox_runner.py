@@ -14,6 +14,7 @@ from agenteval.planning.models import (
     TestCaseResult,
     TestPack,
 )
+from agenteval.planning.execution_trace import build_blackbox_trajectory
 from agenteval.planning.observable_scorer import ObservableScorer
 
 
@@ -36,7 +37,11 @@ class BlackboxRunner:
         results: list[TestCaseResult] = []
         for test in pack.tests:
             obs = self._invoke(test)
-            results.append(self._scorer.score(test, obs))
+            scored = self._scorer.score(test, obs)
+            trajectory = build_blackbox_trajectory(
+                obs, scored.verdict, scored.rationale
+            )
+            results.append(scored.model_copy(update={"trajectory": trajectory}))
 
         passed = sum(1 for r in results if r.verdict == "PASS")
         failed = sum(1 for r in results if r.verdict == "FAIL")
