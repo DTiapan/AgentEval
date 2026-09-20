@@ -13,17 +13,21 @@ import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PRODUCT_DOMAIN } from "@/lib/product";
+import type { ConsoleView } from "@/lib/console-route";
+import { navigateConsoleView } from "@/lib/console-route";
 
 interface HeaderProps {
-  activeTab: "studio" | "assurance";
-  setActiveTab: (tab: "studio" | "assurance") => void;
+  activeTab: ConsoleView;
+  setActiveTab: (tab: ConsoleView) => void;
   onBrandClick?: () => void;
+  hideNavTabs?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
   setActiveTab,
   onBrandClick,
+  hideNavTabs = false,
 }) => {
   const {
     workspace,
@@ -80,26 +84,32 @@ export const Header: React.FC<HeaderProps> = ({
 
           <Separator orientation="vertical" className="h-4 bg-border" />
 
-          <Tabs
-            value={activeTab}
-            onValueChange={(v) => setActiveTab(v as "studio" | "assurance")}
-          >
-            <TabsList className="h-auto p-0.5">
-              <TabsTrigger value="studio" className="gap-2 px-3 py-1.5">
-                <Sliders className="h-3.5 w-3.5" />
-                Studio & Planner
-              </TabsTrigger>
-              <TabsTrigger value="assurance" className="gap-2 px-3 py-1.5">
-                <PlayCircle className="h-3.5 w-3.5" />
-                Assurance Runs
-                {suites.length > 0 && (
-                  <span className="ml-0.5 rounded-full bg-primary/10 text-primary px-1.5 text-[10px] font-semibold">
-                    {suites.length}
-                  </span>
-                )}
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
+          {!hideNavTabs && (
+            <Tabs
+              value={activeTab === "replay" ? "assurance" : activeTab}
+              onValueChange={(v) => {
+                const view = v as "studio" | "assurance";
+                setActiveTab(view);
+                navigateConsoleView(view);
+              }}
+            >
+              <TabsList className="h-auto p-0.5">
+                <TabsTrigger value="studio" className="gap-2 px-3 py-1.5">
+                  <Sliders className="h-3.5 w-3.5" />
+                  Studio & Planner
+                </TabsTrigger>
+                <TabsTrigger value="assurance" className="gap-2 px-3 py-1.5">
+                  <PlayCircle className="h-3.5 w-3.5" />
+                  Assurance Runs
+                  {suites.length > 0 && (
+                    <span className="ml-0.5 rounded-full bg-primary/10 text-primary px-1.5 text-[10px] font-semibold">
+                      {suites.length}
+                    </span>
+                  )}
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
+          )}
         </div>
 
         {/* Right: Agent Switcher + Workspace + Theme Toggle + Status */}

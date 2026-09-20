@@ -10,6 +10,13 @@ import { AssuranceView } from "./components/AssuranceView";
 import { Header } from "./components/Header";
 import { Landing } from "./components/Landing";
 import { Studio } from "./components/Studio";
+import { TrajectoryReplay } from "./components/TrajectoryReplay";
+import {
+  hashForConsoleView,
+  navigateConsoleView,
+  readConsoleView,
+  type ConsoleView,
+} from "./lib/console-route";
 import { ToastMessage, WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
 import { PRODUCT_DOMAIN } from "./lib/product";
 
@@ -125,20 +132,43 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 const MainContent: React.FC<{ onBackToMarketing?: () => void }> = ({
   onBackToMarketing,
 }) => {
-  const [activeTab, setActiveTab] = useState<"studio" | "assurance">("studio");
+  const [consoleView, setConsoleView] = useState<ConsoleView>(() => readConsoleView());
+
+  useEffect(() => {
+    const sync = () => setConsoleView(readConsoleView());
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
+
+  const setConsoleTab = (view: ConsoleView) => {
+    setConsoleView(view);
+    if (view !== "replay") {
+      navigateConsoleView(view);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans transition-colors duration-200">
       <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
+        activeTab={consoleView}
+        setActiveTab={setConsoleTab}
         onBrandClick={onBackToMarketing}
+        hideNavTabs={consoleView === "replay"}
       />
 
       <main className="flex-1 pb-10">
         <ErrorBoundary>
-          {activeTab === "studio" ? (
-            <Studio onSuiteCreated={() => setActiveTab("assurance")} />
+          {consoleView === "replay" ? (
+            <TrajectoryReplay
+              onMissingSession={() => navigateConsoleView("assurance")}
+            />
+          ) : consoleView === "studio" ? (
+            <Studio
+              onSuiteCreated={() => {
+                setConsoleView("assurance");
+                navigateConsoleView("assurance");
+              }}
+            />
           ) : (
             <AssuranceView />
           )}
@@ -175,7 +205,7 @@ function readRoute(): SiteRoute {
 }
 
 function navigateTo(route: SiteRoute) {
-  window.location.hash = route === "console" ? "#/console" : "#/";
+  window.location.hash = route === "console" ? hashForConsoleView("studio") : "#/";
 }
 
 export const App: React.FC = () => {

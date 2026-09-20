@@ -13,6 +13,7 @@ import {
   Play,
   RefreshCw,
   Search,
+  Waypoints,
   XCircle,
 } from "lucide-react";
 import { getSuiteDetail, getSuiteReportUrl, runSuite } from "../api";
@@ -41,6 +42,7 @@ import {
   REFUND_CEILING_USD,
   formatUsd,
 } from "@/lib/product";
+import { openTrajectoryReplay } from "@/lib/replay-session";
 
 export const AssuranceView: React.FC = () => {
   const { activeAgentId, addToast } = useWorkspace();
@@ -109,6 +111,22 @@ export const AssuranceView: React.FC = () => {
     } finally {
       setIsRunning(false);
     }
+  };
+
+  const handleOpenReplay = () => {
+    if (!selectedTest || !activeAgentId || !latestRun) {
+      addToast({
+        type: "warning",
+        title: "Replay unavailable",
+        message: "Select a test from a completed run first.",
+      });
+      return;
+    }
+    openTrajectoryReplay({
+      agentId: activeAgentId,
+      runId: latestRun.run_id,
+      test: selectedTest,
+    });
   };
 
   const handleCopyEvidence = () => {
@@ -590,6 +608,16 @@ export const AssuranceView: React.FC = () => {
               </div>
               {selectedTest && (
                 <div className="flex items-center gap-2">
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleOpenReplay}
+                    className="h-6 px-2 text-[10px] cursor-pointer"
+                    title="Open trajectory replay debugger"
+                  >
+                    <Waypoints className="h-3 w-3 mr-1" />
+                    <span>Trajectory replay</span>
+                  </Button>
                   <Button
                     variant="outline"
                     size="sm"
