@@ -13,7 +13,11 @@ class RequirementsIngestor:
 
     @classmethod
     def fingerprint(cls, prd_path: Path) -> str:
-        digest = hashlib.sha256(prd_path.read_bytes()).hexdigest()
+        return cls.fingerprint_text(prd_path.read_text(encoding="utf-8"))
+
+    @classmethod
+    def fingerprint_text(cls, text: str) -> str:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         return digest[:16]
 
     @classmethod

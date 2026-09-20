@@ -17,6 +17,7 @@
 
 ## Recent sessions
 
+- **2026-09-20 (session 12)**: **E3 HTTP API façade** — `SuiteWorkflow` library service, FastAPI `/v1/suites/preview|init|run`, `agenteval serve`; optional `[api]` extra. 108 tests, ~86% coverage.
 - **2026-09-20 (session 11)**: **North Star entry & UI-later** ([DR-012](decisions.md#active-index)) — roadmap: PRD-first bootstrap, API-ready core, web UI deferred; YAML harness low priority.
 - **2026-09-20 (session 10)**: **Black-box MVP backbone verified** — `suite init`/`suite run`, sample refund HTTP agent, rule scorer; roadmap records **Allure-class HTML run report** (later, with dashboard)—not JUnit/CSV.
 - **2026-09-20 (session 9)**: **Black-Box Test Intelligence — product architecture & incremental roadmap** ([ADR-003](../decisions/ADR-003-black-box-test-intelligence-pipeline.md), [DR-009](decisions.md#active-index), [AP-003](attack-plans.md#ap-003-black-box-test-intelligence-pipeline-v02v03)). Documented full pipeline, dual profiles, slices B0–B9. **Must-have vs later:** v0.2 scoped to HTTP black-box MVP (B0–B2, B4, B5 report-only, B7–B8); v0.3+ gets B3, gap automation, B6/B9, harness/MCP expansion. Docs-only.

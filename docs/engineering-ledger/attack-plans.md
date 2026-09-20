@@ -26,7 +26,7 @@
 6. [x] **B7** — `blackbox_runner` + `ObservationBundle` + `ObservableScorer` (Tier 0, no LLM judge).
 7. [x] **B8 (MVP)** — `suite init` / `suite run`, `SuiteStore`, sample `examples/blackbox/` ([DR-010](decisions.md#active-index)); `agenteval plan --manifest` → black-box pack preview (`plan_preview.py`, same `SuiteBootstrap` as init).
 
-**North Star entry (active, [DR-012](decisions.md#active-index)):** E1 requirements → `AgentCard` + `SuiteBootstrap` (**shipped** `RequirementsIngestor`, `suite init --prd`); E2 endpoint probe + optional init without URL (**shipped** `EndpointProber`, `endpoint_probe.json`); E3 API façade; E4 UI later. **Deprioritize** new harness scenario YAML work.
+**North Star entry (active, [DR-012](decisions.md#active-index)):** E1 requirements → `AgentCard` + `SuiteBootstrap` (**shipped** `RequirementsIngestor`, `suite init --prd`); E2 endpoint probe + optional init without URL (**shipped** `EndpointProber`, `endpoint_probe.json`); E3 API façade (**shipped** `SuiteWorkflow`, `agenteval serve`, `/v1/suites/*`); E4 UI later. **Deprioritize** new harness scenario YAML work.
 
 **Phase A first code increment:** B0 + B4 + B5 (MVP) with fixture pools → then B1 → B2 → B7 → B8 (include suite persistence in B8).
 

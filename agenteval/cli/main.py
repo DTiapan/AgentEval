@@ -32,6 +32,7 @@ from agenteval.sandbox.local import LocalSandbox
 from agenteval.scenarios.compiler import ScenarioCompiler
 from agenteval.scenarios.loader import ScenarioLoader
 from agenteval.scenarios.schema import TestScenario
+from agenteval.cli.serve import serve_app
 from agenteval.cli.suite import suite_app
 from agenteval.ingest.bootstrap import AgentBootstrap
 from agenteval.ingest.probe_render import render_endpoint_probe
@@ -46,6 +47,7 @@ app = typer.Typer(
 console = Console()
 
 app.add_typer(suite_app, name="suite")
+app.add_typer(serve_app, name="serve")
 
 
 def _load_agent_callable(
