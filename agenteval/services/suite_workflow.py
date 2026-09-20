@@ -463,7 +463,14 @@ class SuiteWorkflow:
             latest_run=self._load_latest_run(store, agent_id),
         )
 
-    def generate_html_report(self, agent_id: str, run_id: str | None = None) -> str:
+    def generate_html_report(
+        self,
+        agent_id: str,
+        run_id: str | None = None,
+        *,
+        embed: bool = False,
+        theme: str = "auto",
+    ) -> str:
         store = self._store()
         manifest = self._load_manifest(store, agent_id)
         pack = self._load_pack(store, agent_id)
@@ -477,4 +484,10 @@ class SuiteWorkflow:
             raise FileNotFoundError(f"No execution {target} found for agent '{agent_id}'")
         from agenteval.reporting.html_report import HTMLReportGenerator
 
-        return HTMLReportGenerator.generate(report, pack, manifest=manifest)
+        return HTMLReportGenerator.generate(
+            report,
+            pack,
+            manifest=manifest,
+            embed=embed,
+            theme=theme,
+        )

@@ -1,8 +1,8 @@
-"""Allure-class standalone HTML run report generator for AgentEval (B8 report).
+"""Standalone HTML assurance report (B8) aligned with Web Console (DR-017).
 
-Self-contained single-file HTML report: zero external dependencies, dark slate
-OLED aesthetic, interactive test case explorer, regression diff spotlight,
-and multi-axis coverage reporting.
+Self-contained HTML: Inter / JetBrains Mono, oklch light+dark tokens matching
+``web/src/styles.css``, Assurance KPI strip, Studio-style coverage axes, and
+honest gap/limitation blocks from engine ``CoverageReport`` only.
 """
 
 from __future__ import annotations
@@ -12,11 +12,42 @@ import json
 from datetime import UTC, datetime
 from typing import Any
 
-from agenteval.planning.models import SuiteManifest, SuiteRunReport, TestPack
+from agenteval.planning.models import CandidateTest, SuiteManifest, SuiteRunReport, TestPack
 
 
 class HTMLReportGenerator:
     """Render a self-contained, interactive HTML report from a SuiteRunReport and TestPack."""
+
+    @staticmethod
+    def _format_test_label(test_def: CandidateTest | None, test_id: str, index: int) -> str:
+        """Match ``web/src/lib/format-test-label.ts`` for console parity."""
+        ordinal = f"{index + 1:02d}"
+        if test_def is None:
+            return f"[{ordinal}] {test_id}"
+        persona = (test_def.persona_id or "persona").replace("-", " ")
+        category = test_def.category or "test"
+        failure_mode = test_def.failure_mode or ""
+        mode = (
+            failure_mode.replace("_", " ")
+            if failure_mode and failure_mode != "hypothesis"
+            else None
+        )
+        if (
+            test_def.name
+            and len(test_def.name) <= 32
+            and not test_def.name.startswith("core-agent")
+        ):
+            return f"[{ordinal}] {test_def.name}"
+        tail = f"{category} · {mode}" if mode else category
+        return f"[{ordinal}] {persona} · {tail}"
+
+    @staticmethod
+    def _p95_latency(latencies: list[float]) -> float:
+        if not latencies:
+            return 0.0
+        ordered = sorted(latencies)
+        idx = max(0, int(round(0.95 * (len(ordered) - 1))))
+        return round(ordered[idx], 1)
 
     @classmethod
     def generate(
@@ -25,6 +56,9 @@ class HTMLReportGenerator:
         pack: TestPack,
         manifest: SuiteManifest | None = None,
         title: str | None = None,
+        *,
+        embed: bool = False,
+        theme: str = "auto",
     ) -> str:
         report_title = title or f"AgentEval Report — {report.agent_id} (v{report.suite_version})"
         now_utc = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -41,12 +75,14 @@ class HTMLReportGenerator:
         regressions_set = set(diff.get("regressions") or [])
         fixes_set = set(diff.get("fixes") or [])
 
-        for res in report.results:
+        latencies: list[float] = []
+        for index, res in enumerate(report.results):
             test_def = pack_tests_by_id.get(res.test_id)
             lat = res.observation.latency_ms
             if lat > 0:
                 total_latency_ms += lat
                 latency_count += 1
+                latencies.append(lat)
 
             is_regression = res.test_id in regressions_set
             is_fix = res.test_id in fixes_set
@@ -61,6 +97,7 @@ class HTMLReportGenerator:
 
             merged_tests.append({
                 "test_id": res.test_id,
+                "tab_label": cls._format_test_label(test_def, res.test_id, index),
                 "title": test_def.name if test_def else res.test_id,
                 "category": cat_val,
                 "capability_id": test_def.capability_id if test_def else "unknown",
@@ -71,7 +108,7 @@ class HTMLReportGenerator:
                 "rationale": res.rationale or (test_def.rationale if test_def else ""),
                 "verdict": res.verdict,
                 "http_status": res.observation.http_status,
-                "latency_ms": res.observation.latency_ms,
+                "latency_ms": round(res.observation.latency_ms, 1),
                 "response_text": res.observation.response_text,
                 "raw_json": res.observation.raw_json,
                 "is_regression": is_regression,
@@ -79,8 +116,10 @@ class HTMLReportGenerator:
             })
 
         avg_latency = round(total_latency_ms / latency_count, 1) if latency_count > 0 else 0.0
+        p95_latency = cls._p95_latency(latencies)
         total_tests = len(report.results)
         pass_rate = round((report.passed / total_tests) * 100, 1) if total_tests > 0 else 0.0
+        pack_test_count = len(pack.tests)
 
         # JSON data payload for embedded viewer script
         embedded_data = {
@@ -94,6 +133,8 @@ class HTMLReportGenerator:
             "total": total_tests,
             "pass_rate": pass_rate,
             "avg_latency_ms": avg_latency,
+            "p95_latency_ms": p95_latency,
+            "pack_test_count": pack_test_count,
             "diff": diff,
             "coverage": report.coverage_report.model_dump() if report.coverage_report else None,
             "tests": merged_tests,
@@ -101,10 +142,27 @@ class HTMLReportGenerator:
 
         embedded_json = json.dumps(embedded_data, ensure_ascii=False).replace("<", "\\u003c")
 
-        return cls._render_template(report_title, embedded_json, embedded_data)
+        return cls._render_template(
+            report_title,
+            embedded_json,
+            embedded_data,
+            embed=embed,
+            theme=theme,
+        )
 
     @classmethod
-    def _render_template(cls, title: str, embedded_json: str, data: dict[str, Any]) -> str:
+    def _render_template(
+        cls,
+        title: str,
+        embedded_json: str,
+        data: dict[str, Any],
+        *,
+        embed: bool = False,
+        theme: str = "auto",
+    ) -> str:
+        theme_key = theme if theme in {"light", "dark", "auto"} else "auto"
+        html_class = "dark" if theme_key == "dark" else ("light" if theme_key == "light" else "")
+        data_embed = "1" if embed else "0"
         safe_title = html.escape(title)
         agent_id = html.escape(str(data.get("agent_id", "")))
         run_id = html.escape(str(data.get("run_id", "")))
@@ -115,7 +173,12 @@ class HTMLReportGenerator:
         total = data.get("total", 0)
         pass_rate = data.get("pass_rate", 0.0)
         avg_latency = data.get("avg_latency_ms", 0.0)
+        p95_latency = data.get("p95_latency_ms", 0.0)
+        pack_test_count = data.get("pack_test_count", total)
         generated_at = html.escape(str(data.get("generated_at", "")))
+        pass_rate_class = (
+            "kpi-good" if pass_rate >= 80 else ("kpi-warn" if pass_rate >= 50 else "kpi-bad")
+        )
 
         diff = data.get("diff") or {}
         regressions = diff.get("regressions") or []
@@ -139,15 +202,17 @@ class HTMLReportGenerator:
                 else ""
             )
             fix_chip = f'<span class="diff-chip chip-fix">{len(fixes)} Fixes</span>' if fixes else ""
-            stable_chip = f'<span class="diff-chip" style="background: var(--bg-surface-elevated); color: var(--text-muted);">{len(diff.get("stable_pass", []))} Stable Passed</span>'
+            stable_chip = (
+                f'<span class="diff-chip">{len(diff.get("stable_pass", []))} Stable Passed</span>'
+            )
             prior_id = html.escape(str(diff.get("prior_run_id", "baseline")))
-            diff_class = "diff-banner has-regression" if regressions else "diff-banner"
+            diff_class = "surface-card diff-banner has-regression" if regressions else "surface-card diff-banner"
             diff_banner_html = f"""
             <div class="{diff_class}">
               <div>
                 <div class="diff-title"><span>{diff_title}</span></div>
-                <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
-                  Compared to prior run: <code>{prior_id}</code>
+                <div style="font-size: 12px; color: var(--muted-foreground); margin-top: 4px;">
+                  Compared to prior run: <code class="meta-val">{prior_id}</code>
                 </div>
               </div>
               <div class="diff-chips">
@@ -171,194 +236,229 @@ class HTMLReportGenerator:
                 f'<span class="tag-pill warn">{html.escape(c)}</span>'
                 for c in (critical_uncovered or uncovered_tags)
             )
-            or '<span style="color: var(--color-pass);">100% Tags Covered</span>'
+            or '<span style="color: var(--pass);">100% Tags Covered</span>'
         )
+        gap_count = len(critical_uncovered or uncovered_tags)
+        gap_callout_html = ""
+        if critical_uncovered:
+            gap_callout_html = (
+                "<div class='gap-callout'><strong>Critical uncovered:</strong> "
+                f"{html.escape(', '.join(critical_uncovered))}</div>"
+            )
         limitations_items = (
             "".join(f"<li>{html.escape(item)}</li>" for item in limitations)
             or "<li>Endpoint-level observations only; internal state mutations not asserted without dedicated probes.</li>"
         )
 
         return f"""<!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="{html_class}" data-embed="{data_embed}">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{safe_title}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet" />
   <style>
     :root {{
-      --bg-base: #09090B;
-      --bg-surface: #121214;
-      --bg-surface-elevated: #18181B;
-      --bg-hover: #27272A;
-      --border-subtle: #27272A;
-      --border-strong: #3F3F46;
-      --text-main: #FAFAFA;
-      --text-muted: #A1A1AA;
-      --text-faint: #71717A;
-      --color-pass: #10B981;
-      --color-pass-bg: rgba(16, 185, 129, 0.12);
-      --color-fail: #F43F5E;
-      --color-fail-bg: rgba(244, 63, 94, 0.12);
-      --color-unverifiable: #F59E0B;
-      --color-unverifiable-bg: rgba(245, 158, 11, 0.12);
-      --color-accent: #E4E4E7;
-      --color-accent-bg: rgba(228, 228, 231, 0.10);
-      --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      --background: oklch(0.9816 0.0017 247.8390);
+      --foreground: oklch(0.3017 0.0073 274.7266);
+      --card: oklch(1 0 0);
+      --card-foreground: oklch(0.3017 0.0073 274.7266);
+      --muted: oklch(0.9109 0.0070 247.9014);
+      --muted-foreground: oklch(0.5575 0.0165 244.8933);
+      --primary: oklch(0.5547 0.2503 297.0156);
+      --border: oklch(0.7692 0.0145 248.0166);
+      --destructive: oklch(0.5505 0.2155 19.8095);
+      --pass: oklch(0.6250 0.1772 140.4448);
+      --warn: oklch(0.6920 0.2041 42.4293);
+      --font-sans: 'Inter', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+      --radius: 0.35rem;
+    }}
+
+    html.dark {{
+        --background: oklch(0.2223 0.0060 271.1393);
+        --foreground: oklch(0.9417 0.0052 247.8790);
+        --card: oklch(0.2696 0.0093 276.7573);
+        --card-foreground: oklch(0.9417 0.0052 247.8790);
+        --muted: oklch(0.3479 0.0112 264.4193);
+        --muted-foreground: oklch(0.6595 0.0063 264.5196);
+        --primary: oklch(0.7871 0.1187 304.7693);
+        --border: oklch(0.3479 0.0112 264.4193);
+        --destructive: oklch(0.7556 0.1297 2.7642);
+        --pass: oklch(0.8577 0.1092 142.7153);
+        --warn: oklch(0.8237 0.1015 52.6294);
+    }}
+
+    @media (prefers-color-scheme: dark) {{
+      html:not(.light) {{
+        --background: oklch(0.2223 0.0060 271.1393);
+        --foreground: oklch(0.9417 0.0052 247.8790);
+        --card: oklch(0.2696 0.0093 276.7573);
+        --card-foreground: oklch(0.9417 0.0052 247.8790);
+        --muted: oklch(0.3479 0.0112 264.4193);
+        --muted-foreground: oklch(0.6595 0.0063 264.5196);
+        --primary: oklch(0.7871 0.1187 304.7693);
+        --border: oklch(0.3479 0.0112 264.4193);
+        --destructive: oklch(0.7556 0.1297 2.7642);
+        --pass: oklch(0.8577 0.1092 142.7153);
+        --warn: oklch(0.8237 0.1015 52.6294);
+      }}
+    }}
+
+    html[data-embed="1"] body {{
+      background: transparent;
+      padding: 0 0 1rem;
+    }}
+
+    html[data-embed="1"] .surface-card {{
+      box-shadow: none;
     }}
 
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
 
     body {{
-      background-color: var(--bg-base);
-      color: var(--text-main);
+      background-color: var(--background);
+      color: var(--foreground);
       font-family: var(--font-sans);
+      letter-spacing: -0.011em;
       line-height: 1.5;
       padding: 24px;
       -webkit-font-smoothing: antialiased;
     }}
 
     .container {{
-      max-width: 1280px;
+      max-width: 80rem;
       margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
     }}
 
-    /* Header */
-    header {{
+    .surface-card {{
+      background: var(--card);
+      color: var(--card-foreground);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem;
+    }}
+
+    header.surface-card {{
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 24px;
-      padding-bottom: 20px;
-      border-bottom: 1px solid var(--border-subtle);
       flex-wrap: wrap;
-      gap: 16px;
+      gap: 1rem;
     }}
 
-    .brand-title {{
+    .brand-row {{
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 0.75rem;
+      flex-wrap: wrap;
     }}
 
     .brand-badge {{
-      background: #FAFAFA;
-      color: #09090B;
-      font-weight: 700;
+      background: var(--muted);
+      color: var(--foreground);
+      font-weight: 600;
       font-size: 11px;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
-      padding: 3px 8px;
-      border-radius: 4px;
-    }}
-
-    h1 {{
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--text-main);
-    }}
-
-    .metadata-line {{
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-top: 4px;
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-    }}
-
-    .meta-item {{ display: inline-flex; align-items: center; gap: 4px; }}
-    .meta-val {{ color: var(--text-main); font-family: var(--font-mono); }}
-
-    .header-actions {{
-      display: flex;
-      gap: 10px;
-    }}
-
-    .btn {{
-      background-color: var(--bg-surface-elevated);
-      color: var(--text-main);
-      border: 1px solid var(--border-strong);
-      padding: 8px 14px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: all 0.15s ease;
-    }}
-
-    .btn:hover {{
-      background-color: var(--bg-hover);
-      border-color: #4B5563;
-    }}
-
-    /* KPI Grid */
-    .kpi-grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
-      margin-bottom: 20px;
-    }}
-
-    .kpi-card {{
-      background-color: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: 8px;
-      padding: 14px 16px;
-      position: relative;
-      overflow: hidden;
-    }}
-
-    .kpi-label {{
-      font-size: 12px;
-      font-weight: 500;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 6px;
-    }}
-
-    .kpi-value {{
-      font-size: 26px;
-      font-weight: 700;
-      line-height: 1;
+      padding: 0.2rem 0.5rem;
+      border-radius: var(--radius);
       font-family: var(--font-mono);
     }}
 
-    .kpi-card.pass .kpi-value {{ color: var(--color-pass); }}
-    .kpi-card.fail .kpi-value {{ color: var(--color-fail); }}
-    .kpi-card.unverifiable .kpi-value {{ color: var(--color-unverifiable); }}
-    .kpi-card.accent .kpi-value {{ color: var(--color-accent); }}
+    h1 {{
+      font-size: 1.125rem;
+      font-weight: 600;
+    }}
 
-    /* Regression Banner */
+    .metadata-line {{
+      font-size: 12px;
+      color: var(--muted-foreground);
+      margin-top: 0.35rem;
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }}
+
+    .meta-val {{ font-family: var(--font-mono); color: var(--foreground); }}
+
+    .header-actions {{ display: flex; gap: 0.5rem; flex-wrap: wrap; }}
+
+    .btn {{
+      background: var(--card);
+      color: var(--foreground);
+      border: 1px solid var(--border);
+      padding: 0.45rem 0.75rem;
+      border-radius: var(--radius);
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+    }}
+
+    .btn:hover {{ background: var(--muted); }}
+
+    .kpi-grid {{
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 0.75rem;
+    }}
+
+    @media (min-width: 640px) {{
+      .kpi-grid {{ grid-template-columns: repeat(3, minmax(0, 1fr)); }}
+    }}
+
+    @media (min-width: 1024px) {{
+      .kpi-grid {{ grid-template-columns: repeat(5, minmax(0, 1fr)); }}
+    }}
+
+    .kpi-card {{ padding: 1rem; }}
+
+    .kpi-label {{
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--muted-foreground);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }}
+
+    .kpi-value {{
+      margin-top: 0.35rem;
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      line-height: 1.1;
+    }}
+
+    .kpi-sub {{
+      font-size: 11px;
+      color: var(--muted-foreground);
+      margin-top: 0.15rem;
+      font-family: var(--font-mono);
+    }}
+
+    .kpi-good {{ color: var(--pass); }}
+    .kpi-bad {{ color: var(--destructive); }}
+    .kpi-warn {{ color: var(--warn); }}
+
     .diff-banner {{
-      background-color: var(--bg-surface);
-      border: 1px solid var(--border-strong);
-      border-radius: 8px;
-      padding: 14px 18px;
-      margin-bottom: 20px;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: 1rem;
       flex-wrap: wrap;
     }}
 
     .diff-banner.has-regression {{
-      border-color: rgba(239, 68, 68, 0.4);
-      background: linear-gradient(90deg, rgba(239, 68, 68, 0.08), var(--bg-surface));
+      border-color: color-mix(in oklch, var(--destructive) 40%, var(--border));
+      background: color-mix(in oklch, var(--destructive) 8%, var(--card));
     }}
 
-    .diff-title {{
-      font-size: 14px;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }}
+    .diff-title {{ font-size: 14px; font-weight: 600; }}
 
     .diff-chips {{
       display: flex;
@@ -374,75 +474,117 @@ class HTMLReportGenerator:
       font-family: var(--font-mono);
     }}
 
-    .chip-reg {{ background: var(--color-fail-bg); color: var(--color-fail); border: 1px solid var(--color-fail); }}
-    .chip-fix {{ background: var(--color-pass-bg); color: var(--color-pass); border: 1px solid var(--color-pass); }}
-
-    /* Collapsible Coverage & Limitations */
-    .collapsible-box {{
-      background-color: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: 8px;
-      margin-bottom: 20px;
-      overflow: hidden;
+    .chip-reg {{
+      color: var(--destructive);
+      border: 1px solid color-mix(in oklch, var(--destructive) 50%, var(--border));
+      background: color-mix(in oklch, var(--destructive) 12%, var(--card));
+    }}
+    .chip-fix {{
+      color: var(--pass);
+      border: 1px solid color-mix(in oklch, var(--pass) 50%, var(--border));
+      background: color-mix(in oklch, var(--pass) 12%, var(--card));
     }}
 
+    .collapsible-box {{ overflow: hidden; padding: 0; }}
+
     .collapsible-header {{
-      padding: 12px 16px;
+      padding: 0.75rem 1rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
       cursor: pointer;
       font-weight: 600;
       font-size: 13px;
-      background-color: rgba(255, 255, 255, 0.02);
+      background: color-mix(in oklch, var(--muted) 35%, var(--card));
       user-select: none;
     }}
 
-    .collapsible-header:hover {{ background-color: rgba(255, 255, 255, 0.04); }}
-
     .collapsible-body {{
-      padding: 16px;
-      border-top: 1px solid var(--border-subtle);
+      padding: 1rem;
+      border-top: 1px solid var(--border);
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
       font-size: 13px;
     }}
 
-    .cov-column h4 {{
+    .axis-grid {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 0.65rem;
+      grid-column: 1 / -1;
+    }}
+
+    .axis-card {{
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 0.55rem 0.65rem;
+      background: var(--card);
+    }}
+
+    .axis-row {{
+      display: flex;
+      justify-content: space-between;
+      font-size: 11px;
+      color: var(--muted-foreground);
+      margin-bottom: 0.35rem;
+    }}
+
+    .axis-bar {{
+      height: 6px;
+      border-radius: 999px;
+      background: var(--muted);
+      overflow: hidden;
+    }}
+
+    .axis-fill {{
+      height: 100%;
+      background: var(--primary);
+      border-radius: 999px;
+    }}
+
+    .gap-callout {{
+      grid-column: 1 / -1;
+      border: 1px solid color-mix(in oklch, var(--warn) 45%, var(--border));
+      background: color-mix(in oklch, var(--warn) 10%, var(--card));
+      border-radius: var(--radius);
+      padding: 0.65rem 0.75rem;
       font-size: 12px;
+    }}
+
+    .cov-column h4 {{
+      font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: var(--text-muted);
-      margin-bottom: 8px;
+      color: var(--muted-foreground);
+      margin-bottom: 0.5rem;
+      font-weight: 600;
     }}
 
     .tag-list {{ display: flex; flex-wrap: wrap; gap: 6px; }}
 
     .tag-pill {{
-      background-color: var(--bg-surface-elevated);
-      color: var(--text-main);
-      padding: 3px 8px;
-      border-radius: 4px;
+      background: var(--muted);
+      color: var(--foreground);
+      padding: 0.15rem 0.45rem;
+      border-radius: var(--radius);
       font-size: 11px;
       font-family: var(--font-mono);
-      border: 1px solid var(--border-strong);
+      border: 1px solid var(--border);
     }}
 
     .tag-pill.warn {{
-      border-color: var(--color-fail);
-      color: var(--color-fail);
-      background-color: var(--color-fail-bg);
+      border-color: color-mix(in oklch, var(--warn) 50%, var(--border));
+      color: var(--warn);
     }}
 
-    /* Filter Toolbar */
     .toolbar {{
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 16px;
-      gap: 12px;
+      gap: 0.75rem;
       flex-wrap: wrap;
+      padding: 0.75rem 1rem;
     }}
 
     .filter-group {{
@@ -452,60 +594,45 @@ class HTMLReportGenerator:
     }}
 
     .filter-btn {{
-      background-color: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-      padding: 6px 12px;
-      border-radius: 6px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--muted-foreground);
+      padding: 0.35rem 0.65rem;
+      border-radius: var(--radius);
       font-size: 12px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.15s;
-    }}
-
-    .filter-btn:hover {{
-      background-color: var(--bg-surface-elevated);
-      color: var(--text-main);
     }}
 
     .filter-btn.active {{
-      background-color: var(--bg-surface-elevated);
-      color: var(--text-main);
-      border-color: var(--color-accent);
+      color: var(--foreground);
+      border-color: var(--primary);
     }}
 
     .search-input {{
-      background-color: var(--bg-surface);
-      border: 1px solid var(--border-strong);
-      color: var(--text-main);
-      padding: 6px 12px;
-      border-radius: 6px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: var(--foreground);
+      padding: 0.35rem 0.65rem;
+      border-radius: var(--radius);
       font-size: 12px;
       width: 240px;
     }}
 
-    .search-input:focus {{
-      outline: none;
-      border-color: var(--color-accent);
-    }}
+    .search-input:focus {{ outline: 2px solid color-mix(in oklch, var(--primary) 40%, transparent); }}
 
-    /* Test Case List */
     .test-list {{
       display: flex;
       flex-direction: column;
-      gap: 10px;
+      gap: 0.65rem;
+      padding: 0 1rem 1rem;
     }}
 
     .test-card {{
-      background-color: var(--bg-surface);
-      border: 1px solid var(--border-subtle);
-      border-radius: 8px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
       overflow: hidden;
-      transition: border-color 0.15s ease;
-    }}
-
-    .test-card:hover {{
-      border-color: var(--border-strong);
     }}
 
     .test-card-header {{
@@ -537,44 +664,39 @@ class HTMLReportGenerator:
       letter-spacing: 0.05em;
     }}
 
-    .badge-pass {{ background-color: var(--color-pass-bg); color: var(--color-pass); border: 1px solid var(--color-pass); }}
-    .badge-fail {{ background-color: var(--color-fail-bg); color: var(--color-fail); border: 1px solid var(--color-fail); }}
-    .badge-unverifiable {{ background-color: var(--color-unverifiable-bg); color: var(--color-unverifiable); border: 1px solid var(--color-unverifiable); }}
-
     .test-title {{
       font-weight: 600;
       font-size: 13px;
-      color: var(--text-main);
+      font-family: var(--font-mono);
     }}
 
     .test-id {{
-      color: var(--text-faint);
+      color: var(--muted-foreground);
       font-family: var(--font-mono);
       font-size: 11px;
-      margin-left: 6px;
     }}
 
     .test-right {{
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 0.5rem;
       font-size: 12px;
-      color: var(--text-muted);
+      color: var(--muted-foreground);
+      flex-wrap: wrap;
     }}
 
     .metric-badge {{
       font-family: var(--font-mono);
       font-size: 11px;
-      background: var(--bg-surface-elevated);
-      padding: 2px 6px;
-      border-radius: 4px;
-      color: var(--text-muted);
+      background: var(--muted);
+      padding: 0.1rem 0.4rem;
+      border-radius: var(--radius);
     }}
 
     .test-card-body {{
-      padding: 16px;
-      border-top: 1px solid var(--border-subtle);
-      background-color: #0d121f;
+      padding: 1rem;
+      border-top: 1px solid var(--border);
+      background: color-mix(in oklch, var(--muted) 25%, var(--card));
       display: none;
     }}
 
@@ -591,17 +713,16 @@ class HTMLReportGenerator:
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: var(--text-muted);
-      margin-bottom: 6px;
+      color: var(--muted-foreground);
+      margin-bottom: 0.35rem;
     }}
 
     .detail-content {{
       font-size: 13px;
-      color: var(--text-main);
-      background: var(--bg-surface);
-      padding: 10px 14px;
-      border-radius: 6px;
-      border: 1px solid var(--border-subtle);
+      background: var(--card);
+      padding: 0.65rem 0.85rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
     }}
 
     .code-block {{
@@ -609,64 +730,84 @@ class HTMLReportGenerator:
       font-size: 12px;
       white-space: pre-wrap;
       word-break: break-word;
-      background-color: #070a11;
-      padding: 12px;
-      border-radius: 6px;
-      border: 1px solid var(--border-subtle);
+      background: var(--card);
+      padding: 0.75rem;
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
       max-height: 280px;
       overflow-y: auto;
     }}
 
+    .badge-pass {{
+      color: var(--pass);
+      border: 1px solid color-mix(in oklch, var(--pass) 50%, var(--border));
+      background: color-mix(in oklch, var(--pass) 12%, var(--card));
+    }}
+    .badge-fail {{
+      color: var(--destructive);
+      border: 1px solid color-mix(in oklch, var(--destructive) 50%, var(--border));
+      background: color-mix(in oklch, var(--destructive) 12%, var(--card));
+    }}
+    .badge-unverifiable {{
+      color: var(--warn);
+      border: 1px solid color-mix(in oklch, var(--warn) 50%, var(--border));
+      background: color-mix(in oklch, var(--warn) 12%, var(--card));
+    }}
+
     .empty-state {{
       text-align: center;
-      padding: 40px 20px;
-      color: var(--text-muted);
+      padding: 2.5rem 1rem;
+      color: var(--muted-foreground);
       font-size: 14px;
     }}
   </style>
 </head>
 <body>
   <div class="container">
-    <header>
+    <header class="surface-card">
       <div>
-        <div class="brand-title">
-          <span class="brand-badge">AgentEval</span>
+        <div class="brand-row">
+          <span class="brand-badge">Assurance Report</span>
           <h1>{safe_title}</h1>
         </div>
         <div class="metadata-line">
-          <span class="meta-item">Agent ID: <span class="meta-val">{agent_id}</span></span>
-          <span class="meta-item">Suite Version: <span class="meta-val">v{suite_version}</span></span>
-          <span class="meta-item">Run ID: <span class="meta-val">{run_id}</span></span>
-          <span class="meta-item">Executed: <span class="meta-val">{generated_at}</span></span>
+          <span>Agent <span class="meta-val">{agent_id}</span></span>
+          <span>Suite <span class="meta-val">v{suite_version}</span></span>
+          <span>Run <span class="meta-val">{run_id}</span></span>
+          <span>{generated_at}</span>
         </div>
       </div>
       <div class="header-actions">
-        <button class="btn" onclick="window.print()">Print / PDF</button>
-        <button class="btn" onclick="toggleAllCards()">Toggle All</button>
+        <button class="btn" type="button" onclick="window.print()">Print / PDF</button>
+        <button class="btn" type="button" onclick="toggleAllCards()">Toggle All</button>
       </div>
     </header>
 
-    <!-- KPI Grid -->
     <div class="kpi-grid">
-      <div class="kpi-card accent">
-        <div class="kpi-label">Total Tests</div>
-        <div class="kpi-value">{total}</div>
+      <div class="surface-card kpi-card">
+        <div class="kpi-label">Pass Rate</div>
+        <div class="kpi-value {pass_rate_class}">{pass_rate}%</div>
+        <div class="kpi-sub">{passed}/{total} executed</div>
       </div>
-      <div class="kpi-card pass">
-        <div class="kpi-label">Passed ({pass_rate}%)</div>
-        <div class="kpi-value">{passed}</div>
+      <div class="surface-card kpi-card">
+        <div class="kpi-label">Pack Tests</div>
+        <div class="kpi-value">{pack_test_count}</div>
+        <div class="kpi-sub">frozen in suite</div>
       </div>
-      <div class="kpi-card fail">
-        <div class="kpi-label">Failed</div>
-        <div class="kpi-value">{failed}</div>
+      <div class="surface-card kpi-card">
+        <div class="kpi-label">Failures</div>
+        <div class="kpi-value {'kpi-bad' if failed > 0 else ''}">{failed}</div>
+        <div class="kpi-sub">violations</div>
       </div>
-      <div class="kpi-card unverifiable">
+      <div class="surface-card kpi-card">
         <div class="kpi-label">Unverifiable</div>
-        <div class="kpi-value">{unverifiable}</div>
+        <div class="kpi-value {'kpi-warn' if unverifiable > 0 else ''}">{unverifiable}</div>
+        <div class="kpi-sub">unprovable</div>
       </div>
-      <div class="kpi-card">
+      <div class="surface-card kpi-card">
         <div class="kpi-label">Avg Latency</div>
-        <div class="kpi-value">{avg_latency}ms</div>
+        <div class="kpi-value">{avg_latency}</div>
+        <div class="kpi-sub">ms · p95 {p95_latency} ms</div>
       </div>
     </div>
 
@@ -674,34 +815,32 @@ class HTMLReportGenerator:
     {diff_banner_html}
 
     <!-- Coverage & Limitations Collapsible -->
-    <div class="collapsible-box">
+    <div class="surface-card collapsible-box">
       <div class="collapsible-header" onclick="toggleCollapsible(this)">
-        <span>Assurance Coverage & Verified Limitations</span>
+        <span>Coverage breakdown & limitations</span>
         <span class="collapsible-indicator">▼</span>
       </div>
       <div class="collapsible-body">
+        <div class="axis-grid" id="coverageAxes"></div>
         <div class="cov-column">
-          <h4>Covered Assurance Tags ({len(covered_tags)})</h4>
-          <div class="tag-list">
-            {covered_pills}
-          </div>
+          <h4>Covered tags ({len(covered_tags)})</h4>
+          <div class="tag-list">{covered_pills}</div>
         </div>
         <div class="cov-column">
-          <h4>Uncovered / Critical Gaps ({len(uncovered_tags)})</h4>
-          <div class="tag-list">
-            {uncovered_pills}
-          </div>
+          <h4>Gaps ({gap_count})</h4>
+          <div class="tag-list">{uncovered_pills}</div>
         </div>
+        {gap_callout_html}
         <div class="cov-column" style="grid-column: 1 / -1;">
-          <h4>Assurance Boundary & Limitations</h4>
-          <ul style="color: var(--text-muted); padding-left: 18px;">
+          <h4>Assurance boundary</h4>
+          <ul style="color: var(--muted-foreground); padding-left: 18px;">
             {limitations_items}
           </ul>
         </div>
       </div>
     </div>
 
-    <!-- Filter & Search Toolbar -->
+    <div class="surface-card" style="padding: 0;">
     <div class="toolbar">
       <div class="filter-group">
         <button class="filter-btn active" onclick="setFilter('all', this)">All ({total})</button>
@@ -714,15 +853,33 @@ class HTMLReportGenerator:
         <input type="text" id="searchInput" class="search-input" placeholder="Search tests, prompt, tags..." oninput="handleSearch()" />
       </div>
     </div>
-
-    <!-- Test Cases Container -->
     <div class="test-list" id="testList"></div>
+    </div>
   </div>
 
   <script>
     const reportData = {embedded_json};
     let currentFilter = 'all';
     let searchQuery = '';
+
+    function renderCoverageAxes() {{
+      const host = document.getElementById('coverageAxes');
+      if (!host || !reportData.coverage || !reportData.coverage.axes) return;
+      host.innerHTML = '';
+      Object.entries(reportData.coverage.axes).forEach(([axis, ratio]) => {{
+        const pct = Math.round((ratio || 0) * 100);
+        const card = document.createElement('div');
+        card.className = 'axis-card';
+        card.innerHTML = `
+          <div class="axis-row">
+            <span>${{escapeHtml(axis)}}</span>
+            <span class="meta-val">${{pct}}%</span>
+          </div>
+          <div class="axis-bar"><div class="axis-fill" style="width:${{pct}}%"></div></div>
+        `;
+        host.appendChild(card);
+      }});
+    }}
 
     function renderTests() {{
       const container = document.getElementById('testList');
@@ -766,7 +923,7 @@ class HTMLReportGenerator:
             <div class="test-left">
               <span class="status-badge ${{badgeClass}}">${{t.verdict}}</span>
               ${{regBadge}}
-              <span class="test-title">${{escapeHtml(t.title)}}</span>
+              <span class="test-title">${{escapeHtml(t.tab_label || t.title)}}</span>
               <span class="test-id">#${{escapeHtml(t.test_id)}}</span>
             </div>
             <div class="test-right">
@@ -853,7 +1010,7 @@ class HTMLReportGenerator:
         .replace(/'/g, '&#039;');
     }}
 
-    // Initial Render
+    renderCoverageAxes();
     renderTests();
   </script>
 </body>

@@ -166,10 +166,17 @@ def create_app() -> FastAPI:
         agent_id: str,
         run_id: str | None = None,
         suite_root: str = ".agenteval/suites",
+        embed: bool = False,
+        theme: str = "auto",
     ) -> HTMLResponse:
         workflow = create_suite_workflow(suite_root=suite_root)
         try:
-            html_content = workflow.generate_html_report(agent_id, run_id=run_id)
+            html_content = workflow.generate_html_report(
+                agent_id,
+                run_id=run_id,
+                embed=embed,
+                theme=theme,
+            )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
         return HTMLResponse(content=html_content)

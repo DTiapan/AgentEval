@@ -44,8 +44,23 @@ import {
 } from "@/lib/product";
 import { openTrajectoryReplay } from "@/lib/replay-session";
 
+function useConsoleTheme(): "light" | "dark" {
+  const [theme, setTheme] = useState<"light" | "dark">(() =>
+    document.documentElement.classList.contains("dark") ? "dark" : "light",
+  );
+  useEffect(() => {
+    const root = document.documentElement;
+    const sync = () => setTheme(root.classList.contains("dark") ? "dark" : "light");
+    const observer = new MutationObserver(sync);
+    observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
+  return theme;
+}
+
 export const AssuranceView: React.FC = () => {
   const { activeAgentId, addToast } = useWorkspace();
+  const consoleTheme = useConsoleTheme();
 
   const [suiteDetail, setSuiteDetail] = useState<SuiteDetailResult | null>(null);
   const [latestRun, setLatestRun] = useState<SuiteRunReport | null>(null);
@@ -814,7 +829,9 @@ export const AssuranceView: React.FC = () => {
               </div>
               <div className="flex items-center gap-2 pr-6">
                 <a
-                  href={getSuiteReportUrl(activeAgentId, latestRun.run_id)}
+                  href={getSuiteReportUrl(activeAgentId, latestRun.run_id, {
+                    theme: consoleTheme,
+                  })}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground hover:bg-muted transition-colors"
@@ -828,7 +845,10 @@ export const AssuranceView: React.FC = () => {
             {/* Modal Body: Embed the native Allure-class HTML report */}
             <div className="flex-1 w-full bg-background">
               <iframe
-                src={getSuiteReportUrl(activeAgentId, latestRun.run_id)}
+                src={getSuiteReportUrl(activeAgentId, latestRun.run_id, {
+                  embed: true,
+                  theme: consoleTheme,
+                })}
                 title="AgentEval Standalone Assurance Report"
                 className="h-full w-full border-0"
               />

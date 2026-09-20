@@ -143,7 +143,15 @@ export async function getLatestRun(agentId: string): Promise<SuiteRunReport> {
   return parseJson(res);
 }
 
-export function getSuiteReportUrl(agentId: string, runId?: string): string {
-  const params = runId ? `?run_id=${encodeURIComponent(runId)}` : "";
-  return `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/report${params}`;
+export function getSuiteReportUrl(
+  agentId: string,
+  runId?: string,
+  options?: { embed?: boolean; theme?: "light" | "dark" },
+): string {
+  const params = new URLSearchParams();
+  if (runId) params.set("run_id", runId);
+  if (options?.embed) params.set("embed", "true");
+  if (options?.theme) params.set("theme", options.theme);
+  const query = params.toString();
+  return `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/report${query ? `?${query}` : ""}`;
 }

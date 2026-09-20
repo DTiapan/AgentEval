@@ -126,6 +126,18 @@ def test_html_report_generation(sample_report: SuiteRunReport, sample_pack: Test
     assert "Refund of $42.00 has been processed" in html_output
     assert "⚠️ REGRESSION" in html_output
     assert "115.4" in html_output
+    assert "oklch(" in html_output
+    assert "Pass Rate" in html_output
+    assert "[01]" in html_output or "Happy path refund" in html_output
+
+    embedded = HTMLReportGenerator.generate(
+        sample_report,
+        sample_pack,
+        embed=True,
+        theme="dark",
+    )
+    assert 'data-embed="1"' in embedded
+    assert 'class="dark"' in embedded
     assert "security_boundary" in html_output
 
 
@@ -146,7 +158,7 @@ def test_suite_workflow_generate_html_report(
     )
     store.save_run("test-refund-agent", sample_report)
 
-    workflow = SuiteWorkflow(suite_root=tmp_path)
+    workflow = SuiteWorkflow(suite_root=tmp_path, use_sqlite=False)
     report_html = workflow.generate_html_report("test-refund-agent")
 
     assert "<!DOCTYPE html>" in report_html
@@ -162,8 +174,12 @@ def test_suite_workflow_generate_html_report(
 
 
 def test_api_suite_report_endpoint(
-    tmp_path: Path, sample_pack: TestPack, sample_report: SuiteRunReport
+    tmp_path: Path,
+    sample_pack: TestPack,
+    sample_report: SuiteRunReport,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("AGENTEVAL_USE_SQLITE", "0")
     store = SuiteStore(tmp_path)
     store.init_suite(
         SuiteManifest(
@@ -190,8 +206,12 @@ def test_api_suite_report_endpoint(
 
 
 def test_cli_suite_report(
-    tmp_path: Path, sample_pack: TestPack, sample_report: SuiteRunReport
+    tmp_path: Path,
+    sample_pack: TestPack,
+    sample_report: SuiteRunReport,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("AGENTEVAL_USE_SQLITE", "0")
     from typer.testing import CliRunner
 
     from agenteval.cli.main import app
