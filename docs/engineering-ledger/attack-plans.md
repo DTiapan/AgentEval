@@ -24,7 +24,7 @@
 4. [x] **B4** — Optimizer: mandatory security floor + greedy set cover (`agenteval/planning/optimizer.py`).
 5. [x] **B5 (MVP)** — Post-run coverage map + critical uncovered (`agenteval/planning/coverage.py`).
 6. [x] **B7** — `blackbox_runner` + `ObservationBundle` + `ObservableScorer` (Tier 0, no LLM judge).
-7. [x] **B8 (MVP)** — `suite init` / `suite run`, `SuiteStore`, sample `examples/blackbox/` ([DR-010](decisions.md#active-index)).
+7. [x] **B8 (MVP)** — `suite init` / `suite run`, `SuiteStore`, sample `examples/blackbox/` ([DR-010](decisions.md#active-index)); `agenteval plan --manifest` → black-box pack preview (`plan_preview.py`, same `SuiteBootstrap` as init).
 
 **Phase A first code increment:** B0 + B4 + B5 (MVP) with fixture pools → then B1 → B2 → B7 → B8 (include suite persistence in B8).
 
@@ -38,6 +38,7 @@
 9. [ ] **B5 (full)** — Gap detector → targeted candidates → incremental re-optimize.
 10. [ ] **B6** — Metric applicability on `MetricRouter` + pack.
 11. [ ] **B8 (full)** — Risk map, metric rationale, efficiency dashboards in CLI/reports.
+12. [ ] **B8 (report)** — Allure-class HTML run report from `SuiteRunReport` + pack (hierarchy, drill-down, attachments); optional `suite report` / open in browser; shared evidence schema with dashboard—not JUnit/CSV flat exports.
 12. [ ] **B9** — Inspect AI plan compiler (AP-002 step 6).
 13. [ ] **Optional** — LLM hypothesis expansion; HYPOTHESIZED provenance layer; MCP/CLI black-box ingress.
 

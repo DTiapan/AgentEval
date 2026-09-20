@@ -33,6 +33,7 @@ from agenteval.scenarios.compiler import ScenarioCompiler
 from agenteval.scenarios.loader import ScenarioLoader
 from agenteval.scenarios.schema import TestScenario
 from agenteval.cli.suite import suite_app
+from agenteval.planning.plan_preview import render_blackbox_pack_preview
 
 app = typer.Typer(
     name="agenteval",
@@ -176,6 +177,15 @@ def plan(
             max=10,
         ),
     ] = 3,
+    max_tests: Annotated[
+        int,
+        typer.Option(
+            "--max-tests",
+            help="Max tests in black-box optimized pack preview (manifest only; same as suite init)",
+            min=1,
+            max=50,
+        ),
+    ] = 10,
 ) -> None:
     """Generate and preview a calibrated evaluation plan for an agent."""
     if not manifest_path and not agent_spec and not persona_path and not endpoint and not prd_path:
@@ -186,6 +196,7 @@ def plan(
 
     compiled_scenarios: list[TestScenario] = []
     matched_personas: list[tuple[RankedPersonaCandidate, str]] = []
+    blackbox_manifest: Path | None = None
     dyn_gen = DynamicPersonaGenerator()
 
     if persona_path:
@@ -195,6 +206,7 @@ def plan(
         compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
     elif manifest_path:
         card = AgentCard.from_yaml(manifest_path)
+        blackbox_manifest = manifest_path
         jev_res = JevClassifierClient().classify_agent(card)
         plan_obj = MetricRouter().recommend(card)
         compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
@@ -341,6 +353,11 @@ def plan(
             fault_desc = f"{len(sc.fault_rules)} rules" if sc.fault_rules else "None (Happy Path)"
             s_table.add_row(sc.id, sc.name, fault_desc, str(sc.max_steps))
         console.print(Panel(s_table, border_style="cyan"))
+
+    if blackbox_manifest is not None:
+        render_blackbox_pack_preview(
+            console, card, blackbox_manifest, prd_path, max_tests=max_tests
+        )
 
 
 @app.command("run")

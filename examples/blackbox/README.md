@@ -16,7 +16,13 @@
 ### Terminal 1 — start mock agent
 
 ```bash
-python examples/blackbox/refund_agent_server.py
+python3 examples/blackbox/refund_agent_server.py
+```
+
+### Terminal 2 — preview pack (optional, no files written)
+
+```bash
+agenteval plan --manifest examples/blackbox/refund_agent.card.yaml --max-tests 10
 ```
 
 ### Terminal 2 — bootstrap suite (generate once)
@@ -46,3 +52,5 @@ Re-run `suite run` after changing the mock server to see regressions.
   runs/<run_id>.json
   latest_run.json
 ```
+
+**Reports:** CLI table on `suite run` plus JSON above. Rich Allure-style HTML reports are planned later ([roadmap](../docs/ROADMAP.md), B8 report slice)—same direction as the assurance dashboard, not flat JUnit/CSV exports.

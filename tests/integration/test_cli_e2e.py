@@ -154,3 +154,18 @@ capabilities:
     assert "RAG" in result.stdout
     assert "rag_faithfulness" in result.stdout
     assert "rag_context_precision" in result.stdout
+    assert "Black-Box Test Pack Preview" in result.stdout
+    assert "suite init" in result.stdout
+
+
+def test_cli_plan_manifest_blackbox_pack_preview() -> None:
+    """Manifest plan includes optimized pack preview (same optimizer as suite init)."""
+    manifest = Path("examples/blackbox/refund_agent.card.yaml")
+    result = runner.invoke(
+        app,
+        ["plan", "--manifest", str(manifest), "--max-tests", "10"],
+    )
+    assert result.exit_code == 0
+    assert "Black-Box Test Pack Preview" in result.stdout
+    assert "Optimized pack:" in result.stdout
+    assert "refund-agent" in result.stdout

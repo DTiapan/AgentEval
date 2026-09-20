@@ -127,7 +127,10 @@ Minimum story: *spec + HTTP endpoint → candidate pool → optimized pack → r
 | Execution results (observable) | ✓ |
 | Coverage (key axes: capability, persona, failure-mode, security) | ✓ |
 | Confidence / limitations (`UNTESTABLE`, no false ΔS claims) | ✓ |
+| **Rich run report** (Allure-class HTML: suites, categories, steps, attachments) | Later (v0.3+); aligns with dashboard |
 | Full risk map, metric rationale deck, automated gap re-test | Later |
+
+**Run reporting today (MVP):** `suite run` prints a Rich summary table (test id, verdict, rationale snippet) and writes machine-readable JSON to `.agenteval/suites/<agent_id>/latest_run.json` and `runs/<run_id>.json`. Join `test_id` → `test_pack.json` for name/category. **Not in scope:** flat CI exports (JUnit XML, CSV). **Later:** interactive HTML report (Allure-style narrative: hierarchy, history, drill-down)—same evidence model the web dashboard will use, not a separate “spreadsheet” path.
 
 ```mermaid
 flowchart TD
@@ -153,6 +156,7 @@ flowchart TD
 | **B6** | v0.3 | Metric applicability on model + pack; trim `MetricRouter` to observable scorers only |
 | **B9** | v0.3 | Inspect AI plan compiler (`@task` / scorers)—after `ObservationBundle` is stable |
 | **B8 (full)** | v0.3+ | Rich CLI/report: risk map, metric “why selected,” efficiency dashboards |
+| **Suite run report (Allure-class)** | v0.3+ | Self-contained HTML from `SuiteRunReport` + pack: suite → category → case, verdict, rationale, prompt/response attachments; optional history; shared schema with assurance dashboard—not JUnit/CSV |
 | **LLM hypothesis expansion** | v0.3+ | Optional LiteLLM-generated failure modes beyond rule templates |
 | **HYPOTHESIZED** provenance layer | v0.3+ | Explicit hypothesis objects in Agent Test Model (MVP can tag via candidate metadata) |
 | **Non-HTTP protocols** (MCP, CLI adapters) | v0.3+ | Black-box MVP is **HTTP-only**; harness + other adapters stay separate |
