@@ -17,6 +17,7 @@
 
 ## Recent sessions
 
+- **2026-09-20 (session 13)**: **E4 web console MVP** — Vite dashboard (`web/`), suite list/detail API, `serve --with-ui`, CORS for dev proxy.
 - **2026-09-20 (session 12)**: **E3 HTTP API façade** — `SuiteWorkflow` library service, FastAPI `/v1/suites/preview|init|run`, `agenteval serve`; optional `[api]` extra. 108 tests, ~86% coverage.
 - **2026-09-20 (session 11)**: **North Star entry & UI-later** ([DR-012](decisions.md#active-index)) — roadmap: PRD-first bootstrap, API-ready core, web UI deferred; YAML harness low priority.
 - **2026-09-20 (session 10)**: **Black-box MVP backbone verified** — `suite init`/`suite run`, sample refund HTTP agent, rule scorer; roadmap records **Allure-class HTML run report** (later, with dashboard)—not JUnit/CSV.

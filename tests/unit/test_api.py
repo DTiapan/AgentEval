@@ -23,6 +23,12 @@ def client(tmp_path: Path) -> TestClient:
     return TestClient(create_app())
 
 
+def test_list_suites_empty(client: TestClient, tmp_path: Path) -> None:
+    response = client.get("/v1/suites", params={"suite_root": str(tmp_path / "suites")})
+    assert response.status_code == 200
+    assert response.json()["suites"] == []
+
+
 def test_health(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
@@ -58,6 +64,13 @@ def test_init_and_latest_run(client: TestClient, tmp_path: Path) -> None:
     )
     assert init.status_code == 201
     assert init.json()["agent_id"] == "refund-api"
+
+    listed = client.get("/v1/suites", params={"suite_root": suite_root})
+    assert listed.json()["suites"][0]["agent_id"] == "refund-api"
+
+    detail = client.get("/v1/suites/refund-api", params={"suite_root": suite_root})
+    assert detail.status_code == 200
+    assert len(detail.json()["optimized_pack"]["tests"]) >= 1
 
     latest = client.get(
         "/v1/suites/refund-api/runs/latest",

@@ -13,6 +13,7 @@ from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.models import (
     CandidateTest,
     CoverageReport,
+    SuiteManifest,
     SuiteRunReport,
     TestPack,
 )
@@ -29,6 +30,27 @@ class SuitePreviewResult(BaseModel):
     optimized_pack: TestPack
     coverage: CoverageReport
     endpoint_probe: EndpointProbeResult | None = None
+
+
+class SuiteListItem(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str
+    suite_version: int
+    requirements_fingerprint: str
+    endpoint_profile: str
+    pack_size: int
+    pool_size: int
+    has_latest_run: bool
+
+
+class SuiteDetailResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    manifest: SuiteManifest
+    optimized_pack: TestPack
+    candidate_pool_size: int
+    latest_run: SuiteRunReport | None = None
 
 
 class SuiteInitResult(BaseModel):
@@ -154,3 +176,35 @@ class SuiteWorkflow:
 
     def latest_run(self, agent_id: str) -> SuiteRunReport | None:
         return SuiteStore(self.suite_root).load_latest_run(agent_id)
+
+    def list_suites(self) -> list[SuiteListItem]:
+        store = SuiteStore(self.suite_root)
+        items: list[SuiteListItem] = []
+        for agent_id in store.list_agent_ids():
+            manifest = store.load_manifest(agent_id)
+            pack = store.load_pack(agent_id)
+            pool = store.load_pool(agent_id)
+            items.append(
+                SuiteListItem(
+                    agent_id=agent_id,
+                    suite_version=manifest.version,
+                    requirements_fingerprint=manifest.requirements_fingerprint,
+                    endpoint_profile=manifest.endpoint_profile,
+                    pack_size=len(pack.tests),
+                    pool_size=len(pool),
+                    has_latest_run=store.load_latest_run(agent_id) is not None,
+                )
+            )
+        return items
+
+    def get_suite(self, agent_id: str) -> SuiteDetailResult:
+        store = SuiteStore(self.suite_root)
+        manifest = store.load_manifest(agent_id)
+        pack = store.load_pack(agent_id)
+        pool = store.load_pool(agent_id)
+        return SuiteDetailResult(
+            manifest=manifest,
+            optimized_pack=pack,
+            candidate_pool_size=len(pool),
+            latest_run=store.load_latest_run(agent_id),
+        )

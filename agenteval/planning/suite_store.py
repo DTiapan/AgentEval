@@ -26,6 +26,15 @@ class SuiteStore:
     def agent_dir(self, agent_id: str) -> Path:
         return self.root / agent_id
 
+    def list_agent_ids(self) -> list[str]:
+        if not self.root.exists():
+            return []
+        ids: list[str] = []
+        for entry in sorted(self.root.iterdir()):
+            if entry.is_dir() and (entry / "suite.manifest.json").is_file():
+                ids.append(entry.name)
+        return ids
+
     def init_suite(
         self,
         manifest: SuiteManifest,

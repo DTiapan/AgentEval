@@ -1,12 +1,19 @@
-"""FastAPI application exposing suite preview, init, and run (E3)."""
+"""FastAPI application exposing suite preview, init, and run (E3+E4)."""
+
+import os
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from agenteval import __version__
 from agenteval.api.schemas import PrdBootstrapRequest, SuiteInitRequest, SuiteRunRequest
 from agenteval.planning.suite_store import SuiteExistsError
 from agenteval.services.suite_workflow import SuiteWorkflow
+
+_REPO_UI_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 
 
 def create_app() -> FastAPI:
@@ -16,9 +23,37 @@ def create_app() -> FastAPI:
         description="HTTP façade over black-box suite services (DR-012).",
     )
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     @app.get("/health")
     def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.get("/v1/suites")
+    def list_suites(suite_root: str = ".agenteval/suites") -> JSONResponse:
+        workflow = SuiteWorkflow(suite_root=suite_root)
+        items = workflow.list_suites()
+        return JSONResponse(
+            content={"suites": [item.model_dump(mode="json") for item in items]}
+        )
+
+    @app.get("/v1/suites/{agent_id}")
+    def get_suite(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
+        workflow = SuiteWorkflow(suite_root=suite_root)
+        try:
+            detail = workflow.get_suite(agent_id)
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No suite for agent '{agent_id}'.",
+            ) from None
+        return JSONResponse(content=detail.model_dump(mode="json"))
 
     @app.post("/v1/suites/preview")
     def preview_suite(body: PrdBootstrapRequest) -> JSONResponse:
@@ -72,5 +107,9 @@ def create_app() -> FastAPI:
         if report is None:
             raise HTTPException(status_code=404, detail=f"No runs for agent '{agent_id}'.")
         return JSONResponse(content=report.model_dump(mode="json"))
+
+    ui_dist = Path(os.environ.get("AGENTEVAL_UI_DIST", str(_REPO_UI_DIST)))
+    if os.environ.get("AGENTEVAL_SERVE_UI", "0") == "1" and ui_dist.is_dir():
+        app.mount("/", StaticFiles(directory=ui_dist, html=True), name="agenteval-ui")
 
     return app
