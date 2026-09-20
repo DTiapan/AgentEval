@@ -148,6 +148,27 @@ class AgentLoopMetrics(BaseModel):
     )
 
 
+class ReliabilityScorecard(BaseModel):
+    """Multi-dimensional scorecard summarizing reliability across all planes."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    outcome_pass: bool = Field(description="True if functional objective was met")
+    trajectory_score: float = Field(ge=0.0, le=1.0, description="1.0 = shortest, non-looping path")
+    recovery_score: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="Success rate recovering from injected faults"
+    )
+    idempotency_score: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="1.0 = zero duplicate side effects"
+    )
+    duplicate_side_effects: int = Field(
+        default=0, ge=0, description="Count of duplicate irreversible mutations"
+    )
+    verdict: Verdict = Field(default=Verdict.UNVERIFIABLE)
+    metrics: AgentLoopMetrics = Field(default_factory=AgentLoopMetrics)
+    failure_classes: list[FailureClass] = Field(default_factory=list)
+
+
 class ExecutionTrace(BaseModel):
     """Complete, sealed trajectory log of an agent scenario execution."""
 
@@ -170,24 +191,6 @@ class ExecutionTrace(BaseModel):
     failure_classes: list[FailureClass] = Field(
         default_factory=list, description="Specific failure categories identified"
     )
-
-
-class ReliabilityScorecard(BaseModel):
-    """Multi-dimensional scorecard summarizing reliability across all planes."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    outcome_pass: bool = Field(description="True if functional objective was met")
-    trajectory_score: float = Field(ge=0.0, le=1.0, description="1.0 = shortest, non-looping path")
-    recovery_score: float = Field(
-        default=1.0, ge=0.0, le=1.0, description="Success rate recovering from injected faults"
+    scorecard: ReliabilityScorecard | None = Field(
+        default=None, description="Assurance evaluation scorecard summary"
     )
-    idempotency_score: float = Field(
-        default=1.0, ge=0.0, le=1.0, description="1.0 = zero duplicate side effects"
-    )
-    duplicate_side_effects: int = Field(
-        default=0, ge=0, description="Count of duplicate irreversible mutations"
-    )
-    verdict: Verdict = Field(default=Verdict.UNVERIFIABLE)
-    metrics: AgentLoopMetrics = Field(default_factory=AgentLoopMetrics)
-    failure_classes: list[FailureClass] = Field(default_factory=list)

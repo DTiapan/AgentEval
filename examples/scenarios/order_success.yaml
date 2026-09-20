@@ -1,0 +1,13 @@
+id: "scenario-order-001"
+name: "Clean Order Processing"
+description: "Verify that agent charges payment idempotently and persists order manifest without error."
+user_prompt: "Please process payment and complete order ORD-90210."
+expected_tools:
+  - "charge_payment"
+  - "write_file"
+state_assertions:
+  files_created:
+    - "orders/ORD-90210.json"
+max_steps: 5
+allow_unverifiable: false
+fault_rules: []

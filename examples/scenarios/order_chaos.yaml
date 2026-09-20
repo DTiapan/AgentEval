@@ -1,0 +1,17 @@
+id: "scenario-order-chaos-002"
+name: "Order Processing with Transient Payment Gateway Fault"
+description: "Simulate transient payment gateway outage on first call; verify agent performs idempotent retry and completes."
+user_prompt: "Please process payment and complete order ORD-90210 under chaotic network conditions."
+expected_tools:
+  - "charge_payment"
+  - "write_file"
+state_assertions:
+  files_created:
+    - "orders/ORD-90210.json"
+max_steps: 6
+allow_unverifiable: false
+fault_rules:
+  - tool_name: "charge_payment"
+    trigger_occurrence: 1
+    inject_status_code: 503
+    error_message: "Payment service unavailable (503)"

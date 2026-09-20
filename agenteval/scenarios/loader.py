@@ -12,6 +12,11 @@ from agenteval.scenarios.schema import TestScenario
 class ScenarioLoader:
     """Loads and validates test scenario files."""
 
+    @classmethod
+    def from_yaml(cls, file_path: Path) -> TestScenario:
+        """Convenience loader for a single scenario YAML or JSON file."""
+        return cls().load_file(file_path)
+
     def load_file(self, file_path: Path) -> TestScenario:
         """Load a single scenario from a YAML or JSON file."""
         with open(file_path, encoding="utf-8") as f:
@@ -19,7 +24,24 @@ class ScenarioLoader:
 
         state_assertions = None
         if "state_assertions" in data and data["state_assertions"]:
-            state_assertions = StateDiffAssertion(**data["state_assertions"])
+            raw_sa = data["state_assertions"]
+            state_assertions = StateDiffAssertion(
+                expected_files_created=raw_sa.get("expected_files_created")
+                or raw_sa.get("files_created")
+                or [],
+                expected_files_modified=raw_sa.get("expected_files_modified")
+                or raw_sa.get("files_modified")
+                or [],
+                expected_files_deleted=raw_sa.get("expected_files_deleted")
+                or raw_sa.get("files_deleted")
+                or [],
+                expected_db_mutations=raw_sa.get("expected_db_mutations")
+                or raw_sa.get("db_mutations")
+                or [],
+                forbidden_files_modified=raw_sa.get("forbidden_files_modified")
+                or raw_sa.get("forbidden_files")
+                or [],
+            )
 
         fault_rules = []
         if "fault_rules" in data and data["fault_rules"]:

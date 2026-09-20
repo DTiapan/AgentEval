@@ -85,7 +85,7 @@ class VerdictEngine:
         actual_steps = max(1, len(trace.steps))
         trajectory_score = max(0.0, min(1.0, 1.0 - ((actual_steps - 1) / max_possible_steps)))
 
-        return ReliabilityScorecard(
+        scorecard = ReliabilityScorecard(
             outcome_pass=outcome_pass and state_pass and verdict == Verdict.PASS,
             trajectory_score=round(trajectory_score, 2),
             idempotency_score=idemp_result.idempotency_score,
@@ -94,3 +94,5 @@ class VerdictEngine:
             metrics=trace.loop_metrics,
             failure_classes=failure_classes,
         )
+        trace.scorecard = scorecard
+        return scorecard

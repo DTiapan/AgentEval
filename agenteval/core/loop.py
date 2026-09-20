@@ -2,6 +2,7 @@
 
 import time
 import uuid
+from collections.abc import Callable
 
 from agenteval.adapters.base import AgentAdapter
 from agenteval.adapters.tool import ToolAdapter
@@ -26,12 +27,14 @@ class AgentLoopEngine:
         tool_adapter: ToolAdapter | ToolFaultInjector | None = None,
         max_steps: int = 15,
         agent_id: str = "agent-under-test",
+        step_callback: Callable[[StepRecord], None] | None = None,
     ) -> None:
         self.adapter = adapter
         self.sandbox = sandbox
         self.tool_adapter = tool_adapter
         self.max_steps = max_steps
         self.agent_id = agent_id
+        self.step_callback = step_callback
 
     def run(
         self,
@@ -96,6 +99,8 @@ class AgentLoopEngine:
                 latency_ms=round(step_latency, 2),
             )
             steps.append(step_rec)
+            if self.step_callback:
+                self.step_callback(step_rec)
 
             if is_finished or not tool_calls:
                 termination_reason = "COMPLETED"
