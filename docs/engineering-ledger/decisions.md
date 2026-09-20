@@ -12,6 +12,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-003 | Implement FirstUnrecoverableStepScorer for compounding error root-cause attribution (inspired by AgentRx). Ships in v0.2. | Accepted | 2026-09-20 |
 | DR-004 | Implement Real-Time & Interactive Trajectory Replay (`agenteval replay` & live streaming) as a core capability. Enables step-by-step playback, time-travel debugging, jump-to-failure spotlighting, and side-by-side golden vs failing diff. Ships starting in v0.1. | Accepted | 2026-09-20 |
 | DR-005 | Adopt 8-Plane Agent Reliability & Chaos Engineering Architecture. Extends evaluation unit from (Prompt -> Response) to (Agent x Environment x Scenario x FaultPlan). Incorporates ToolFaultInjector, IdempotencyScorer (duplicate_side_effect_rate), and Process Crash/Recovery Harness. | Accepted | 2026-09-20 |
+| DR-006 | Adopt Plane 0 (Agent Contract, Discovery & Requirement Engineering) and Archetype-Driven Metric Segregation with Jev Metric Router. Formalizes PRD-to-Scenario compilation, MCP/OpenAPI auto-introspection, and specialized profiles (Tool, RAG, Code, Support, Swarm). | Accepted | 2026-09-20 |
 
 ---
 

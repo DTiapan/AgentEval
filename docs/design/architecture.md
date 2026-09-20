@@ -246,10 +246,50 @@ sequenceDiagram
 
 ---
 
-## 5. Architectural Trade-offs & Justification
+## 5. Agent Requirement Ingestion & Archetype Metric Segregation
+
+AgentEval does not apply a generic one-size-fits-all evaluation. It segregates requirements and metrics dynamically by **Agent Archetype**:
+
+```
+                       ┌─────────────────────────────────────────┐
+                       │  Agent Contract & Requirements Plane 0  │
+                       └────────────────────┬────────────────────┘
+                                            │
+               ┌────────────────────────────┼────────────────────────────┐
+               ▼                            ▼                            ▼
+      [ PRD / Jira / Spec ]        [ Protocol Introspection ]   [ AgentCard Manifest ]
+      (Compiled via Spec Compiler) (MCP tools/list, OpenAPI)   (agenteval.manifest.yaml)
+               │                            │                            │
+               └────────────────────────────┼────────────────────────────┘
+                                            ▼
+                           ┌─────────────────────────────────┐
+                           │   Jev-Powered Metric Router     │
+                           │   (TypeSafe Archetype Classifier)│
+                           └────────────────┬────────────────┘
+                                            │
+         ┌──────────────────┬───────────────┴───┬──────────────────┬─────────────────┐
+         ▼                  ▼                   ▼                  ▼                 ▼
+   [ Tool-Action ]        [ RAG ]            [ Code ]          [ Support ]       [ Swarm ]
+   - StateDiff (ΔS)    - Faithfulness      - Patch Syntax    - HITL Approval  - Handoff Rate
+   - Idempotency       - Context Precision - Unit Test Delta - PII Leakage    - Deadlock
+   - Chaos Recovery    - Context Recall    - Static Analysis - Safety Rubrics - Redundancy
+   - Loop Bounds       - Hallucination     - File Scope Guard- Tone & Policy  - Agent Bottlenecks
+```
+
+#### Archetype Selection & Metric Profiles:
+1. **Tool-Action Agent**: Evaluated for multi-turn reasoning, schema conformity, loop bounding, idempotent retries, and cryptographic state diffs ($\Delta S$).
+2. **RAG / Knowledge Agent**: Evaluated across the RAG Triad (Faithfulness, Context Precision, Context Recall) and Hallucination Index.
+3. **Coding / Software Engineering Agent**: Evaluated for patch syntax, unit test execution delta, static analysis lints, and forbidden file modifications.
+4. **Enterprise Customer Support Agent**: Evaluated for Human-in-the-loop (HITL) approval compliance before destructive actions, PII protection, and safety guardrails.
+5. **Multi-Agent Swarm**: Evaluated for inter-agent handoff success, message overhead, communication graph efficiency, and agent redundancy.
+
+---
+
+## 6. Architectural Trade-offs & Justification
 
 | Decision | What it Solves | What it Worsens | When to Change |
 |---|---|---|---|
 | **Deterministic State Diffs First, LLM Judge Second** | Eliminates LLM judge hallucination, zero-cost fast rejection, 100% test reproducibility. | Requires test authors to specify expected environment mutations. | For purely creative conversational agents with zero system side-effects. |
 | **Local-First SQLite/DuckDB + OTel Exporters** | Zero cloud dependency, instant CLI startup, works offline and in CI. | Scalability limit on massive petabyte-scale distributed evaluation runs. | When running continuous million-agent evaluation pipelines in Kubernetes (switch to PostgreSQL + ClickHouse). |
 | **Universal Adapter Protocol (BYOA)** | Works with any framework (LangGraph, CrewAI, AutoGen, REST, MCP) with zero code rewrites. | Requires adapter translation layer for custom proprietary schemas. | If an industry-wide single standard agent protocol completely dominates. |
+| **Archetype Metric Segregation via Jev** | Prevents running irrelevant/expensive metrics (e.g. running RAG metrics on a bash agent). | Requires initial archetype classification step. | If an agent is a true general-purpose meta-agent that changes role mid-run. |
