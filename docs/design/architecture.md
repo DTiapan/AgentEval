@@ -225,6 +225,17 @@ sequenceDiagram
 * Clusters failure traces using embedding distance and error taxonomies.
 * Automatically synthesizes minimal reproducible test scenarios with adversarial variations.
 
+### 6. Real-Time & Interactive Replay Subsystem (`agenteval/replay/`)
+* **Real-Time Live Streaming Playback**:
+  - `LiveStreamHub`: Subscribes to execution events via SSE/WebSockets/in-process bus.
+  - Renders live progress cards (thought stream, tool invocation, observation, state mutation) in terminal (`agenteval run --live`) and web viewer.
+* **Interactive Time-Travel Debugger (`agenteval replay <run-id>`)**:
+  - Step-by-step playback with visual timeline scrubber: step forward (`n`), backward (`p`), play/pause (`space`), speed control (0.5x, 1x, 2x, instant).
+  - **Jump-to-Failure**: Instantly fast-forwards to the First Unrecoverable Step or failed assertion.
+  - **State Snapshot Inspector**: Inspects pre/post file and DB state diffs at any point in the trajectory timeline.
+  - **Side-by-Side Dual Replay**: Synchronously plays a passing golden run alongside a failing run, visually pinpointing the exact divergence point.
+  - **Self-Contained Export**: Generates standalone `.html` replay players embeddable in GitHub PRs and CI reports.
+
 ---
 
 ## 5. Architectural Trade-offs & Justification

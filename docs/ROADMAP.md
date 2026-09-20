@@ -82,6 +82,7 @@ AgentEval attacks **six planes** of agent assurance through a single unified pla
 | **4. Hybrid Evaluation Engine** | Score with deterministic checks + optional LLM/Jev judge | Deterministic assertions ($0), Jev System One typed scoring ($0.04/M tokens), calibrated G-Eval/CoT (opt-in) |
 | **5. Continuous Golden Dataset Loop** | Auto-mine failures into regression suites | Production trace ingestion, failure clustering, adversarial synthesis |
 | **6. Observability & CI/CD Quality Gate** | Telemetry, reporting, and PR gating | OTel/OpenInference, flame graphs, CLI exit codes, markdown reports |
+| **7. Real-Time & Interactive Replay** | Replay runs in real-time or step-by-step; jump to exact failure point | `agenteval replay`, Live Streaming Engine, Time-Travel Scrubber, Side-by-Side Diff Player |
 
 ### Verdict Taxonomy (Core Innovation)
 Every evaluation produces one of four explicit verdicts:
@@ -281,19 +282,21 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 |---|---|---|
 | **Core Domain Models** | `Trajectory`, `Step`, `ToolCall`, `Observation`, `EvaluationResult`, `Verdict`, `TestScenario` | `agenteval/core/models.py` |
 | **CallableAdapter** | In-process Python agent execution (LangGraph, CrewAI, any callable) | `agenteval/adapters/callable.py`, `agenteval/adapters/base.py` |
+| **TrajectoryRecorder** | Event-bus capturing high-resolution timestamps, state snapshots, tool arguments, and environment mutations per step | `agenteval/core/recorder.py` |
 | **Scenario Loader** | YAML/JSON test scenario definitions with expected outcomes | `agenteval/scenarios/loader.py`, `agenteval/scenarios/schema.py` |
 | **Basic Sandbox** | Temp directory + SQLite + function call capture | `agenteval/sandbox/local.py` |
 | **ToolSchemaEvaluator** | Validates tool names and arguments against JSON schemas | `agenteval/evaluators/tool_schema.py` |
 | **StateDiffEvaluator** | Compares pre/post environment state (files, DB rows) | `agenteval/evaluators/state_diff.py` |
 | **Verdict Engine** | Aggregates evaluator scores → `PASS` / `FAIL` / `UNVERIFIABLE` | `agenteval/engine/verdict.py` |
-| **CLI Runner** | `agenteval run --scenario tests/` with table output | `agenteval/cli/main.py` |
+| **CLI Runner & Live Stream** | `agenteval run --scenario tests/ [--live]` with real-time streaming step cards | `agenteval/cli/main.py` |
+| **Interactive CLI Replayer** | `agenteval replay <run-id> [--tui \| --web \| --jump-to-fail]` (real-time playback, step navigation, failure spotlight) | `agenteval/cli/replay.py`, `agenteval/tui/replay_player.py` |
 | **Example Agent + Test Suite** | A sample agent with a sample test scenario demonstrating the full loop | `examples/` |
 
 ### What Doesn't Ship (Yet)
 - HTTP, MCP, CLI adapters
 - LLM-as-a-Judge evaluator
 - `ANOMALOUS` verdict (needs efficiency baselines)
-- Web dashboard
+- Web dashboard (dedicated SPA)
 - Production trace ingestion
 - Adversarial dataset generation
 - PR bot / CI reporter
@@ -301,6 +304,9 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 ### Definition of Done
 - [ ] `pip install -e .` works
 - [ ] `agenteval run --scenario examples/scenarios/` executes the sample agent, captures trajectory, asserts tool calls and state diffs, prints verdicts
+- [ ] `agenteval run --live` streams step execution in real time with animated status
+- [ ] `agenteval replay <run-id>` allows interactive step-by-step playback with `n` (next), `p` (prev), `space` (pause/play), and `--jump-to-fail`
+- [ ] `agenteval replay <run-id> --web` launches browser-based trajectory viewer
 - [ ] At least one `PASS`, one `FAIL`, and one `UNVERIFIABLE` example scenario
 - [ ] `pytest tests/` passes with ≥85% coverage on core modules
 - [ ] README with quickstart that a developer can follow in < 5 minutes
@@ -311,7 +317,7 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 | Language | Python 3.11+ | Native to AI/ML ecosystem, every agent framework is Python |
 | **Eval Engine** | **Inspect AI** (MIT) | UK AISI framework — task runner, sandbox, transcript, 200+ benchmarks ([ADR-001](../decisions/ADR-001-build-on-inspect-ai.md)) |
 | Type System | Pydantic v2 + `mypy --strict` | Domain model validation + strict typing |
-| CLI | Typer + Rich (wrapping `inspect eval`) | Beautiful terminal output, extends Inspect's CLI |
+| CLI & TUI | Typer + Rich / Textual | Beautiful terminal output, live streaming, interactive trajectory replayer |
 | Test Runner | pytest | Industry standard, familiar DX |
 | Linting | Ruff | Fast, replaces flake8+isort+black in one tool |
 | Packaging | pyproject.toml + Hatch | Modern Python packaging |
@@ -320,11 +326,9 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 
 ---
 
-## v0.2 — "Multi-Protocol BYOA + StepEfficiency" (Expanding the Blast Radius)
+## v0.2 — "Multi-Protocol BYOA + StepEfficiency + Time-Travel Replay" (Expanding the Blast Radius)
 
-> **Goal**: Support all four agent protocols (HTTP, MCP, CLI, Python callable). Add loop/thrashing detection and the `ANOMALOUS` verdict. Mock HTTP server for API call capture.
->
-> **User Story**: *"My agent is an MCP server. I want to point AgentEval at it and test whether it handles multi-turn conversations correctly without getting stuck in loops."*
+> **Goal**: Support all four agent protocols (HTTP, MCP, CLI, Python callable). Add loop/thrashing detection and the `ANOMALOUS` verdict. Advance replay with Time-Travel Debugging and side-by-side golden vs failed trajectory comparison.
 
 ### What Ships (Incremental on v0.1)
 | Component | Scope |
@@ -335,8 +339,9 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 | **StepEfficiencyEvaluator** | Loop detection (sliding-window hash), token budget enforcement, backtrack scoring |
 | **`ANOMALOUS` Verdict** | Fires when task completes but with concerning efficiency signals |
 | **Mock HTTP Server** | Local proxy that records outgoing API calls for assertion |
-| **Scenario Generators** | Helper utilities to create scenario YAML from existing agent runs (record → replay) |
-| **Rich CLI Output** | Colored trajectory trace display, step-by-step tool call inspection |
+| **Time-Travel Debugger** | Pause at step $k$, inspect exact sandbox filesystem/DB snapshot, fork with modified tool output |
+| **Side-by-Side Dual Replayer** | `agenteval replay <run-id> --diff <golden-id>` playing passing vs failing trajectories synchronously |
+| **Standalone HTML Replay Export** | `agenteval replay <run-id> --export report.html` generating a self-contained web player for PRs |
 
 ### Definition of Done
 - [ ] All four adapters pass integration tests against sample agents
@@ -451,16 +456,16 @@ No version is "just infrastructure." Every version has:
 
 ### 2. Iterative Building (Stack-Ranked Delivery)
 ```
-v0.1: Core models + CallableAdapter + ToolSchema + StateDiff + Verdict + CLI
-  ↓ (working product — can evaluate Python agents)
-v0.2: + HTTP/MCP/CLI adapters + Loop detection + ANOMALOUS + Record/Replay
-  ↓ (working product — can evaluate any agent protocol)
-v0.3: + LLM Judge + OpenShell + OTel tracing + Trace ingestion
-  ↓ (working product — adds subjective eval + security sandbox + observability)
+v0.1: Core models + CallableAdapter + ToolSchema + StateDiff + Verdict + CLI + Live Stream & Replay Player
+  ↓ (working product — can evaluate Python agents and replay execution step-by-step)
+v0.2: + HTTP/MCP/CLI adapters + Loop detection + ANOMALOUS + Time-Travel Replay & Dual Diff Comparison
+  ↓ (working product — can evaluate any agent protocol with time-travel debugging)
+v0.3: + LLM/Jev Judge + OpenShell + OTel tracing + Trace ingestion
+  ↓ (working product — adds fast typed eval + security sandbox + full observability)
 v0.4: + Golden dataset mining + CI/CD gate + PR bot
   ↓ (working product — closes the flywheel loop)
-v0.5: + Web dashboard + Multi-agent swarms + A/B comparison
-  ↓ (working product — adds visual intelligence layer)
+v0.5: + Web dashboard with Interactive Visual Scrubber + Multi-agent swarms + A/B comparison
+  ↓ (working product — adds visual intelligence and swarm coordination layer)
 v1.0: + Plugin system + Enterprise + Compliance + Benchmarks + SDK
   ↓ (production-grade platform)
 ```
