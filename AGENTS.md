@@ -7,7 +7,7 @@ Welcome agent! This file defines repository rules, operating principles, and wor
 - Non-trivial work: read `docs/engineering-ledger/INDEX.md` first.
 - Read `CONSTRAINTS.md` before writing code. Do not weaken it to make a change pass.
 - Route phases and tasks via `using-craft` skill by searching `.agents/skills/` (never produce unvalidated AI slop).
-- **Skill-driven development (required):** Before implementing, post a **Skill declaration** — **phase**, **one primary skill** (read `.agents/skills/<name>/SKILL.md`; route via `using-craft`), **optional overlay** at most one. Enforced in Cursor by [`.cursor/rules/skill-driven-development.mdc`](.cursor/rules/skill-driven-development.mdc). No skill stacking; no unvalidated slop; minimal diffs per `CONSTRAINTS.md`. Say when the slice is done and which skill gates the next step.
+- **Skill-driven development (required):** Before implementing, post a **Skill declaration** — **phase**, **one primary skill** (read `.agents/skills/<name>/SKILL.md`; route via `using-craft`), **optional overlay** at most one (except **UI:** overlay **`ui-ux-pro-max` is mandatory**). Enforced in Cursor by [`.cursor/rules/skill-driven-development.mdc`](.cursor/rules/skill-driven-development.mdc) and [`.cursor/rules/ui-frontend-strict.mdc`](.cursor/rules/ui-frontend-strict.mdc). No skill stacking; no unvalidated slop; minimal diffs per `CONSTRAINTS.md`. Say when the slice is done and which skill gates the next step.
 - Append DR/LL/INDEX before ending substantive sessions.
 - Irreversible forks: ADR in `docs/decisions/` per `documentation-and-adrs`.
 

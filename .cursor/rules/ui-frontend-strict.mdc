@@ -1,0 +1,46 @@
+---
+description: Mandatory frontend-ui-engineering + ui-ux-pro-max for all web/UI work; no skill drift
+globs: web/**,**/*.css,**/*.html
+alwaysApply: false
+---
+
+# AgentEval — UI / frontend (strict, skills-first)
+
+Applies to `web/`, dashboard assets, and any user-facing HTML/CSS/TS UI. **`CONSTRAINTS.md` UI floor is non-negotiable.**
+
+## Before writing or editing UI code
+
+1. Post **Skill declaration** with **Phase** + **`frontend-ui-engineering`** (primary) + **`ui-ux-pro-max`** (required overlay — not optional for UI).
+2. **Read both** `.agents/skills/frontend-ui-engineering/SKILL.md` and `.agents/skills/ui-ux-pro-max/SKILL.md` in full for the slice.
+3. **Detect stack** from `web/package.json` (deps). Record it in the declaration. **Do not assume React/Tailwind** unless deps prove it.
+4. **Run ui-ux-pro-max search** (at least once per slice) before palette/layout decisions:
+
+```bash
+python .agents/skills/ui-ux-pro-max/scripts/search.py "<product + layout intent>" --domain product
+python .agents/skills/ui-ux-pro-max/scripts/search.py "<interaction or a11y>" --domain ux
+# If stack is Tailwind/shadcn/etc., add: --stack html-tailwind (or detected stack)
+```
+
+5. In the same turn, cite **what you applied** from search results (palette, spacing, a11y rule). **No silent improvisation.**
+
+## Repo stack default (unless ledger/ADR changes it)
+
+- **Vite + TypeScript + vanilla CSS** with **semantic tokens** in CSS (`:root` variables), per `docs/ROADMAP.md` (v0.5 dashboard).
+- Adding **React, Tailwind, shadcn, or another UI framework** requires explicit user agreement + ledger note; run ui-ux-pro-max with the matching `--stack`.
+
+## Implementation rules (frontend-ui-engineering)
+
+- **Design tokens only** in stylesheets — no raw hex in `.ts` / `.tsx`.
+- **No `innerHTML` string templates** for app structure; use DOM APIs, small modules, or a framework chosen per stack policy.
+- **No gratuitous inline `style=`** (dynamic values only, sparingly).
+- **States required:** loading, error, empty — not only disabled buttons or toasts.
+- **Accessibility:** labels, focus visible, keyboard path, `prefers-reduced-motion`; verdicts not color-only.
+- **Avoid AI aesthetic** (purple slop, stock card grids, lorem layout) per skill tables.
+
+## Before claiming the UI slice done
+
+Paste the **frontend-ui-engineering Verification** checklist (or equivalent) with pass/fail per item and **how you verified** (e.g. keyboard tab, 320px width).
+
+## Drift = stop
+
+If you have not read both skills and run `search.py` for the slice, **do not commit UI changes** — finish the skill workflow first.
