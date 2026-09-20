@@ -7,6 +7,7 @@ Welcome agent! This file defines repository rules, operating principles, and wor
 - Non-trivial work: read `docs/engineering-ledger/INDEX.md` first.
 - Read `CONSTRAINTS.md` before writing code. Do not weaken it to make a change pass.
 - Route phases and tasks via `using-craft` skill by searching `.agents/skills/` (never produce unvalidated AI slop).
+- **Skill-driven development:** Before implementing, state **phase** (Shape | Spec | ADR | Plan | Build | Verify | …), **one primary skill** (per `using-craft` — do not stack), and **optional overlay** (e.g. `api-and-interface-design` for CLI contracts). Follow that skill’s workflow for the slice; say when the slice is done and which skill gates the next step.
 - Append DR/LL/INDEX before ending substantive sessions.
 - Irreversible forks: ADR in `docs/decisions/` per `documentation-and-adrs`.
 

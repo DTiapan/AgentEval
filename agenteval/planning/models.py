@@ -27,6 +27,24 @@ class MandatoryCategory(StrEnum):
     CRITICAL_INVARIANTS = "critical_invariants"
 
 
+class FailureHypothesis(BaseModel):
+    """Rule-generated failure mode for a single capability (B1 output)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    template_id: str
+    capability_id: str
+    category: str
+    failure_mode: str
+    coverage_tags: list[str] = Field(default_factory=list)
+    mandatory_categories: list[MandatoryCategory] = Field(default_factory=list)
+    expected_behavior: str
+    task_prompt: str = Field(
+        description="Capability-specific user message body (persona framing applied in B2)"
+    )
+    provenance: ProvenanceLayer = Field(default=ProvenanceLayer.HYPOTHESIZED)
+
+
 class CandidateTest(BaseModel):
     """A single generated test candidate (pool member; not necessarily executed)."""
 

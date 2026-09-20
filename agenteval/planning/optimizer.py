@@ -11,6 +11,11 @@ from agenteval.planning.models import (
 )
 
 
+def _scoring_tags(tags: set[str]) -> set[str]:
+    """Tags used for set-cover (persona diversity is not one test per persona tag)."""
+    return {t for t in tags if not t.startswith("persona:")}
+
+
 class TestPackOptimizer:
     """Selects a minimal high-value test pack from a candidate pool."""
 
@@ -39,6 +44,7 @@ class TestPackOptimizer:
         selected: list[CandidateTest] = []
         selected_ids: set[str] = set()
         covered_tags: set[str] = set()
+        covered_scoring: set[str] = set()
         covered_mandatory: set[MandatoryCategory] = set()
 
         def add(test: CandidateTest) -> None:
@@ -47,6 +53,7 @@ class TestPackOptimizer:
             selected.append(test)
             selected_ids.add(test.id)
             covered_tags.update(test.coverage_tags)
+            covered_scoring.update(_scoring_tags(set(test.coverage_tags)))
             covered_mandatory.update(test.mandatory_categories)
 
         # 1. Explicit mandatory flags
@@ -56,7 +63,15 @@ class TestPackOptimizer:
 
         # 2. Mandatory category floor
         applicable = set(config.applicable_mandatory)
-        self._fill_mandatory_gaps(candidates, selected_ids, add, applicable, covered_mandatory)
+        self._fill_mandatory_gaps(
+            candidates,
+            selected_ids,
+            add,
+            applicable,
+            covered_mandatory,
+            max_tests=config.max_tests,
+            current_count=lambda: len(selected),
+        )
 
         # 3. Greedy weighted set cover on coverage tags
         while len(selected) < config.max_tests:
@@ -65,7 +80,7 @@ class TestPackOptimizer:
             for c in candidates:
                 if c.id in selected_ids:
                     continue
-                new_tags = set(c.coverage_tags) - covered_tags
+                new_tags = _scoring_tags(set(c.coverage_tags)) - covered_scoring
                 if not new_tags and not (applicable - covered_mandatory):
                     continue
                 score = sum(config.tag_weights.get(t, 1.0) for t in new_tags) / c.execution_cost
@@ -105,9 +120,11 @@ class TestPackOptimizer:
         add: Callable[[CandidateTest], None],
         applicable: set[MandatoryCategory],
         covered_mandatory: set[MandatoryCategory],
+        max_tests: int,
+        current_count: Callable[[], int],
     ) -> None:
         missing = applicable - covered_mandatory
-        while missing:
+        while missing and current_count() < max_tests:
             best: CandidateTest | None = None
             best_fill = 0
             for c in candidates:
