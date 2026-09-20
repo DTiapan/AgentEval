@@ -25,6 +25,11 @@
 7. [x] Implement CLI integration: `agenteval plan --agent <target>` (preview recommendation) and `agenteval plan --manifest <path>`.
 8. [x] Implement Declarative `AgentCard` schema (`agenteval.manifest.yaml`) for zero-guess enterprise specification.
 9. [x] Write end-to-end integration tests verifying auto-metric recommendation on Tool-Action, RAG, and Support agents.
+10. [x] Implement Agency-Agents persona parser & benchmark corpus (`agenteval/introspect/persona.py`, `examples/agency_personas/`).
+11. [x] Implement Live BYOA `HTTPAdapter` connecting external REST/chat agent endpoints (`agenteval/adapters/http.py`).
+12. [x] Implement TypeSafe AI / Jev Classifier client (`agenteval/recommender/jev_client.py`) with air-gapped local fallback.
+13. [x] Implement Spec-to-Scenario Compiler (`agenteval/scenarios/compiler.py`) auto-deriving test scenarios from personas & PRDs.
+14. [x] Update CLI `plan` and `run` to support `--persona`, `--endpoint`, and `--prd`.
 
 ---
 

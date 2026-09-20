@@ -14,18 +14,24 @@ from rich.panel import Panel
 from rich.table import Table
 
 from agenteval import __version__
+from agenteval.adapters.base import AgentAdapter
 from agenteval.adapters.callable import CallableAdapter
+from agenteval.adapters.http import HTTPAdapter
 from agenteval.adapters.tool import LocalToolAdapter
 from agenteval.core.loop import AgentLoopEngine
-from agenteval.core.manifest import AgentCard
+from agenteval.core.manifest import AgentArchetype, AgentCard
 from agenteval.core.models import StepRecord, ToolCall, Verdict
 from agenteval.engine.verdict import VerdictEngine
 from agenteval.faults.injector import ToolFaultInjector
 from agenteval.introspect.models import AgentDNA, IntrospectedTool
+from agenteval.introspect.persona import PersonaIntrospector
+from agenteval.recommender.jev_client import JevClassifierClient
 from agenteval.recommender.router import MetricRouter
 from agenteval.replay.player import TraceReplayer
 from agenteval.sandbox.local import LocalSandbox
+from agenteval.scenarios.compiler import ScenarioCompiler
 from agenteval.scenarios.loader import ScenarioLoader
+from agenteval.scenarios.schema import TestScenario
 
 app = typer.Typer(
     name="agenteval",
@@ -128,15 +134,74 @@ def plan(
             help="Agent entrypoint (format: 'module:function' or 'path/to/script.py:function')",
         ),
     ] = None,
+    persona_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--persona",
+            "-p",
+            help="Path to an agency-agents markdown persona file",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ] = None,
+    endpoint: Annotated[
+        str | None,
+        typer.Option(
+            "--endpoint",
+            "-e",
+            help="Live HTTP/REST agent endpoint URL (e.g. http://localhost:8000/chat)",
+        ),
+    ] = None,
+    prd_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--prd",
+            help="Path to a functional requirements / PRD markdown file",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ] = None,
 ) -> None:
     """Generate and preview a calibrated evaluation plan for an agent."""
-    if not manifest_path and not agent_spec:
-        console.print("[bold red]Error:[/bold red] Please provide either --manifest or --agent.")
+    if not manifest_path and not agent_spec and not persona_path and not endpoint and not prd_path:
+        console.print(
+            "[bold red]Error:[/bold red] Please provide one of: --persona, --manifest, --prd, --endpoint, or --agent."
+        )
         raise typer.Exit(code=1)
 
-    if manifest_path:
-        card = AgentCard.from_yaml(manifest_path)
+    compiled_scenarios: list[TestScenario] = []
+
+    if persona_path:
+        card = PersonaIntrospector.parse_file(persona_path)
+        jev_res = JevClassifierClient().classify_agent(card)
         plan_obj = MetricRouter().recommend(card)
+        compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
+    elif manifest_path:
+        card = AgentCard.from_yaml(manifest_path)
+        jev_res = JevClassifierClient().classify_agent(card)
+        plan_obj = MetricRouter().recommend(card)
+        compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
+    elif prd_path:
+        prd_text = prd_path.read_text(encoding="utf-8")
+        compiled_scenarios = ScenarioCompiler.compile_from_prd(prd_text, agent_name=prd_path.stem)
+        card = AgentCard(
+            id=prd_path.stem,
+            name=f"PRD Agent ({prd_path.stem})",
+            archetype=AgentArchetype.TOOL_ACTION,
+        )
+        jev_res = JevClassifierClient().classify_agent(card)
+        plan_obj = MetricRouter().recommend(card)
+    elif endpoint:
+        card = AgentCard(
+            id=f"endpoint:{endpoint}",
+            name=f"HTTP Agent ({endpoint})",
+            archetype=AgentArchetype.TOOL_ACTION,
+        )
+        jev_res = JevClassifierClient().classify_agent(card)
+        plan_obj = MetricRouter().recommend(card)
+        compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
     else:
         assert agent_spec is not None
         try:
@@ -153,6 +218,12 @@ def plan(
             )
             plan_obj = MetricRouter().recommend(dna)
             plan_obj.agent_id = agent_spec
+            card = AgentCard(
+                id=agent_spec,
+                name=agent_spec,
+                archetype=plan_obj.primary_archetype,
+            )
+            jev_res = JevClassifierClient().classify_agent(card)
         except Exception as e:
             console.print(f"[bold red]Failed to inspect agent '{agent_spec}':[/bold red] {e}")
             raise typer.Exit(code=1) from None
@@ -162,7 +233,9 @@ def plan(
         Panel(
             f"[bold]Target Agent:[/bold] [cyan]{plan_obj.agent_id}[/cyan]\n"
             f"[bold]Classified Archetype:[/bold] [bold magenta]{plan_obj.primary_archetype.value}[/bold magenta] "
-            f"([dim]Confidence: {plan_obj.confidence * 100:.0f}%[/dim])",
+            f"([dim]Confidence: {plan_obj.confidence * 100:.0f}%[/dim])\n"
+            f"[bold]Intelligence Layer:[/bold] [yellow]{jev_res.source}[/yellow] "
+            f"([dim]Risk Tier: {jev_res.risk_level.upper()}[/dim])",
             title="🎯 AgentEval Metric Recommender Plan",
             border_style="cyan",
         )
@@ -199,11 +272,22 @@ def plan(
             f_table.add_row(f"⚡ {f_sug}")
         console.print(Panel(f_table, border_style="red"))
 
+    if compiled_scenarios:
+        s_table = Table(title="Dynamically Compiled Test Scenarios (Plane 0)", box=None)
+        s_table.add_column("Scenario ID", style="bold cyan")
+        s_table.add_column("Name", style="bold")
+        s_table.add_column("Fault Rules", style="red")
+        s_table.add_column("Max Steps", justify="right")
+        for sc in compiled_scenarios:
+            fault_desc = f"{len(sc.fault_rules)} rules" if sc.fault_rules else "None (Happy Path)"
+            s_table.add_row(sc.id, sc.name, fault_desc, str(sc.max_steps))
+        console.print(Panel(s_table, border_style="cyan"))
+
 
 @app.command("run")
 def run(
     scenario_path: Annotated[
-        Path,
+        Path | None,
         typer.Option(
             "--scenario",
             "-s",
@@ -212,7 +296,36 @@ def run(
             dir_okay=False,
             readable=True,
         ),
-    ],
+    ] = None,
+    persona_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--persona",
+            "-p",
+            help="Path to an agency-agents markdown persona file (auto-compiles scenarios)",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ] = None,
+    prd_path: Annotated[
+        Path | None,
+        typer.Option(
+            "--prd",
+            help="Path to a PRD requirements file (auto-compiles scenarios)",
+            exists=True,
+            dir_okay=False,
+            readable=True,
+        ),
+    ] = None,
+    endpoint: Annotated[
+        str | None,
+        typer.Option(
+            "--endpoint",
+            "-e",
+            help="Live HTTP/REST agent endpoint URL (e.g. http://localhost:8000/chat)",
+        ),
+    ] = None,
     agent_spec: Annotated[
         str | None,
         typer.Option(
@@ -246,12 +359,35 @@ def run(
     ] = None,
 ) -> None:
     """Execute a scenario against an agent in a sealed sandbox with fault injection."""
-    # 1. Load Scenario
-    try:
-        scenario = ScenarioLoader.from_yaml(scenario_path)
-    except Exception as e:
-        console.print(f"[bold red]Failed to load scenario:[/bold red] {e}")
-        raise typer.Exit(code=1) from None
+    # 1. Resolve Scenario
+    if scenario_path:
+        try:
+            scenario = ScenarioLoader.from_yaml(scenario_path)
+        except Exception as e:
+            console.print(f"[bold red]Failed to load scenario:[/bold red] {e}")
+            raise typer.Exit(code=1) from None
+    elif persona_path:
+        scenarios = ScenarioCompiler.compile_from_persona(persona_path)
+        if not scenarios:
+            console.print(
+                "[bold red]No executable scenarios could be compiled from persona.[/bold red]"
+            )
+            raise typer.Exit(code=1)
+        scenario = scenarios[0]
+    elif prd_path:
+        prd_text = prd_path.read_text(encoding="utf-8")
+        scenarios = ScenarioCompiler.compile_from_prd(prd_text, agent_name=prd_path.stem)
+        if not scenarios:
+            console.print(
+                "[bold red]No executable scenarios could be compiled from PRD.[/bold red]"
+            )
+            raise typer.Exit(code=1)
+        scenario = scenarios[0]
+    else:
+        console.print(
+            "[bold red]Error:[/bold red] Please provide either --scenario, --persona, or --prd."
+        )
+        raise typer.Exit(code=1)
 
     console.print(
         Panel(
@@ -276,7 +412,6 @@ def run(
     # 3. Setup Tools & Fault Injection
     tool_adapter = LocalToolAdapter()
 
-    # Register default built-in sandbox tools
     def builtin_write_file(filename: str, content: str) -> dict[str, Any]:
         dest = sb_path / filename
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -292,25 +427,32 @@ def run(
     tool_adapter.register("write_file", builtin_write_file)
     tool_adapter.register("read_file", builtin_read_file)
 
-    # 4. Resolve Agent Callable & Custom Tools
-    agent_fn: Callable[[str, list[StepRecord]], tuple[str | None, list[ToolCall], bool]]
-    resolved_spec = agent_spec
-    if not resolved_spec:
-        # Default simple echo agent for testing if none provided
+    # 4. Resolve Agent Adapter (HTTP vs In-process Callable)
+    adapter: AgentAdapter
+    agent_id: str
+
+    if endpoint:
+        adapter = HTTPAdapter(endpoint_url=endpoint, agent_id=f"http-agent ({endpoint})")
+        agent_id = f"endpoint:{endpoint}"
+    elif agent_spec:
+        try:
+            agent_fn, custom_tools = _load_agent_callable(agent_spec)
+            for t_name, t_fn in custom_tools.items():
+                tool_adapter.register(t_name, t_fn)
+            adapter = CallableAdapter(agent_fn=agent_fn)
+            agent_id = agent_spec
+        except Exception as e:
+            console.print(f"[bold red]Failed to load agent '{agent_spec}':[/bold red] {e}")
+            raise typer.Exit(code=1) from None
+    else:
+
         def fallback_agent(
             prompt: str, history: list[StepRecord]
         ) -> tuple[str | None, list[ToolCall], bool]:
             return "Task completed with default echo agent", [], True
 
-        agent_fn = fallback_agent
-    else:
-        try:
-            agent_fn, custom_tools = _load_agent_callable(resolved_spec)
-            for t_name, t_fn in custom_tools.items():
-                tool_adapter.register(t_name, t_fn)
-        except Exception as e:
-            console.print(f"[bold red]Failed to load agent '{resolved_spec}':[/bold red] {e}")
-            raise typer.Exit(code=1) from None
+        adapter = CallableAdapter(agent_fn=fallback_agent)
+        agent_id = "default-echo-agent"
 
     # Wrap with Fault Injector if scenario specifies rules
     injector = ToolFaultInjector(target_adapter=tool_adapter, rules=scenario.fault_rules)
@@ -319,13 +461,12 @@ def run(
     replayer = TraceReplayer(console=console)
     step_cb = replayer.render_step_live if live else None
 
-    adapter = CallableAdapter(agent_fn=agent_fn)
     engine = AgentLoopEngine(
         adapter=adapter,
         sandbox=sandbox,
         tool_adapter=injector,
         max_steps=scenario.max_steps,
-        agent_id=agent_spec or "default-echo-agent",
+        agent_id=agent_id,
         step_callback=step_cb,
     )
 
