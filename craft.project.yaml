@@ -1,0 +1,6 @@
+craft_version: "0.2.3"
+profiles:
+  - all
+ledger_path: docs/engineering-ledger
+adr_path: docs/decisions
+manifest_ref: DTiapan/craft craft.manifest.yaml

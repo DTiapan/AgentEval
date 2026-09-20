@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AgentEval — System Architecture & Execution Lifecycle</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      background: #020617;
+      min-height: 100vh;
+      padding: 2rem;
+      color: #f8fafc;
+    }
+    .container {
+      max-width: 1380px;
+      margin: 0 auto;
+    }
+    .header {
+      margin-bottom: 2rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .header-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .pulse-dot {
+      width: 12px;
+      height: 12px;
+      background: #22d3ee;
+      border-radius: 50%;
+      box-shadow: 0 0 12px #22d3ee;
+      animation: pulse 2s infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .subtitle {
+      color: #94a3b8;
+      font-size: 0.9rem;
+    }
+    .nav-tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+      border-bottom: 1px solid #1e293b;
+      padding-bottom: 0.5rem;
+    }
+    .tab-btn {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: 0.5rem 1rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+    .tab-btn:hover {
+      background: #1e293b;
+      color: #f8fafc;
+    }
+    .tab-btn.active {
+      background: #0284c7;
+      color: #ffffff;
+      border-color: #38bdf8;
+      box-shadow: 0 0 10px rgba(56, 189, 248, 0.4);
+    }
+    .tab-content {
+      display: none;
+    }
+    .tab-content.active {
+      display: block;
+    }
+    .diagram-card {
+      background: rgba(15, 23, 42, 0.7);
+      backdrop-filter: blur(12px);
+      border-radius: 1rem;
+      border: 1px solid #1e293b;
+      padding: 2rem;
+      overflow-x: auto;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+      min-width: 900px;
+    }
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 1.25rem;
+      margin-top: 2rem;
+    }
+    .card {
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 0.75rem;
+      border: 1px solid #1e293b;
+      padding: 1.25rem;
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+    .card-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .card-dot.cyan { background: #22d3ee; box-shadow: 0 0 8px #22d3ee; }
+    .card-dot.emerald { background: #34d399; box-shadow: 0 0 8px #34d399; }
+    .card-dot.violet { background: #a78bfa; box-shadow: 0 0 8px #a78bfa; }
+    .card-dot.amber { background: #fbbf24; box-shadow: 0 0 8px #fbbf24; }
+    .card-dot.rose { background: #fb7185; box-shadow: 0 0 8px #fb7185; }
+    .card h3 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #f1f5f9;
+    }
+    .card p, .card li {
+      font-size: 0.85rem;
+      color: #94a3b8;
+      line-height: 1.5;
+    }
+    .card ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    .card li {
+      margin-bottom: 0.4rem;
+    }
+    .toolbar {
+      display: flex;
+      gap: 0.5rem;
+    }
+    .action-btn {
+      background: #1e293b;
+      color: #e2e8f0;
+      border: 1px solid #334155;
+      padding: 0.4rem 0.8rem;
+      border-radius: 0.4rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.2s;
+    }
+    .action-btn:hover {
+      background: #334155;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div>
+        <div class="header-row">
+          <div class="pulse-dot"></div>
+          <h1>AgentEval: Production Architecture</h1>
+        </div>
+        <p class="subtitle">Trajectory-First AI Agent Assurance & Bring-Your-Own-Agent (BYOA) Evaluation Platform</p>
+      </div>
+      <div class="toolbar">
+        <button class="action-btn" onclick="window.print()">🖨️ Print / PDF</button>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="switchTab('arch')">1. System Architecture Map</button>
+      <button class="tab-btn" onclick="switchTab('seq')">2. Execution Lifecycle Sequence</button>
+      <button class="tab-btn" onclick="switchTab('specs')">3. Core Subsystems & Invariants</button>
+    </div>
+
+    <!-- Tab 1: System Architecture Map -->
+    <div id="tab-arch" class="tab-content active">
+      <div class="diagram-card">
+        <div class="mermaid">
+graph TB
+    subgraph Triggers["1. Triggers & CI/CD Layer"]
+        CLI["AgentEval CLI (agenteval run)"]
+        CI["GitHub Actions / CI Pipeline"]
+        WebUI["Assurance Dashboard (Vite / Vanilla CSS)"]
+    end
+
+    subgraph AUT["2. Pluggable Agent Under Test (AUT)"]
+        AgentHTTP["HTTP / REST Webhook Agent"]
+        AgentMCP["Model Context Protocol (MCP) Agent"]
+        AgentPython["Python Callable (LangGraph, CrewAI, AutoGen, AGY)"]
+        AgentCLI["CLI / Subprocess Binary"]
+    end
+
+    subgraph Adapters["3. Universal BYOA Adapter Hub"]
+        AdapterHub["Universal Adapter Router"]
+        HTTPAdp["HTTP Adapter"]
+        MCPAdp["MCP Client Adapter"]
+        CallableAdp["Python Callable Adapter"]
+        CLIAdp["Subprocess Adapter"]
+    end
+
+    subgraph ExecutionEngine["4. Trajectory Execution & Sandbox Engine"]
+        ScenarioRunner["Scenario Driver & Multi-Turn Coordinator"]
+        StepMonitor["Step Monitor & Loop/Thrashing Guard"]
+        OTelEmitter["OpenTelemetry / OpenInference Span Collector"]
+        EphemeralSandbox["Ephemeral Isolation Sandbox (Local / Docker / SQLite)"]
+        StateObserver["Environment State Inspector (Files, DB, API Mock Records)"]
+    end
+
+    subgraph EvaluatorMesh["5. Hybrid Evaluator Mesh"]
+        DeterministicEval["Deterministic Assertions Engine"]
+        ToolSchemaEval["Tool Schema & Parameter Validator"]
+        StateDiffEval["Sealed Execution State Diff Assertor"]
+        StepEfficiencyEval["Loop & Token Efficiency Scorer"]
+        LLMJudge["Calibrated LLM-as-a-Judge (Rubric + CoT)"]
+    end
+
+    subgraph ContinuousLoop["6. Continuous Assurance & Golden Dataset Loop"]
+        VerdictEngine["Verdict Engine (PASS | FAIL | UNVERIFIABLE | ANOMALOUS)"]
+        ProductionTraceIngest["Production Telemetry Ingest (Langfuse, Phoenix, OTel)"]
+        FailureClusterMiner["Failure & Edge-Case Cluster Miner"]
+        GoldenStore[("Golden Dataset Repository & Versioned Baselines")]
+        Reporter["PR Markdown Summary & Flame Graph Generator"]
+    end
+
+    %% Trigger Connections
+    CLI --> ScenarioRunner
+    CI --> ScenarioRunner
+    WebUI --> ScenarioRunner
+
+    %% AUT to Adapter
+    AgentHTTP --> HTTPAdp
+    AgentMCP --> MCPAdp
+    AgentPython --> CallableAdp
+    AgentCLI --> CLIAdp
+    HTTPAdp --> AdapterHub
+    MCPAdp --> AdapterHub
+    CallableAdp --> AdapterHub
+    CLIAdp --> AdapterHub
+
+    %% Adapter to Execution
+    ScenarioRunner <--> AdapterHub
+    ScenarioRunner --> StepMonitor
+    ScenarioRunner --> EphemeralSandbox
+    AdapterHub --> EphemeralSandbox
+    EphemeralSandbox --> StateObserver
+    StepMonitor --> OTelEmitter
+
+    %% Execution to Evaluators
+    StateObserver --> StateDiffEval
+    StepMonitor --> ToolSchemaEval
+    StepMonitor --> StepEfficiencyEval
+    ScenarioRunner --> LLMJudge
+
+    StateDiffEval --> DeterministicEval
+    ToolSchemaEval --> DeterministicEval
+    StepEfficiencyEval --> DeterministicEval
+
+    DeterministicEval --> VerdictEngine
+    LLMJudge --> VerdictEngine
+
+    %% Verdict to Dataset Loop & Reporting
+    VerdictEngine --> Reporter
+    ProductionTraceIngest --> FailureClusterMiner
+    FailureClusterMiner --> GoldenStore
+    GoldenStore --> ScenarioRunner
+    VerdictEngine -.->|Auto-curate novel failures| GoldenStore
+    Reporter --> CLI
+    Reporter --> CI
+    Reporter --> WebUI
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 2: Execution Lifecycle Sequence -->
+    <div id="tab-seq" class="tab-content">
+      <div class="diagram-card">
+        <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant DevCI as Developer / CI Runner
+    participant Driver as Scenario Runner
+    participant Gold as Golden Dataset Store
+    participant Adapter as BYOA Agent Adapter
+    participant AUT as Agent-Under-Test
+    participant Sandbox as Ephemeral Sandbox
+    participant Evaluator as Hybrid Evaluator Mesh
+    participant Verdict as Verdict & Gate Engine
+
+    DevCI->>Driver: Run Test Suite (e.g. regression-suite, gate >= 0.95)
+    Driver->>Gold: Fetch versioned test scenarios & environment baseline
+    Gold-->>Driver: Returns scenarios with initial state & expected outcomes
+    
+    Driver->>Sandbox: Provision fresh ephemeral sandbox (DB, files, mock APIs)
+    Sandbox-->>Driver: Sandbox Ready (State Snapshot A)
+
+    loop Multi-Turn Trajectory (until task complete or max step budget)
+        Driver->>Adapter: Dispatch Input / Turn Request
+        Adapter->>AUT: Invoke Agent (HTTP / MCP / Python / CLI)
+        AUT-->>Adapter: Tool Call Request (name, arguments)
+        Adapter->>Sandbox: Execute Tool Call in isolated environment
+        Sandbox-->>Adapter: Observation (Tool Output)
+        Adapter-->>AUT: Return Observation
+        AUT-->>Adapter: Next thought / Final message
+    end
+
+    Driver->>Sandbox: Freeze Sandbox & capture State Snapshot B
+    Sandbox-->>Driver: Snapshot B (File diffs, DB mutations, network calls)
+
+    Driver->>Evaluator: Submit Trajectory + State Diffs (Snapshot A vs B)
+    
+    Note over Evaluator: 1. Deterministic schema & parameter validation<br/>2. Loop & thrashing detection<br/>3. Sealed environment state diff assertion<br/>4. Calibrated LLM-as-a-Judge (CoT reasoning)
+
+    Evaluator-->>Verdict: Evaluation Scores & Evidence Receipts
+    Verdict->>Verdict: Compute final verdict: PASS | FAIL | UNVERIFIABLE | ANOMALOUS
+    
+    alt Failure or Anomalous behavior detected
+        Verdict->>Gold: Auto-mine failure trace & enqueue into regression suite
+    end
+
+    Verdict-->>DevCI: Return exit code (0 or 1), flame graph, and PR markdown table
+        </div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Core Subsystems & Invariants -->
+    <div id="tab-specs" class="tab-content">
+      <div class="cards">
+        <div class="card">
+          <div class="card-header"><div class="card-dot cyan"></div><h3>1. Universal BYOA Adapter Hub</h3></div>
+          <ul>
+            <li>• <strong>Zero code changes:</strong> Drop-in adapter interfaces for HTTP/REST, MCP, Python callables (LangGraph, CrewAI, AutoGen, AGY), and CLI subprocesses.</li>
+            <li>• <strong>Streaming Support:</strong> Normalized token, tool-call, and state event bus.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-dot emerald"></div><h3>2. Ephemeral Sandbox & State Diffs</h3></div>
+          <ul>
+            <li>• <strong>Sealed Execution Proof:</strong> Captures pre/post environmental state (SQLite, filesystem, mock HTTP calls).</li>
+            <li>• <strong>Anti-Self-Report:</strong> Never trusts an agent saying "I wrote the file" without verifying bytes on disk.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-dot violet"></div><h3>3. Hybrid Evaluator Mesh</h3></div>
+          <ul>
+            <li>• <strong>Fast-Path Deterministic ($0):</strong> Parameter schema checks, loop/thrashing guards, exact state diff assertions.</li>
+            <li>• <strong>Smart-Path LLM-as-a-Judge:</strong> Chain-of-Thought scoring for subjective criteria and goal completion.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-dot rose"></div><h3>4. Verdict & CI Quality Gate</h3></div>
+          <ul>
+            <li>• <strong>Explicit Verdicts:</strong> <code>PASS</code>, <code>FAIL</code>, <code>UNVERIFIABLE</code> (no quiet passes), or <code>ANOMALOUS</code> (token waste/looping).</li>
+            <li>• <strong>PR Gating:</strong> Native CLI exit codes with Markdown regression reports.</li>
+          </ul>
+        </div>
+        <div class="card">
+          <div class="card-header"><div class="card-dot amber"></div><h3>5. Continuous Golden Dataset Loop</h3></div>
+          <ul>
+            <li>• <strong>Auto-Mining:</strong> Automatically extracts production failure traces from OpenTelemetry/Phoenix into regression suites.</li>
+            <li>• <strong>Adversarial Perturbation:</strong> Synthesizes edge cases, schema corruptions, and injection tests.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- Summary Cards -->
+    <div class="cards">
+      <div class="card">
+        <div class="card-header"><div class="card-dot cyan"></div><h3>Bring Your Own Agent (BYOA)</h3></div>
+        <p>Decouples agent design from evaluation infrastructure. Connect once via standard adapters, run anywhere (local CLI, CI, Cloud).</p>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot emerald"></div><h3>Trajectory-First Assurance</h3></div>
+        <p>Evaluates every step: <code>Thought → Tool Call → Observation → Side-Effect</code>. Early flaws and toxic backtrack loops are flagged immediately.</p>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot rose"></div><h3>Zero-Vibes Verification</h3></div>
+        <p>Deterministic environment state diffs ($\Delta S = S_{post} - S_{pre}$) guarantee hard proof before any test can pass.</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true,
+        background: '#0f172a',
+        primaryColor: '#0284c7',
+        primaryTextColor: '#f8fafc',
+        primaryBorderColor: '#38bdf8',
+        lineColor: '#64748b',
+        secondaryColor: '#064e3b',
+        tertiaryColor: '#4c1d95',
+        fontFamily: 'JetBrains Mono, monospace'
+      }
+    });
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+      
+      if (tabId === 'arch') {
+        document.querySelector('.tab-btn:nth-child(1)').classList.add('active');
+        document.getElementById('tab-arch').classList.add('active');
+      } else if (tabId === 'seq') {
+        document.querySelector('.tab-btn:nth-child(2)').classList.add('active');
+        document.getElementById('tab-seq').classList.add('active');
+      } else if (tabId === 'specs') {
+        document.querySelector('.tab-btn:nth-child(3)').classList.add('active');
+        document.getElementById('tab-specs').classList.add('active');
+      }
+    }
+  </script>
+</body>
+</html>
