@@ -30,7 +30,7 @@
 
 **Regression contract:** `suite run` must never call generation/optimizer unless user passed an explicit regenerate/extend flag.
 
-**Spec drift ([DR-011](decisions.md#active-index)):** Each test stores `capability_id` / coverage tags. On `suite sync` after spec update: **remove** tests for dropped capabilities (archive + changelog); **extend** for new capabilities only—no full silent regen.
+**Spec drift ([DR-011](decisions.md#active-index)):** Each test stores `capability_id` / coverage tags. On `suite sync` after spec update: **remove** tests for dropped capabilities (archive + changelog); **extend** for new capabilities only—no full silent regen. **Shipped:** `agenteval suite sync` (`suite_sync.py`).
 
 ### Phase B — Later (v0.3+)
 
@@ -39,8 +39,8 @@
 10. [ ] **B6** — Metric applicability on `MetricRouter` + pack.
 11. [ ] **B8 (full)** — Risk map, metric rationale, efficiency dashboards in CLI/reports.
 12. [ ] **B8 (report)** — Allure-class HTML run report from `SuiteRunReport` + pack (hierarchy, drill-down, attachments); optional `suite report` / open in browser; shared evidence schema with dashboard—not JUnit/CSV flat exports.
-12. [ ] **B9** — Inspect AI plan compiler (AP-002 step 6).
-13. [ ] **Optional** — LLM hypothesis expansion; HYPOTHESIZED provenance layer; MCP/CLI black-box ingress.
+13. [ ] **B9** — Inspect AI plan compiler (AP-002 step 6).
+14. [ ] **Optional** — LLM hypothesis expansion; HYPOTHESIZED provenance layer; MCP/CLI black-box ingress.
 
 ### References
 

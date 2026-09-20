@@ -8,6 +8,7 @@ from agenteval.planning.models import (
     CandidateTest,
     SuiteManifest,
     SuiteRunReport,
+    SuiteSyncChangelog,
     TestPack,
 )
 
@@ -75,6 +76,49 @@ class SuiteStore:
         if not path.exists():
             return None
         return SuiteRunReport.model_validate_json(path.read_text(encoding="utf-8"))
+
+    def apply_sync(
+        self,
+        agent_id: str,
+        manifest: SuiteManifest,
+        pool: list[CandidateTest],
+        pack: TestPack,
+        changelog: SuiteSyncChangelog,
+    ) -> None:
+        """Persist pruned/extended suite and append changelog (DR-011)."""
+        directory = self.agent_dir(agent_id)
+        if not directory.exists():
+            raise FileNotFoundError(f"No suite at {directory}")
+
+        archive_dir = directory / "archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        if changelog.archived_tests:
+            archive_path = archive_dir / f"pruned_v{changelog.suite_version}.json"
+            archive_path.write_text(changelog.model_dump_json(indent=2), encoding="utf-8")
+
+        changelog_path = directory / "sync_changelog.jsonl"
+        with changelog_path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                json.dumps(
+                    {
+                        "suite_version": changelog.suite_version,
+                        "timestamp": changelog.timestamp,
+                        "requirements_fingerprint": changelog.requirements_fingerprint,
+                        "removed_capabilities": changelog.removed_capabilities,
+                        "added_capabilities": changelog.added_capabilities,
+                        "removed_test_ids": changelog.removed_test_ids,
+                    }
+                )
+                + "\n"
+            )
+
+        (directory / "suite.manifest.json").write_text(
+            manifest.model_dump_json(indent=2), encoding="utf-8"
+        )
+        (directory / "candidate_pool.json").write_text(
+            json.dumps([t.model_dump() for t in pool], indent=2), encoding="utf-8"
+        )
+        (directory / "test_pack.json").write_text(pack.model_dump_json(indent=2), encoding="utf-8")
 
     @staticmethod
     def new_manifest(

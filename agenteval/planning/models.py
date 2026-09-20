@@ -189,3 +189,17 @@ class SuiteManifest(BaseModel):
     requirements_fingerprint: str
     created_at: str
     endpoint_profile: str = Field(default="", description="URL pattern without secrets")
+
+
+class SuiteSyncChangelog(BaseModel):
+    """Recorded prune/extend event for audit (DR-011)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    suite_version: int
+    timestamp: str
+    requirements_fingerprint: str
+    removed_capabilities: list[str] = Field(default_factory=list)
+    added_capabilities: list[str] = Field(default_factory=list)
+    removed_test_ids: list[str] = Field(default_factory=list)
+    archived_tests: list[CandidateTest] = Field(default_factory=list)

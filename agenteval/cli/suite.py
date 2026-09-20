@@ -12,6 +12,7 @@ from agenteval.planning.blackbox_runner import BlackboxRunner
 from agenteval.planning.bootstrap import SuiteBootstrap
 from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.suite_store import SuiteExistsError, SuiteStore
+from agenteval.planning.suite_sync import SuiteSynchronizer
 
 suite_app = typer.Typer(
     name="suite",
@@ -120,3 +121,48 @@ def suite_run(
         console.print("[dim]Previous run comparison: use runs/*.json for full diff[/dim]")
 
     raise typer.Exit(code=0 if report.failed == 0 else 1)
+
+
+@suite_app.command("sync")
+def suite_sync(
+    agent_id: Annotated[str, typer.Option("--agent-id", "-a", help="Agent id from frozen suite")],
+    manifest: Annotated[
+        Path,
+        typer.Option("--manifest", "-m", exists=True, dir_okay=False, readable=True),
+    ],
+    prd: Annotated[
+        Path | None,
+        typer.Option("--prd", exists=True, dir_okay=False, readable=True),
+    ] = None,
+    max_tests: Annotated[int, typer.Option("--max-tests", min=1, max=50)] = 10,
+    suite_root: Annotated[Path, typer.Option("--suite-root")] = Path(".agenteval/suites"),
+) -> None:
+    """Prune tests for removed capabilities; extend pool for new ones (DR-011)."""
+    card = AgentCard.from_yaml(manifest)
+    store = SuiteStore(suite_root)
+    syncer = SuiteSynchronizer(max_tests=max_tests)
+    try:
+        result = syncer.sync(store, agent_id, card, manifest, prd)
+    except FileNotFoundError:
+        console.print(
+            f"[bold red]No suite for '{agent_id}'. Run `agenteval suite init` first.[/bold red]"
+        )
+        raise typer.Exit(code=1) from None
+    except ValueError as exc:
+        console.print(f"[bold red]Error:[/bold red] {exc}")
+        raise typer.Exit(code=1) from None
+
+    if result.noop:
+        console.print("[green]Suite already matches manifest[/green] (fingerprint and capabilities).")
+        raise typer.Exit(code=0)
+
+    console.print(
+        f"[green]Suite synced[/green] v{result.previous_version} → v{result.new_version} "
+        f"(fingerprint {result.requirements_fingerprint})"
+    )
+    if result.removed_capabilities:
+        console.print(f"  [yellow]Pruned capabilities:[/yellow] {result.removed_capabilities}")
+        console.print(f"  [dim]Removed {len(result.removed_test_ids)} tests (archived)[/dim]")
+    if result.added_capabilities:
+        console.print(f"  [cyan]Added capabilities:[/cyan] {result.added_capabilities}")
+    console.print(f"  pool: {result.pool_size} tests | pack: {result.pack_size} tests")
