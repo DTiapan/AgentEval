@@ -11,6 +11,8 @@ from agenteval.core.manifest import AgentCard
 from agenteval.planning.blackbox_runner import BlackboxRunner
 from agenteval.planning.bootstrap import SuiteBootstrap
 from agenteval.planning.coverage import CoverageMapper
+from agenteval.planning.run_diff import SuiteRunDiff, diff_suite_runs
+from agenteval.planning.run_diff_render import render_run_diff
 from agenteval.planning.suite_store import SuiteExistsError, SuiteStore
 from agenteval.planning.suite_sync import SuiteSynchronizer
 
@@ -96,11 +98,24 @@ def suite_run(
         console.print("[bold red]Endpoint missing; pass --endpoint[/bold red]")
         raise typer.Exit(code=1)
 
+    previous_run = store.load_latest_run(agent_id)
+
     runner = BlackboxRunner(endpoint_url=url)
     report = runner.run_pack(pack)
     pool = store.load_pool(agent_id)
     coverage = CoverageMapper().report(pool, pack.tests)
     report.coverage_report = coverage
+
+    if previous_run is not None:
+        run_diff = diff_suite_runs(previous_run, report)
+        if run_diff is not None:
+            report.run_diff = run_diff.model_dump(mode="json")
+        elif previous_run.suite_version != report.suite_version:
+            console.print(
+                "[yellow]Skipping verdict diff:[/yellow] suite version changed "
+                f"(v{previous_run.suite_version} → v{report.suite_version})."
+            )
+
     store.save_run(agent_id, report)
 
     table = Table(title=f"Suite run {report.run_id} (v{report.suite_version})")
@@ -115,10 +130,11 @@ def suite_run(
         f"\nSummary: {report.passed} passed, {report.failed} failed, "
         f"{report.unverifiable} unverifiable (rule-based, no LLM judge)"
     )
+    if coverage.critical_uncovered:
+        console.print(f"[yellow]Coverage gaps:[/yellow] {coverage.critical_uncovered}")
 
-    prev = store.load_latest_run(agent_id)
-    if prev and prev.run_id != report.run_id:
-        console.print("[dim]Previous run comparison: use runs/*.json for full diff[/dim]")
+    if report.run_diff:
+        render_run_diff(console, SuiteRunDiff.model_validate(report.run_diff))
 
     raise typer.Exit(code=0 if report.failed == 0 else 1)
 

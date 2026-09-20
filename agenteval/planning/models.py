@@ -177,6 +177,10 @@ class SuiteRunReport(BaseModel):
     failed: int = 0
     unverifiable: int = 0
     coverage_report: CoverageReport | None = None
+    run_diff: dict[str, Any] | None = Field(
+        default=None,
+        description="Serialized SuiteRunDiff vs previous run on same suite version",
+    )
 
 
 class SuiteManifest(BaseModel):

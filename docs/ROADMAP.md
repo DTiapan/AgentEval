@@ -435,7 +435,7 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 
 - [ ] `agenteval plan --prd <file> --endpoint <url>` shows `candidate_count` ≫ `selected_count`, mandatory tests listed, coverage **preview** on the pack, and limitations section
 - [ ] `agenteval suite init` generates once and persists pack; second `init` without `--force-new-version` refuses to overwrite
-- [ ] `agenteval suite run` executes **saved** tests only (no regeneration) and reports what broke vs previous/baseline run
+- [x] `agenteval suite run` executes **saved** tests only (no regeneration) and reports what broke vs **previous** run (pinned baseline: v0.3)
 - [ ] Optimizer unit tests: redundant candidates dropped; mandatory auth/injection tests retained when agent handles sensitive actions
 - [ ] Black-box run never claims internal DB/state proof without external probe
 - [ ] `pytest` covers B0, B4, B5 with fixture pools (no LLM required for CI)
