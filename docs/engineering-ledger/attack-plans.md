@@ -16,15 +16,15 @@
 - **Goal**: Implement Plane 0 (Agent Contract & Discovery) and the 4-layer Metric Recommender Pipeline. Standardize Universal Core (Group A) vs Domain-Specific (Group B) metrics, integrate MCP/OpenAPI auto-introspection, formalize `AgentCard` manifests, and introduce Jev-powered dynamic evaluation plan generation (`agenteval plan`).
 
 ### Steps
-1. [ ] Define Universal Core Metric Invariants (Group A: Loop bounds, thrashing detection, deterministic proof vs unverifiable, token/latency budgets) enforced across 100% of runs.
-2. [ ] Define Domain-Specific Metric Profiles (Group B: Tool-Action, RAG Triad, Coding, Enterprise Support, Swarm).
-3. [ ] Implement Layer 1 (Signal Ingestion & DNA Extractor): extract tools, schemas, and intent from MCP (`tools/list`), OpenAPI specs, and Python frameworks.
-4. [ ] Implement Layer 2 (Jev Archetype Classifier): fast typed Bayesian/probabilistic classifier returning structured `AgentArchetype` and capabilities.
-5. [ ] Implement Layer 3 (Metric Policy & Matrix Resolver): merge Group A with resolved Group B profiles into an execution plan.
+1. [x] Define Universal Core Metric Invariants (Group A: Loop bounds, thrashing detection, deterministic proof vs unverifiable, token/latency budgets) enforced across 100% of runs.
+2. [x] Define Domain-Specific Metric Profiles (Group B: Tool-Action, RAG Triad, Coding, Enterprise Support, Swarm).
+3. [x] Implement Layer 1 (Signal Ingestion & DNA Extractor): extract tools, schemas, and intent from MCP (`tools/list`), OpenAPI specs, and Python frameworks.
+4. [x] Implement Layer 2 (Jev Archetype Classifier): fast typed Bayesian/probabilistic classifier returning structured `AgentArchetype` and capabilities.
+5. [x] Implement Layer 3 (Metric Policy & Matrix Resolver): merge Group A with resolved Group B profiles into an execution plan.
 6. [ ] Implement Layer 4 (Inspect AI Plan Compiler): compile resolved plan into executable Inspect AI tasks with calibrated scorers and fault plans.
-7. [ ] Implement CLI integration: `agenteval plan --agent <target>` (preview recommendation) and `agenteval run --auto-plan`.
-8. [ ] Implement Declarative `AgentCard` schema (`agenteval.manifest.yaml`) for zero-guess enterprise specification.
-9. [ ] Write end-to-end integration tests verifying auto-metric recommendation on Tool-Action, RAG, and Support agents.
+7. [x] Implement CLI integration: `agenteval plan --agent <target>` (preview recommendation) and `agenteval plan --manifest <path>`.
+8. [x] Implement Declarative `AgentCard` schema (`agenteval.manifest.yaml`) for zero-guess enterprise specification.
+9. [x] Write end-to-end integration tests verifying auto-metric recommendation on Tool-Action, RAG, and Support agents.
 
 ---
 
