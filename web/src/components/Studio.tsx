@@ -321,29 +321,10 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
   const currentTest: CandidateTest | undefined =
     optimizedPack?.tests?.[activeTestIndex];
 
-  const generatedTypeScriptCode = currentTest
-    ? `// Auto-generated AgentEval Test Spec
-// ID: ${currentTest.id}
-// Capability: ${currentTest.capability_id}
-// Persona: ${currentTest.persona_id}
-
-import { test, expect } from "@agenteval/core";
-
-test("${currentTest.id}", async ({ agent }) => {
-  // 1. Send targeted input prompt
-  const response = await agent.send({
-    message: ${JSON.stringify(currentTest.user_prompt)},
-  });
-
-  // 2. Assert observable invariant criteria
-  expect(response.status).toBe(200);
-  expect(response).toSatisfyInvariant({
-    criterion: ${JSON.stringify(currentTest.expected_behavior)},
-    category: "${currentTest.category}",
-    mandatory: ${currentTest.is_mandatory},
-  });
-});`
-    : `// No test selected. Generate or select a test candidate from above tabs.`;
+  /** Frozen/preview pack test — same JSON shape as GET /v1/suites (no fictional TS harness). */
+  const testCaseJson = currentTest
+    ? JSON.stringify(currentTest, null, 2)
+    : "{\n  \"message\": \"Select a test case to view engine CandidateTest JSON.\"\n}";
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
@@ -541,7 +522,7 @@ test("${currentTest.id}", async ({ agent }) => {
                 <div className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30" />
                 <div className="h-2.5 w-2.5 rounded-full bg-muted-foreground/30" />
                 <span className="ml-2 font-mono text-xs text-muted-foreground">
-                  {terminalViewMode === "monaco" ? "test-spec.ts" : "test-pack.yaml"}
+                  {terminalViewMode === "monaco" ? "test-case.json" : "test-inspector"}
                 </span>
               </div>
 
@@ -567,10 +548,10 @@ test("${currentTest.id}", async ({ agent }) => {
                         ? "bg-muted text-foreground font-semibold shadow-xs"
                         : "text-muted-foreground hover:text-foreground"
                     }`}
-                    title="Monaco Code Editor View"
+                    title="Raw CandidateTest JSON from API"
                   >
                     <Code2 className="h-3 w-3" />
-                    <span>Monaco (TS)</span>
+                    <span>JSON</span>
                   </button>
                 </div>
 
@@ -637,8 +618,8 @@ test("${currentTest.id}", async ({ agent }) => {
                   <div className="flex-1 overflow-y-auto p-5">
                     {terminalViewMode === "monaco" ? (
                       <CodeViewer
-                        code={generatedTypeScriptCode}
-                        language="typescript"
+                        code={testCaseJson}
+                        language="json"
                         height="320px"
                         readOnly={true}
                       />
