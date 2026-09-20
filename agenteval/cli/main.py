@@ -19,13 +19,15 @@ from agenteval.adapters.callable import CallableAdapter
 from agenteval.adapters.http import HTTPAdapter
 from agenteval.adapters.tool import LocalToolAdapter
 from agenteval.core.loop import AgentLoopEngine
-from agenteval.core.manifest import AgentArchetype, AgentCard
+from agenteval.core.manifest import AgentCard
 from agenteval.core.models import StepRecord, ToolCall, Verdict
 from agenteval.engine.verdict import VerdictEngine
 from agenteval.faults.injector import ToolFaultInjector
-from agenteval.introspect.models import AgentDNA, IntrospectedTool
 from agenteval.introspect.persona import PersonaIntrospector
+from agenteval.personas.registry import PersonaCandidate
+from agenteval.personas.synthesizer import PersonaSynthesizer
 from agenteval.recommender.jev_client import JevClassifierClient
+from agenteval.recommender.persona_selector import JevPersonaSelector
 from agenteval.recommender.router import MetricRouter
 from agenteval.replay.player import TraceReplayer
 from agenteval.sandbox.local import LocalSandbox
@@ -172,6 +174,7 @@ def plan(
         raise typer.Exit(code=1)
 
     compiled_scenarios: list[TestScenario] = []
+    matched_personas: list[tuple[PersonaCandidate, bool]] = []
 
     if persona_path:
         card = PersonaIntrospector.parse_file(persona_path)
@@ -185,20 +188,34 @@ def plan(
         compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
     elif prd_path:
         prd_text = prd_path.read_text(encoding="utf-8")
-        compiled_scenarios = ScenarioCompiler.compile_from_prd(prd_text, agent_name=prd_path.stem)
-        card = AgentCard(
-            id=prd_path.stem,
-            name=f"PRD Agent ({prd_path.stem})",
-            archetype=AgentArchetype.TOOL_ACTION,
-        )
+        selector = JevPersonaSelector()
+        cands = selector.select_personas(context=prd_text, limit=3)
+        synthesizer = PersonaSynthesizer()
+        for cand in cands:
+            c_card, is_cached = synthesizer.get_or_synthesize(cand, agent_context=prd_text)
+            matched_personas.append((cand, is_cached))
+
+        primary_cand = cands[0]
+        card, _ = synthesizer.get_or_synthesize(primary_cand, agent_context=prd_text)
+        card.id = prd_path.stem
         jev_res = JevClassifierClient().classify_agent(card)
         plan_obj = MetricRouter().recommend(card)
+        compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
     elif endpoint:
-        card = AgentCard(
-            id=f"endpoint:{endpoint}",
-            name=f"HTTP Agent ({endpoint})",
-            archetype=AgentArchetype.TOOL_ACTION,
+        selector = JevPersonaSelector()
+        cands = selector.select_personas(context=f"HTTP Endpoint: {endpoint}", limit=3)
+        synthesizer = PersonaSynthesizer()
+        for cand in cands:
+            c_card, is_cached = synthesizer.get_or_synthesize(
+                cand, agent_context=f"HTTP Endpoint: {endpoint}"
+            )
+            matched_personas.append((cand, is_cached))
+
+        primary_cand = cands[0]
+        card, _ = synthesizer.get_or_synthesize(
+            primary_cand, agent_context=f"HTTP Endpoint: {endpoint}"
         )
+        card.id = f"endpoint:{endpoint}"
         jev_res = JevClassifierClient().classify_agent(card)
         plan_obj = MetricRouter().recommend(card)
         compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
@@ -206,24 +223,20 @@ def plan(
         assert agent_spec is not None
         try:
             fn, tools = _load_agent_callable(agent_spec)
-            dna = AgentDNA(
-                prompt_intent=getattr(fn, "__doc__", None),
-                tools=[
-                    IntrospectedTool(
-                        name=t_name,
-                        description=getattr(t_fn, "__doc__", None),
-                    )
-                    for t_name, t_fn in tools.items()
-                ],
-            )
-            plan_obj = MetricRouter().recommend(dna)
-            plan_obj.agent_id = agent_spec
-            card = AgentCard(
-                id=agent_spec,
-                name=agent_spec,
-                archetype=plan_obj.primary_archetype,
-            )
+            context = getattr(fn, "__doc__", agent_spec) or agent_spec
+            selector = JevPersonaSelector()
+            cands = selector.select_personas(context=context, tools=list(tools.keys()), limit=3)
+            synthesizer = PersonaSynthesizer()
+            for cand in cands:
+                c_card, is_cached = synthesizer.get_or_synthesize(cand, agent_context=context)
+                matched_personas.append((cand, is_cached))
+
+            primary_cand = cands[0]
+            card, _ = synthesizer.get_or_synthesize(primary_cand, agent_context=context)
+            card.id = agent_spec
             jev_res = JevClassifierClient().classify_agent(card)
+            plan_obj = MetricRouter().recommend(card)
+            compiled_scenarios = ScenarioCompiler.compile_scenarios(card)
         except Exception as e:
             console.print(f"[bold red]Failed to inspect agent '{agent_spec}':[/bold red] {e}")
             raise typer.Exit(code=1) from None
@@ -271,6 +284,20 @@ def plan(
         for f_sug in plan_obj.fault_suggestions:
             f_table.add_row(f"⚡ {f_sug}")
         console.print(Panel(f_table, border_style="red"))
+
+    if matched_personas:
+        p_table = Table(title="🎯 Dynamic Persona Synthesis (Jev On-The-Fly Matching)", box=None)
+        p_table.add_column("Persona Name", style="bold cyan")
+        p_table.add_column("Domain", style="dim")
+        p_table.add_column("Archetype", style="magenta")
+        p_table.add_column("Status", style="bold")
+        p_table.add_column("Description")
+        for cand, is_cached in matched_personas:
+            status_badge = "[green]CACHED[/green]" if is_cached else "[yellow]SYNTHESIZED[/yellow]"
+            p_table.add_row(
+                cand.name, cand.domain, cand.archetype.value, status_badge, cand.description
+            )
+        console.print(Panel(p_table, border_style="cyan"))
 
     if compiled_scenarios:
         s_table = Table(title="Dynamically Compiled Test Scenarios (Plane 0)", box=None)
@@ -376,16 +403,64 @@ def run(
         scenario = scenarios[0]
     elif prd_path:
         prd_text = prd_path.read_text(encoding="utf-8")
-        scenarios = ScenarioCompiler.compile_from_prd(prd_text, agent_name=prd_path.stem)
+        selector = JevPersonaSelector()
+        cands = selector.select_personas(context=prd_text, limit=1)
+        synthesizer = PersonaSynthesizer()
+        card, is_cached = synthesizer.get_or_synthesize(cands[0], agent_context=prd_text)
+        scenarios = ScenarioCompiler.compile_scenarios(card)
         if not scenarios:
             console.print(
                 "[bold red]No executable scenarios could be compiled from PRD.[/bold red]"
             )
             raise typer.Exit(code=1)
         scenario = scenarios[0]
+        status_str = "[green]CACHED[/green]" if is_cached else "[yellow]SYNTHESIZED[/yellow]"
+        console.print(
+            f"[dim]Auto-selected Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
+        )
+    elif endpoint:
+        selector = JevPersonaSelector()
+        cands = selector.select_personas(context=f"HTTP Endpoint: {endpoint}", limit=1)
+        synthesizer = PersonaSynthesizer()
+        card, is_cached = synthesizer.get_or_synthesize(
+            cands[0], agent_context=f"HTTP Endpoint: {endpoint}"
+        )
+        scenarios = ScenarioCompiler.compile_scenarios(card)
+        if not scenarios:
+            console.print(
+                "[bold red]No executable scenarios could be compiled from auto-selected persona.[/bold red]"
+            )
+            raise typer.Exit(code=1)
+        scenario = scenarios[0]
+        status_str = "[green]CACHED[/green]" if is_cached else "[yellow]SYNTHESIZED[/yellow]"
+        console.print(
+            f"[dim]Auto-selected Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
+        )
+    elif agent_spec:
+        try:
+            fn, tools = _load_agent_callable(agent_spec)
+            context = getattr(fn, "__doc__", agent_spec) or agent_spec
+            selector = JevPersonaSelector()
+            cands = selector.select_personas(context=context, tools=list(tools.keys()), limit=1)
+            synthesizer = PersonaSynthesizer()
+            card, is_cached = synthesizer.get_or_synthesize(cands[0], agent_context=context)
+            scenarios = ScenarioCompiler.compile_scenarios(card)
+            if not scenarios:
+                console.print(
+                    "[bold red]No executable scenarios could be compiled from agent.[/bold red]"
+                )
+                raise typer.Exit(code=1)
+            scenario = scenarios[0]
+            status_str = "[green]CACHED[/green]" if is_cached else "[yellow]SYNTHESIZED[/yellow]"
+            console.print(
+                f"[dim]Auto-selected Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
+            )
+        except Exception as e:
+            console.print(f"[bold red]Failed to inspect agent '{agent_spec}':[/bold red] {e}")
+            raise typer.Exit(code=1) from None
     else:
         console.print(
-            "[bold red]Error:[/bold red] Please provide either --scenario, --persona, or --prd."
+            "[bold red]Error:[/bold red] Please provide either --scenario, --persona, --prd, --endpoint, or --agent."
         )
         raise typer.Exit(code=1)
 

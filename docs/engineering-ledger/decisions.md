@@ -14,6 +14,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-005 | Adopt 8-Plane Agent Reliability & Chaos Engineering Architecture. Extends evaluation unit from (Prompt -> Response) to (Agent x Environment x Scenario x FaultPlan). Incorporates ToolFaultInjector, IdempotencyScorer (duplicate_side_effect_rate), and Process Crash/Recovery Harness. | Accepted | 2026-09-20 |
 | DR-006 | Adopt Plane 0 (Agent Contract, Discovery & Requirement Engineering) and Archetype-Driven Metric Segregation with Jev Metric Router. Formalizes PRD-to-Scenario compilation, MCP/OpenAPI auto-introspection, and specialized profiles (Tool, RAG, Code, Support, Swarm). | Accepted | 2026-09-20 |
 | DR-007 | Ingest Agency-Agents Persona Corpus, Support Live HTTP BYOA Endpoints, and Integrate TypeSafe AI / Jev Typed Classification with Air-Gapped Fallback. Eliminates metric selection friction by deriving evaluation suites, invariants, and chaos fault plans directly from persona/PRD specs. | Accepted | 2026-09-20 |
+| DR-008 | On-the-Fly Dynamic Persona Synthesis, Jev Selection & Local Disk Caching. Maintain a 35+ candidate persona catalog across Engineering, SRE, Security, Data, and Support. Select top matching personas with sub-50ms typed Jev inference, synthesize complete persona specifications on the fly, and persist in `.agenteval/personas/{slug}.md` for zero-latency reuse. | Accepted | 2026-09-20 |
 
 
 ---

@@ -30,6 +30,7 @@
 12. [x] Implement TypeSafe AI / Jev Classifier client (`agenteval/recommender/jev_client.py`) with air-gapped local fallback.
 13. [x] Implement Spec-to-Scenario Compiler (`agenteval/scenarios/compiler.py`) auto-deriving test scenarios from personas & PRDs.
 14. [x] Update CLI `plan` and `run` to support `--persona`, `--endpoint`, and `--prd`.
+15. [x] Implement dynamic on-the-go persona synthesis (`agenteval/personas/synthesizer.py`), Jev persona selector (`agenteval/recommender/persona_selector.py`), 35+ curated persona taxonomy (`agenteval/personas/registry.py`), and local disk caching (`.agenteval/personas/`).
 
 ---
 
