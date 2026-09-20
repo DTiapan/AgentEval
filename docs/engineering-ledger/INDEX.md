@@ -7,15 +7,17 @@
 
 ## Current focus
 
-Bootstrapping AgentEval — an enterprise-grade, trajectory-first AI Agent Assurance and Quality Engineering platform. Completed v0.1 Core Engine implementation (Slices 0 through 7) with 37 tests (92.22% coverage), interactive CLI runner, sealed local sandbox, tool fault injector, idempotency scoring, and timeline scrubber replayer.
+**Black-box test intelligence** ([ADR-003](../decisions/ADR-003-black-box-test-intelligence-pipeline.md), [design spec](../design/black-box-test-intelligence-pipeline.md), [AP-003](attack-plans.md#ap-003-black-box-test-intelligence-pipeline-v02v03)) is the north-star product: optimize minimal high-value packs from spec + endpoint, with honest coverage/limitations. v0.1 harness (sandbox, faults, replay) remains as opt-in **`harness`** profile. Plane 0 work (personas, metric router, `agenteval plan`) continues under AP-002; AP-003 owns optimization, coverage, and black-box execution slices B0–B9.
 
 ## Open attack plan
 
+- [AP-003: Black-Box Test Intelligence Pipeline (v0.2 → v0.3)](attack-plans.md#ap-003-black-box-test-intelligence-pipeline-v02v03)
 - [AP-002: Agent Contract Protocol, Introspection & Metric Recommender Pipeline (v0.2)](attack-plans.md#ap-002-agent-contract-protocol-introspection--metric-recommender-pipeline-v02)
 - [AP-001: Platform Architecture, Pluggable BYOA Harness & Trajectory Assurance Engine](attack-plans.md#ap-001-platform-architecture-pluggable-byoa-harness--trajectory-assurance-engine) (completed)
 
 ## Recent sessions
 
+- **2026-09-20 (session 9)**: **Black-Box Test Intelligence — product architecture & incremental roadmap** ([ADR-003](../decisions/ADR-003-black-box-test-intelligence-pipeline.md), [DR-009](decisions.md#active-index), [AP-003](attack-plans.md#ap-003-black-box-test-intelligence-pipeline-v02v03)). Documented full pipeline, dual profiles, slices B0–B9. **Must-have vs later:** v0.2 scoped to HTTP black-box MVP (B0–B2, B4, B5 report-only, B7–B8); v0.3+ gets B3, gap automation, B6/B9, harness/MCP expansion. Docs-only.
 - **2026-09-20 (session 8)**: **Dynamic Persona Synthesis, 5-Tier Stack Ranking & LiteLLM Gateway** ([ADR-002](../decisions/ADR-002-dynamic-persona-synthesis-litellm.md), [AP-002](attack-plans.md#ap-002-agent-contract-protocol-introspection--metric-recommender-pipeline-v02)). Eliminated static persona maintenance in favor of on-the-fly dynamic persona discovery powered by LiteLLM (100+ providers). Personas are stack-ranked across 5 operational tiers (Frequent Users, Power Users, Adversaries, Novice, Security Auditors) with `--top-personas` windowing to eliminate evaluation bloat. Delivered local disk caching in `.agenteval/personas/`, updated CLI reporting, formalized ADR-002, and updated product roadmap sequence. 83 passed tests with 90.46% coverage and clean `mypy --strict`.
 - **2026-09-20 (session 7)**: **Plane 0 & Archetype Metric Recommender Pipeline Formulated** ([DR-006](decisions.md#active-index), [AP-002](attack-plans.md#ap-002-agent-contract-protocol-introspection--metric-recommender-pipeline-v02)). Formalized the two-group evaluation taxonomy: Group A (Universal Core enforced on 100% of agents) and Group B (Domain-Specific Metrics: Tool, RAG, Code, Support, Swarm). Designed 4-layer Metric Recommender Pipeline: Signal Ingestion → Jev Archetype Classifier → Profile Matrix Resolver → Inspect AI Plan Compiler. Updated ROADMAP.md (9 planes), architecture.md (Section 5), and attack-plans.md with AP-002.
 - **2026-09-20 (session 6)**: **v0.1 Core Engine & CLI Implementation Completed (Slices 0 → 7)**. Delivered all 8 vertical slices in full adherence to `CONSTRAINTS.md`:
@@ -38,6 +40,7 @@ Bootstrapping AgentEval — an enterprise-grade, trajectory-first AI Agent Assur
 - [**Idea Refinement One-Pager (Shape Gate)**](../ideas/agent-assurance-platform.md)
 - [**Product Roadmap (v0.1→v1.0)**](../ROADMAP.md)
 - [Architecture & System Design](../design/architecture.md)
+- [**Black-Box Test Intelligence Pipeline**](../design/black-box-test-intelligence-pipeline.md)
 - [Interactive Architecture Diagram](../design/architecture.html)
 - [Constraints & Quality Floor](../../CONSTRAINTS.md)
 - [Phases & Quality Gates](phases.md)

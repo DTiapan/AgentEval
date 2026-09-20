@@ -10,6 +10,7 @@ Last reviewed: 2026-09-20 by @craft
 - **No Unimplemented Stubs**: No `throw new Error("TODO")`, `pass` placeholders in production logic, or empty `catch {}` blocks.
 - **No Suppression Comments**: No `@ts-ignore`, `eslint-disable`, `# noqa`, or `# type: ignore` without an approved exception.
 - **Deterministic Evidence over Self-Report**: Evaluators must assert actual environment state diffs (DB rows, file writes, HTTP calls) and never rely solely on an agent's self-generated claim. If proof is missing, label as `UNVERIFIABLE`.
+- **Black-Box vs Harness Profiles** ([ADR-003](docs/decisions/ADR-003-black-box-test-intelligence-pipeline.md)): In **`harness`** profile, sealed ΔS and tool interception apply. In **`blackbox`** profile (default for enterprise endpoint eval), assert only **observable** endpoint evidence; report **UNTESTABLE** for internal state (e.g. DB consistency) unless the customer provides an external probe. Never conflate the two in verdict copy.
 
 ## 2. Enforced Engineering Dimensions
 

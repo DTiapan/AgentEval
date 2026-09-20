@@ -76,7 +76,7 @@ AgentEval attacks **nine planes** of agent assurance, requirement engineering, a
 
 | Plane | What It Covers | Key Components |
 |---|---|---|
-| **0. Agent Contract, Discovery & Requirements** | Auto-discover tools, ingest natural language PRDs, dynamically synthesize stack-ranked personas (LiteLLM), manage `AgentCard` manifests | DynamicPersonaGenerator (LiteLLM + 5-Tier Stack-Ranking), PRD-to-Scenario Compiler, MCP/OpenAPI Auto-Introspector, Declarative `AgentCard` Manifest, Behavioral Invariant Miner |
+| **0. Agent Contract, Discovery & Requirements** | Auto-discover tools, ingest natural language PRDs, dynamically synthesize stack-ranked personas (LiteLLM), manage `AgentCard` manifests, **black-box test pack intelligence** (understand → hypothesize → optimize → coverage) | DynamicPersonaGenerator (LiteLLM + 5-Tier Stack-Ranking), PRD-to-Scenario Compiler, MCP/OpenAPI Auto-Introspector, Declarative `AgentCard` Manifest, **Agent Test Model (DECLARED / INFERRED / HYPOTHESIZED)**, **Candidate Test Pool + Set-Cover Optimizer**, **Multi-Axis Coverage & Gap Loop** ([design spec](design/black-box-test-intelligence-pipeline.md)) |
 | **1. Pluggable Agent Interface (BYOA)** | Connect any agent (in-process, HTTP, MCP, CLI) with zero code changes | `HTTPAdapter`, `MCPAdapter`, `CallableAdapter`, `CLIAdapter` |
 | **2. Trajectory & Agent Loop Verification** | Validate the multi-turn loop, iteration limits, thrashing, and tool sequences | `ToolSequenceEvaluator`, `StepEfficiencyEvaluator`, Loop/Thrashing Guard |
 | **3. Sandbox & Side-Effect Proof** | Execute tools in isolation, capture state diffs ($\Delta S$), assert mutations | Ephemeral sandbox (local → OpenShell/Docker), `StateDiffEvaluator` |
@@ -97,6 +97,70 @@ Different agents require completely different assurance lenses. AgentEval segreg
 | **Coding / Patch Agent** (e.g. SWE-bench, Bug fixer) | Repo modifications, unit test execution, diff generation | Planes 2, 3, 5 | `PatchSyntaxValidator`, `UnitTestDeltaScorer` (tests passed before vs after), `StaticAnalysisScorer` (lint/type clean), `FileMutationScopeGuard` |
 | **Enterprise Support Agent** (e.g. Customer Care, Account Help) | Conversational, policy-bound, auth checks, human handoff | Planes 0, 4, 5, 8 | `HITLPolicyEvaluator` (escalates before irreversible actions), `PIILeakageScorer`, `ToneEmpathyRubric`, `SafetyGuardrailCompliance` |
 | **Multi-Agent Swarm** (e.g. Planner + Coder + Reviewer) | Inter-agent delegation, message routing, shared memory | Planes 2, 6, 8 | `HandoffSuccessRate`, `DeadlockDetector`, `InterAgentRedundancyScorer`, `MessageVolumeCostBreakdown` |
+
+## Black-Box Test Intelligence (Must-Have vs Later)
+
+> **Decision:** [ADR-003](decisions/ADR-003-black-box-test-intelligence-pipeline.md) — Full north-star spec: [black-box-test-intelligence-pipeline.md](design/black-box-test-intelligence-pipeline.md) (includes [test generation strategy](design/black-box-test-intelligence-pipeline.md#test-generation-strategy): rules-first pool, optional LLM for personas/understanding, optimizer selects pack). Checklist: [AP-003](engineering-ledger/attack-plans.md#ap-003-black-box-test-intelligence-pipeline-v02v03).
+
+**Product moat (unchanged):** Smallest high-value test pack—not “generate and run everything.” **Must-have** ships a credible black-box loop; **later** deepens risk, metrics, automation, and harness breadth without blocking the MVP.
+
+### Must-have — v0.2 Black-Box MVP
+
+Minimum story: *spec + HTTP endpoint → candidate pool → optimized pack → run → coverage summary + limitations.*
+
+| Slice | What ships | Why must-have |
+|-------|------------|---------------|
+| **B0** | `AgentTestModel`, `CandidateTest`, coverage tags, **DECLARED / INFERRED** provenance | Shared language for plan + run |
+| **B1** | **Rule-based** failure hypotheses (templates per capability; no LLM required) | Pool generation without cost explosion |
+| **B2** | Candidate pool: capability × hypothesis × **bounded personas** (reuse `--top-personas`, not full combinatorics) | Separates pool from execution |
+| **B4** | Mandatory security **floor** (when applicable) + **greedy set cover**; pool ≫ pack stats | Core differentiator |
+| **B5 (MVP)** | **Post-run coverage map** + **critical uncovered** list (report only; no auto regen) | Honest coverage without gap automation |
+| **B7** | `blackbox` profile + `ObservationBundle` on **`HTTPAdapter`** | Enterprise default path |
+| **B8 (MVP)** | `agenteval plan` → pool/pack preview; **`suite init`** (generate once + persist); **`suite run`** (regression, no regen) | End-to-end CLI + frozen suite ([DR-010](engineering-ledger/decisions.md#active-index)) |
+
+**MVP user outputs (subset of full §16 spec):**
+
+| Output | MVP |
+|--------|-----|
+| Agent test profile (with provenance) | ✓ |
+| Optimized test pack | ✓ |
+| Execution results (observable) | ✓ |
+| Coverage (key axes: capability, persona, failure-mode, security) | ✓ |
+| Confidence / limitations (`UNTESTABLE`, no false ΔS claims) | ✓ |
+| Full risk map, metric rationale deck, automated gap re-test | Later |
+
+```mermaid
+flowchart TD
+    IN["PRD / AgentCard + endpoint"]
+    B0["B0 Models"]
+    B1["B1 Rule hypotheses"]
+    B2["B2 Candidate pool"]
+    B4["B4 Optimize pack"]
+    B7["B7 HTTP blackbox run"]
+    B5["B5 Coverage report"]
+    OUT["Pack + results + limitations"]
+
+    IN --> B0 --> B1 --> B2 --> B4 --> B7 --> B5 --> OUT
+```
+
+### Later — after Black-Box MVP
+
+| Slice / theme | When | Notes |
+|---------------|------|-------|
+| **B3** | v0.3 | Full configurable risk dimensions (impact, likelihood, exposure, …)—MVP uses simple priority weights inside B4 |
+| **B5 (full)** | v0.3 | **Gap loop:** targeted new candidates → re-optimize (incremental pack extension) |
+| **Suite prune** ([DR-011](engineering-ledger/decisions.md#active-index)) | v0.3 (`suite sync`); tags in v0.2 | Drop/archive tests when capability **removed** from spec; extend only for new caps |
+| **B6** | v0.3 | Metric applicability on model + pack; trim `MetricRouter` to observable scorers only |
+| **B9** | v0.3 | Inspect AI plan compiler (`@task` / scorers)—after `ObservationBundle` is stable |
+| **B8 (full)** | v0.3+ | Rich CLI/report: risk map, metric “why selected,” efficiency dashboards |
+| **LLM hypothesis expansion** | v0.3+ | Optional LiteLLM-generated failure modes beyond rule templates |
+| **HYPOTHESIZED** provenance layer | v0.3+ | Explicit hypothesis objects in Agent Test Model (MVP can tag via candidate metadata) |
+| **Non-HTTP protocols** (MCP, CLI adapters) | v0.3+ | Black-box MVP is **HTTP-only**; harness + other adapters stay separate |
+| **Harness reliability** (crash recovery, context pressure, advanced faults, $pass^k$, replay export) | v0.3+ | Valuable for **harness** profile; not required to prove black-box pack value |
+
+**Harness profile (v0.1, opt-in):** `LocalSandbox`, `ToolFaultInjector`, `StateDiffEvaluator`—for in-process BYOA; not part of Black-Box MVP.
+
+---
 
 ### Verdict Taxonomy (Core Innovation)
 Every evaluation produces one of four explicit verdicts:
@@ -346,44 +410,54 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 
 ---
 
-## v0.2 — "Multi-Protocol BYOA + Crash-Recovery + Context Pressure + Time-Travel Replay" (Expanding the Blast Radius)
+## v0.2 — "Black-Box Test Pack MVP"
 
-> **Goal**: Support all four agent protocols (HTTP, MCP, CLI, Python callable). Add process crash & checkpoint recovery testing, context pressure degradation, advanced tool chaos, and non-deterministic variance ($pass^k$).
+> **Goal:** Ship the **must-have** black-box loop on **HTTP only**: spec + endpoint → candidate pool → optimized pack → run → coverage report + limitations ([ADR-003](decisions/ADR-003-black-box-test-intelligence-pipeline.md)). Reuse existing Plane 0 pieces (`AgentCard`, PRD, `DynamicPersonaGenerator`, `HTTPAdapter`, `agenteval plan` preview) where they already exist.
 
-### What Ships (Incremental on v0.1)
+### Must ship (v0.2)
+
 | Component | Scope |
 |---|---|
-| **DynamicPersonaGenerator** | On-the-fly persona discovery, 5-tier operational stack-ranking (frequent users → edge cases → adversaries), and `--top-personas` windowing via LiteLLM |
-| **LiteLLMGateway** | Multi-vendor LLM provider gateway for dynamic synthesis, scenario generation, and LLM judge rubrics across 100+ model providers |
-| **ProtocolAutoIntrospector** | Auto-discovers exposed tool catalogs and Pydantic/JSON schemas via MCP (`tools/list`) and REST (`/openapi.json`) |
-| **DeclarativeAgentCard** | Standardized `agenteval.manifest.yaml` format for declaring agent intent, required sandbox dependencies, and invariants |
-| **AssuranceProfileRouter** | Automatically selects metric profiles based on agent archetype (Tool-Action, RAG, Code, Enterprise Support) |
-| **HTTPAdapter** | Connect to any REST/webhook agent endpoint |
-| **MCPAdapter** | Native MCP client (stdio + SSE transport) |
-| **CLIAdapter** | Subprocess agent execution with stdin/stdout capture |
-| **CrashRecoveryHarness** | Simulates process crashes (`SIGKILL` after Step $k$), restarts from checkpoint, asserts state consistency and zero duplicate irreversible side-effects |
-| **ContextPressureInjector** | Tests context window degradation, history truncation, and contradictory context; measures `critical_fact_retention` |
-| **Advanced Tool Faults** | Injects HTTP 429 rate-limiting with `Retry-After`, malformed JSON, partial/empty responses, and delayed tool responses |
-| **NonDeterminismEvaluator** | Evaluates outcome distributions over $N$ repeated runs; measures $pass^k$ (reliability floor) alongside $pass@k$ (capability ceiling) |
-| **StepEfficiencyEvaluator** | Loop detection (sliding-window hash), token budget enforcement, backtrack scoring |
-| **`ANOMALOUS` Verdict** | Fires when task completes but with concerning efficiency signals or excessive retries |
-| **Mock HTTP Server** | Local proxy that records outgoing API calls for assertion |
-| **Time-Travel Debugger** | Pause at step $k$, inspect exact sandbox filesystem/DB snapshot, fork with modified tool output |
-| **Side-by-Side Dual Replayer** | `agenteval replay <run-id> --diff <golden-id>` playing passing vs failing trajectories synchronously |
-| **Standalone HTML Replay Export** | `agenteval replay <run-id> --export report.html` generating a self-contained web player for PRs |
+| **B0 — Planning models** | `AgentTestModel`, `CandidateTest`, coverage tags, DECLARED / INFERRED provenance |
+| **B1 — Rule hypotheses** | Template failure modes per capability (functional + baseline security) |
+| **B2 — Candidate pool** | Bounded generation; pool artifact; **no auto-run of full pool** |
+| **B4 — Optimizer** | Mandatory security floor when applicable + greedy set cover; efficiency stats |
+| **B5 — Coverage (MVP)** | Post-run multi-axis map + critical uncovered areas (**report only**) |
+| **B7 — Black-box execution** | `blackbox` profile, `ObservationBundle`, HTTP endpoint only |
+| **B8 — CLI + frozen suite** | `suite init` writes `.agenteval/suites/`; `suite run` loads saved pack only; per-test regression diff vs last/baseline |
+| **Ingest (existing)** | `--prd`, `--manifest`, `--endpoint`; personas via `--top-personas` feeding B2 |
 
-### Definition of Done
-- [ ] All four adapters pass integration tests against sample agents
-- [ ] Crash & recovery harness tests pass: an agent killed at Step 2 successfully resumes from checkpoint without repeating Step 1/2 side effects
-- [ ] Context pressure test verifies critical facts survive 15,000-token compression
-- [ ] Non-determinism evaluator computes $pass^k$ and latency/cost variance across $N=10$ runs
-- [ ] Loop detection correctly flags a deliberately looping agent as `ANOMALOUS`
-- [ ] Mock HTTP server captures and replays external API calls
-- [ ] `agenteval record` captures a live agent run and saves it as a replayable scenario
+### Definition of Done (v0.2 must-have)
+
+- [ ] `agenteval plan --prd <file> --endpoint <url>` shows `candidate_count` ≫ `selected_count`, mandatory tests listed, coverage **preview** on the pack, and limitations section
+- [ ] `agenteval suite init` generates once and persists pack; second `init` without `--force-new-version` refuses to overwrite
+- [ ] `agenteval suite run` executes **saved** tests only (no regeneration) and reports what broke vs previous/baseline run
+- [ ] Optimizer unit tests: redundant candidates dropped; mandatory auth/injection tests retained when agent handles sensitive actions
+- [ ] Black-box run never claims internal DB/state proof without external probe
+- [ ] `pytest` covers B0, B4, B5 with fixture pools (no LLM required for CI)
+
+### Deferred from v0.2 (see v0.3+)
+
+| Component | Target |
+|---|---|
+| **B3** full risk model | v0.3 |
+| **B5** automated gap → re-optimize loop | v0.3 |
+| **Suite prune** on removed capabilities (`suite sync`, [DR-011](engineering-ledger/decisions.md#active-index)) | v0.3 |
+| **B6 / B9** metric applicability + Inspect compiler | v0.3 |
+| **MCPAdapter**, **CLIAdapter**, protocol auto-introspect as black-box ingress | v0.3+ |
+| **CrashRecoveryHarness**, **ContextPressureInjector**, advanced tool faults | v0.3+ (**harness**) |
+| **NonDeterminismEvaluator** ($pass^k$), **StepEfficiencyEvaluator**, **`ANOMALOUS`** polish | v0.3+ |
+| Replay: time-travel debugger, dual replayer, HTML export | v0.3+ |
+| Mock HTTP server, `agenteval record` | v0.3+ |
+
+> **Already landed (pre–Black-Box MVP):** `DynamicPersonaGenerator`, LiteLLM personas, `MetricRouter` / `agenteval plan` metric preview, `HTTPAdapter`, `AgentCard`, `ScenarioCompiler` — remain as inputs to B2; **optimizer replaces “run every compiled scenario.”**
 
 ---
 
-## v0.3 — "Tiered Judges (Jev + LLM) + HITL Policy + OpenShell Sandbox + OTel Tracing"
+## v0.3 — "Black-Box Depth + Harness Expansion + Inspect Compiler"
+
+> **Black-box (later):** **B3**, **B5 (full gap loop)**, **B6**, **B9**, LLM hypothesis expansion, richer reports.  
+> **Harness / protocols (later):** MCP/CLI adapters, crash recovery, context pressure, advanced chaos, $pass^k$, replay exports — opt-in **harness** profile, not black-box MVP.
 
 > **Goal**: Add high-speed Jev typed scoring with LLM fallback, Human-in-the-Loop policy boundary evaluation, permission/auth verification, and kernel-level sandbox isolation.
 
@@ -660,10 +734,15 @@ AgentEval/
 - [ ] The verdicts (`PASS` / `FAIL` / `UNVERIFIABLE`) are trustworthy and match manual inspection
 - [ ] At least 3 different agent frameworks tested successfully via `CallableAdapter`
 
-### v0.2 Success
-- [ ] All four adapter protocols work against real agents
-- [ ] Loop detection catches a deliberately looping agent within 10 steps
-- [ ] Record/replay produces identical trajectories on deterministic agents
+### v0.2 Success (must-have only)
+- [ ] Black-box demo: ≥30 candidates → ≤12 executions with coverage report and explicit limitations
+- [ ] `blackbox` is default for `--endpoint`; harness documented as opt-in
+- [ ] Optimizer + coverage tests pass in CI without API keys
+
+### v0.3 Success (deferred items)
+- [ ] Gap loop adds targeted tests without full suite regen
+- [ ] Inspect compiler runs optimized pack with applicable scorers
+- [ ] MCP/CLI adapters and harness chaos features meet their own DoD (separate from black-box MVP)
 
 ### v0.3 Success
 - [ ] LLM judge scores correlate with human labels (Cohen's κ ≥ 0.75)

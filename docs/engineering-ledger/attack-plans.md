@@ -6,6 +6,45 @@
 |----|-------|--------|
 | AP-001 | Platform Architecture, Pluggable BYOA Harness & Trajectory Assurance Engine | completed |
 | AP-002 | Agent Contract Protocol, Introspection & Metric Recommender Pipeline (v0.2) | active |
+| AP-003 | Black-Box Test Intelligence Pipeline (v0.2 → v0.3) | active |
+
+---
+
+## AP-003: Black-Box Test Intelligence Pipeline (v0.2 → v0.3)
+
+- **Owner**: Craft / Dev
+- **Status**: active
+- **Goal**: Implement the north-star pipeline from [ADR-003](../decisions/ADR-003-black-box-test-intelligence-pipeline.md) and [black-box-test-intelligence-pipeline.md](../design/black-box-test-intelligence-pipeline.md): understand agent from spec + endpoint only, generate a **large candidate pool**, **optimize** to a minimal high-value pack (mandatory security floor + set cover), execute in **`blackbox`** profile, report multi-axis **coverage** and **gaps**, and state **limitations** honestly. Preserve v0.1 **harness** profile without conflating evidence models.
+
+### Phase A — Must-have (v0.2 Black-Box MVP)
+
+1. [ ] **B0** — Planning models: `AgentTestModel` (DECLARED / INFERRED), `CandidateTest`, `CoverageTag`, `TestPack`, `CoverageReport`, `LimitationsReport`.
+2. [ ] **B1** — Rule-based failure hypotheses (templates); unit tests without LLM. Spec: [Test generation strategy § B1](../design/black-box-test-intelligence-pipeline.md#b1--rule-based-failure-templates-mvp).
+3. [ ] **B2** — Bounded candidate pool (persona × capability × hypothesis); JSON artifact; **never auto-run full pool**. Spec: [Test generation strategy](../design/black-box-test-intelligence-pipeline.md#test-generation-strategy).
+4. [ ] **B4** — Optimizer: mandatory security floor + greedy set cover; efficiency stats.
+5. [ ] **B5 (MVP)** — Post-run coverage map + critical uncovered list (**report only**).
+6. [ ] **B7** — `blackbox` + `ObservationBundle` on **HTTP** `HTTPAdapter` only.
+7. [ ] **B8 (MVP)** — `agenteval plan` (pool vs pack, limitations); **`suite init`** (bootstrap + persist); **`suite run`** (regression, load frozen pack, diff — [DR-010](decisions.md#active-index)).
+
+**Phase A first code increment:** B0 + B4 + B5 (MVP) with fixture pools → then B1 → B2 → B7 → B8 (include suite persistence in B8).
+
+**Regression contract:** `suite run` must never call generation/optimizer unless user passed an explicit regenerate/extend flag.
+
+**Spec drift ([DR-011](decisions.md#active-index)):** Each test stores `capability_id` / coverage tags. On `suite sync` after spec update: **remove** tests for dropped capabilities (archive + changelog); **extend** for new capabilities only—no full silent regen.
+
+### Phase B — Later (v0.3+)
+
+8. [ ] **B3** — Full configurable risk scorer (six dimensions).
+9. [ ] **B5 (full)** — Gap detector → targeted candidates → incremental re-optimize.
+10. [ ] **B6** — Metric applicability on `MetricRouter` + pack.
+11. [ ] **B8 (full)** — Risk map, metric rationale, efficiency dashboards in CLI/reports.
+12. [ ] **B9** — Inspect AI plan compiler (AP-002 step 6).
+13. [ ] **Optional** — LLM hypothesis expansion; HYPOTHESIZED provenance layer; MCP/CLI black-box ingress.
+
+### References
+
+- [ROADMAP — Black-Box Incremental Delivery](../ROADMAP.md#black-box-test-intelligence-incremental-delivery)
+- [DR-009](decisions.md#active-index) — Black-box default, harness opt-in
 
 ---
 

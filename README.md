@@ -35,6 +35,7 @@ agenteval replay <run-id> --jump-to-fail
 ## Architecture & Roadmap
 
 - [Product Roadmap (v0.1 → v1.0)](docs/ROADMAP.md)
+- [Black-Box Test Intelligence Pipeline](docs/design/black-box-test-intelligence-pipeline.md) — spec + endpoint → optimized test pack, coverage, limitations ([ADR-003](docs/decisions/ADR-003-black-box-test-intelligence-pipeline.md))
 - [System Architecture](docs/design/architecture.md)
 - [Idea Refinement One-Pager](docs/ideas/agent-assurance-platform.md)
 - [ADR-001: Inspect AI Foundation](docs/decisions/ADR-001-build-on-inspect-ai.md)

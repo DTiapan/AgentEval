@@ -9,6 +9,8 @@
 
 AgentEval is a production-grade AI Agent Assurance & Evaluation platform. The platform is architected around **"Bring Your Own Agent" (BYOA)**, decoupling agent orchestration from assurance, telemetry, side-effect verification, and golden dataset curation.
 
+> **Enterprise black-box mode:** For customers who expose only a specification and an **endpoint** (no source, no internal traces), the authoritative flow is the [Black-Box Test Intelligence Pipeline](black-box-test-intelligence-pipeline.md) ([ADR-003](../decisions/ADR-003-black-box-test-intelligence-pipeline.md)): candidate pool → risk-aware optimization → endpoint execution → multi-axis coverage and limitations. The diagrams below emphasize the **harness** path (sandbox + ΔS); black-box execution uses observable `ObservationBundle` evidence only—see dual profiles in the pipeline doc.
+
 ```
 Agent Developers write their Agent (LangGraph, CrewAI, AutoGen, REST, MCP)
                      │
