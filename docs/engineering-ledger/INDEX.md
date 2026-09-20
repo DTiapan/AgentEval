@@ -11,10 +11,12 @@ Bootstrapping AgentEval — an enterprise-grade, trajectory-first AI Agent Assur
 
 ## Open attack plan
 
-- [AP-001: Platform Architecture, Pluggable BYOA Harness & Trajectory Assurance Engine](attack-plans.md#ap-001-platform-architecture-pluggable-byoa-harness--trajectory-assurance-engine)
+- [AP-002: Agent Contract Protocol, Introspection & Metric Recommender Pipeline (v0.2)](attack-plans.md#ap-002-agent-contract-protocol-introspection--metric-recommender-pipeline-v02)
+- [AP-001: Platform Architecture, Pluggable BYOA Harness & Trajectory Assurance Engine](attack-plans.md#ap-001-platform-architecture-pluggable-byoa-harness--trajectory-assurance-engine) (completed)
 
 ## Recent sessions
 
+- **2026-09-20 (session 7)**: **Plane 0 & Archetype Metric Recommender Pipeline Formulated** ([DR-006](decisions.md#active-index), [AP-002](attack-plans.md#ap-002-agent-contract-protocol-introspection--metric-recommender-pipeline-v02)). Formalized the two-group evaluation taxonomy: Group A (Universal Core enforced on 100% of agents) and Group B (Domain-Specific Metrics: Tool, RAG, Code, Support, Swarm). Designed 4-layer Metric Recommender Pipeline: Signal Ingestion → Jev Archetype Classifier → Profile Matrix Resolver → Inspect AI Plan Compiler. Updated ROADMAP.md (9 planes), architecture.md (Section 5), and attack-plans.md with AP-002.
 - **2026-09-20 (session 6)**: **v0.1 Core Engine & CLI Implementation Completed (Slices 0 → 7)**. Delivered all 8 vertical slices in full adherence to `CONSTRAINTS.md`:
   - Slice 0: Scaffolding, `pyproject.toml`, Hatchling, Typer, Rich, pytest setup.
   - Slice 1: Core domain models (`ExecutionTrace`, `StepRecord`, `ToolCall`, `ToolResult`, `StateDiff`, `ReliabilityScorecard`, `Verdict`, `FailureClass`).
