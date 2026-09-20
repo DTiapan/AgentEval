@@ -18,11 +18,11 @@
 
 ### Phase A — Must-have (v0.2 Black-Box MVP)
 
-1. [ ] **B0** — Planning models: `AgentTestModel` (DECLARED / INFERRED), `CandidateTest`, `CoverageTag`, `TestPack`, `CoverageReport`, `LimitationsReport`.
+1. [x] **B0** — Planning models: `CandidateTest`, `TestPack`, `CoverageReport`, `SuiteManifest`, `ProvenanceLayer`, `MandatoryCategory` (`agenteval/planning/models.py`).
 2. [ ] **B1** — Rule-based failure hypotheses (templates); unit tests without LLM. Spec: [Test generation strategy § B1](../design/black-box-test-intelligence-pipeline.md#b1--rule-based-failure-templates-mvp).
 3. [ ] **B2** — Bounded candidate pool (persona × capability × hypothesis); JSON artifact; **never auto-run full pool**. Spec: [Test generation strategy](../design/black-box-test-intelligence-pipeline.md#test-generation-strategy).
-4. [ ] **B4** — Optimizer: mandatory security floor + greedy set cover; efficiency stats.
-5. [ ] **B5 (MVP)** — Post-run coverage map + critical uncovered list (**report only**).
+4. [x] **B4** — Optimizer: mandatory security floor + greedy set cover (`agenteval/planning/optimizer.py`).
+5. [x] **B5 (MVP)** — Post-run coverage map + critical uncovered (`agenteval/planning/coverage.py`).
 6. [ ] **B7** — `blackbox` + `ObservationBundle` on **HTTP** `HTTPAdapter` only.
 7. [ ] **B8 (MVP)** — `agenteval plan` (pool vs pack, limitations); **`suite init`** (bootstrap + persist); **`suite run`** (regression, load frozen pack, diff — [DR-010](decisions.md#active-index)).
 
