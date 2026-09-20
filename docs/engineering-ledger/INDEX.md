@@ -7,7 +7,7 @@
 
 ## Current focus
 
-**Black-box test intelligence** ([ADR-003](../decisions/ADR-003-black-box-test-intelligence-pipeline.md), [design spec](../design/black-box-test-intelligence-pipeline.md), [AP-003](attack-plans.md#ap-003-black-box-test-intelligence-pipeline-v02v03)) is the north-star product: optimize minimal high-value packs from spec + endpoint, with honest coverage/limitations. v0.1 harness (sandbox, faults, replay) remains as opt-in **`harness`** profile. Plane 0 work (personas, metric router, `agenteval plan`) continues under AP-002; AP-003 owns optimization, coverage, and black-box execution slices B0–B9.
+**Black-box test intelligence** ([ADR-003](../decisions/ADR-003-black-box-test-intelligence-pipeline.md), [design spec](../design/black-box-test-intelligence-pipeline.md), [AP-003](attack-plans.md#ap-003-black-box-test-intelligence-pipeline-v02v03)) is the north-star product: optimize minimal high-value packs from spec + endpoint, with honest coverage/limitations. **Product entry ([DR-012](decisions.md#active-index)):** requirements-first (+ optional URL), CLI/library now, API next, UI later; scenario YAML harness deprioritized. v0.1 harness remains opt-in **`harness`** profile. AP-002 personas/metrics; AP-003 B0–B9 + North Star entry slices E1–E4.
 
 ## Open attack plan
 
@@ -17,6 +17,7 @@
 
 ## Recent sessions
 
+- **2026-09-20 (session 11)**: **North Star entry & UI-later** ([DR-012](decisions.md#active-index)) — roadmap: PRD-first bootstrap, API-ready core, web UI deferred; YAML harness low priority.
 - **2026-09-20 (session 10)**: **Black-box MVP backbone verified** — `suite init`/`suite run`, sample refund HTTP agent, rule scorer; roadmap records **Allure-class HTML run report** (later, with dashboard)—not JUnit/CSV.
 - **2026-09-20 (session 9)**: **Black-Box Test Intelligence — product architecture & incremental roadmap** ([ADR-003](../decisions/ADR-003-black-box-test-intelligence-pipeline.md), [DR-009](decisions.md#active-index), [AP-003](attack-plans.md#ap-003-black-box-test-intelligence-pipeline-v02v03)). Documented full pipeline, dual profiles, slices B0–B9. **Must-have vs later:** v0.2 scoped to HTTP black-box MVP (B0–B2, B4, B5 report-only, B7–B8); v0.3+ gets B3, gap automation, B6/B9, harness/MCP expansion. Docs-only.
 - **2026-09-20 (session 8)**: **Dynamic Persona Synthesis, 5-Tier Stack Ranking & LiteLLM Gateway** ([ADR-002](../decisions/ADR-002-dynamic-persona-synthesis-litellm.md), [AP-002](attack-plans.md#ap-002-agent-contract-protocol-introspection--metric-recommender-pipeline-v02)). Eliminated static persona maintenance in favor of on-the-fly dynamic persona discovery powered by LiteLLM (100+ providers). Personas are stack-ranked across 5 operational tiers (Frequent Users, Power Users, Adversaries, Novice, Security Auditors) with `--top-personas` windowing to eliminate evaluation bloat. Delivered local disk caching in `.agenteval/personas/`, updated CLI reporting, formalized ADR-002, and updated product roadmap sequence. 83 passed tests with 90.46% coverage and clean `mypy --strict`.

@@ -4,6 +4,47 @@
 >
 > **Delivery Philosophy**: Every version is a **working, shippable product**. No version is a "foundation only" release. Each version solves a real problem end-to-end, and the next version expands the blast radius.
 
+### Primary entry — minimum friction (product default)
+
+**Default customer path** is not hand-authored YAML. Users provide:
+
+1. **Functional requirements** (PRD, markdown, or upload text) — *required for understanding*.
+2. **Agent endpoint URL** — *optional at first*; when present, AgentEval infers or validates tools, capabilities, and black-box execution surface. When absent, the product may still **generate and preview** a test pack; **execution** waits until a URL (or approved probe) exists.
+
+AgentEval **derives** personas, candidate pool, optimized pack, and run artifacts. Users do **not** author scenario matrices, coverage tags, or suite YAML unless they opt into **advanced / framework** mode.
+
+| Input priority | Role |
+|----------------|------|
+| **Requirements / PRD** | Primary — capabilities, personas, hypotheses, pack preview |
+| **HTTP endpoint** | Execution + optional introspection (OpenAPI/MCP later) |
+| **AgentCard YAML** | Generated or power-user override — not the default onboarding |
+| **Scenario YAML (`agenteval run`)** | **Low priority** — harness / engineering framework; stays supported, not promoted |
+
+### Delivery layers — CLI first, API-ready, UI later
+
+```mermaid
+flowchart TD
+  subgraph now["Now — v0.2.x"]
+    CORE["Domain services: planning, suite store, runner, scorers"]
+    CLI["Typer CLI thin wrapper"]
+    CORE --> CLI
+  end
+  subgraph next["Next"]
+    API["HTTP API same contracts as CLI"]
+    CORE --> API
+  end
+  subgraph later["Later — v0.4+"]
+    UI["Web UI: upload requirements, watch generate + run, navigate results"]
+    API --> UI
+  end
+```
+
+**Build rule:** Core logic lives in **library modules** with **Pydantic models** and stable artifacts under `.agenteval/` (or future object store). CLI commands call those services; a future UI calls the **same** services via API — no duplicate business logic in the terminal layer.
+
+**UI vision (roadmap only, not v0.2 scope):** Upload requirements → see generated scenarios/tests → trigger run → navigate pack, per-test verdicts, diffs, coverage, and limitations (Allure-class experience aligned with [suite run report](#later--after-black-box-mvp)). Backend and artifact schema must be UI-friendly from day one (IDs, versions, run history, JSON already on disk).
+
+**Harness note:** `agenteval run --scenario *.yaml` remains for in-process sandbox proof; it is **deprioritized** for product GTM in favor of requirements-driven black-box suite bootstrap.
+
 ---
 
 ## The Burning Problem We Solve
@@ -418,6 +459,17 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 
 > **Goal:** Ship the **must-have** black-box loop on **HTTP only**: spec + endpoint → candidate pool → optimized pack → run → coverage report + limitations ([ADR-003](decisions/ADR-003-black-box-test-intelligence-pipeline.md)). Reuse existing Plane 0 pieces (`AgentCard`, PRD, `DynamicPersonaGenerator`, `HTTPAdapter`, `agenteval plan` preview) where they already exist.
 
+### Active priority — North Star entry (replaces YAML-first GTM)
+
+| Slice | Target | Notes |
+|-------|--------|--------|
+| **E1 — Requirements bootstrap** | `prd` → internal `AgentCard` + capabilities (LLM/rules) → same `SuiteBootstrap` as today | Single command path; manifest YAML optional output, not input |
+| **E2 — Endpoint attach** | Optional `-e` on bootstrap; run when URL present | URL-only introspection (tools/caps) follows in v0.3 |
+| **E3 — API façade** | REST (or RPC) over suite init/run/preview/status | Same Pydantic payloads CLI uses; enables UI without rewrite |
+| **E4 — UI** | Upload + navigate | **Deferred** — see [Delivery layers](#delivery-layers--cli-first-api-ready-ui-later) |
+
+**Paused / low priority:** New scenario YAML features, YAML-first docs, harness-only onboarding.
+
 ### Must ship (v0.2)
 
 | Component | Scope |
@@ -433,7 +485,8 @@ Demonstrated that attribution accuracy improves by **76%** when using full trace
 
 ### Definition of Done (v0.2 must-have)
 
-- [ ] `agenteval plan --prd <file> --endpoint <url>` shows `candidate_count` ≫ `selected_count`, mandatory tests listed, coverage **preview** on the pack, and limitations section
+- [ ] **North Star entry:** `agenteval` bootstrap from **requirements only** produces pack preview; **requirements + endpoint** runs full suite without user-written AgentCard or scenario YAML
+- [ ] `agenteval plan --prd <file>` (± endpoint) shows `candidate_count` ≫ `selected_count`, coverage **preview**, and **limitations** (metrics on plan remain advisory until B6)
 - [ ] `agenteval suite init` generates once and persists pack; second `init` without `--force-new-version` refuses to overwrite
 - [x] `agenteval suite run` executes **saved** tests only (no regeneration) and reports what broke vs **previous** run (pinned baseline: v0.3)
 - [ ] Optimizer unit tests: redundant candidates dropped; mandatory auth/injection tests retained when agent handles sensitive actions

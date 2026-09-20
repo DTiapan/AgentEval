@@ -1,0 +1,42 @@
+---
+description: AgentEval — skill-driven work, anti-slop, minimal diffs; declare phase + skills every slice
+alwaysApply: true
+---
+
+# AgentEval — skill-driven development (mandatory)
+
+## Every non-trivial turn
+
+Before design or code, post a **Skill declaration** block:
+
+| Field | Rule |
+|-------|------|
+| **Phase** | One of: Shape \| Spec \| ADR \| Plan \| Build \| Verify \| Review (from `using-craft`) |
+| **Primary skill** | Exactly **one** — read `.agents/skills/<name>/SKILL.md` and follow it |
+| **Overlay** | At most one optional overlay when the slice demands it (e.g. `api-and-interface-design` for CLI/API, `test-driven-development` for behavior change) |
+| **Ledger** | Non-trivial: skim `docs/engineering-ledger/INDEX.md`; respect `CONSTRAINTS.md` |
+
+Do **not** stack multiple primary skills. Do **not** implement without naming the skill that gates the slice.
+
+## Anti-slop (non-negotiable)
+
+- **No wipe coding**: no large unrequested refactors, duplicate pipelines, or parallel abstractions for the same job.
+- **Minimal diff**: smallest change that satisfies the slice; reuse existing modules (`SuiteBootstrap`, `SuiteStore`, ingest paths) before adding files.
+- **No stubs**: no empty `pass`, TODO handlers, or fake features in production paths.
+- **No weakening** `CONSTRAINTS.md`, tests, or types to greenwash CI.
+- **YAML / harness scenarios** are **low priority** unless the user or an active AP explicitly asks — North Star is **requirements (+ optional URL)** → derived suite.
+
+## Build slices (this repo)
+
+1. State **Problem → approach → verify** in plain language (one short block).
+2. Implement **one component** per user agreement (e.g. E1 ingest, then E2 probe, then E3 API).
+3. End slice with **how to verify** (one command or observable outcome).
+4. Substantive sessions: update engineering ledger per `engineering-ledger` skill.
+
+## UI / API later
+
+Core logic lives in **library + Pydantic models** under `agenteval/`; CLI is a thin wrapper. New features must be callable without Typer so a future HTTP API and UI can reuse the same services ([DR-012](docs/engineering-ledger/decisions.md)).
+
+## When skills are skipped
+
+Only for: greetings, pure questions, single-fact lookups, or one-line typos with zero design choice — say **"No primary skill (trivial)"** explicitly.
