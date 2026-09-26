@@ -42,4 +42,3 @@ def test_registry_search() -> None:
     results = registry.search("kubernetes docker deploy")
     assert len(results) > 0
     assert results[0].slug == "devops-automator"
-

@@ -7,6 +7,7 @@ import urllib.request
 from typing import Any
 from uuid import uuid4
 
+from agenteval.planning.execution_trace import build_blackbox_trajectory
 from agenteval.planning.models import (
     CandidateTest,
     ObservationBundle,
@@ -14,7 +15,6 @@ from agenteval.planning.models import (
     TestCaseResult,
     TestPack,
 )
-from agenteval.planning.execution_trace import build_blackbox_trajectory
 from agenteval.planning.observable_scorer import ObservableScorer
 
 
@@ -38,9 +38,7 @@ class BlackboxRunner:
         for test in pack.tests:
             obs = self._invoke(test)
             scored = self._scorer.score(test, obs)
-            trajectory = build_blackbox_trajectory(
-                obs, scored.verdict, scored.rationale
-            )
+            trajectory = build_blackbox_trajectory(obs, scored.verdict, scored.rationale)
             results.append(scored.model_copy(update={"trajectory": trajectory}))
 
         passed = sum(1 for r in results if r.verdict == "PASS")
@@ -113,6 +111,6 @@ class BlackboxRunner:
                 parts.append(f"[tool:{t.get('tool_name', t.get('name', '?'))}]")
             return " ".join(p for p in parts if p).strip()
         for key in ("reply", "output", "response", "message"):
-            if key in data:
+            if key in data and str(data[key]).strip():
                 return str(data[key])
         return json.dumps(data)

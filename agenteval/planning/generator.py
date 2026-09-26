@@ -3,7 +3,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 
 from agenteval.core.manifest import AgentCapability
-from agenteval.planning._utils import slugify
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
 from agenteval.planning.models import CandidateTest
 
@@ -36,7 +35,7 @@ class CandidatePoolGenerator:
 
         pool: list[CandidateTest] = []
         for cap in capabilities:
-            cap_id = slugify(cap.name)
+            cap_id = cap.requirement_id()
             for hyp in self._hypotheses.generate_for_capability(cap):
                 for persona in personas:
                     test_id = f"{cap_id}-{hyp.template_id}-{persona.slug}"

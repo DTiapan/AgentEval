@@ -3,13 +3,12 @@
 from agenteval.planning.bootstrap import DEFAULT_PERSONAS, SuiteBootstrap
 from agenteval.planning.gap_loop import SuiteGapExtender
 from agenteval.planning.generator import CandidatePoolGenerator
-from agenteval.planning.models import SuiteManifest, TestPack
 from agenteval.planning.suite_store import SuiteStore
 
 
 def test_gap_extend_appends_tests_from_pool() -> None:
     card_fp = "fp-gap"
-    from agenteval.core.manifest import AgentCard, AgentCapability
+    from agenteval.core.manifest import AgentCapability, AgentCard
 
     card = AgentCard(
         id="gap-agent",
@@ -52,7 +51,7 @@ def test_gap_extend_appends_tests_from_pool() -> None:
 
 
 def test_gap_extend_noop_when_fully_covered() -> None:
-    from agenteval.core.manifest import AgentCard, AgentCapability
+    from agenteval.core.manifest import AgentCapability, AgentCard
 
     card = AgentCard(
         id="full-agent",

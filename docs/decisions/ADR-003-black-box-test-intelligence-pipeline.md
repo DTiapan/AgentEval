@@ -68,6 +68,20 @@ Inspect AI remains the **execution and scorer runtime** ([ADR-001](ADR-001-build
 
 First upload of requirements + endpoint **bootstraps** a versioned suite on disk. All later runs **reuse** that pack to detect regressions. Regeneration is **explicit** (new suite version), never automatic on each run—so prior test investment and historical comparability are preserved. When capabilities are **removed** from the spec, linked tests are **pruned** on explicit suite maintenance ([DR-011](../engineering-ledger/decisions.md#active-index)), not left as stale CI noise. See [Frozen regression suite](../design/black-box-test-intelligence-pipeline.md#frozen-regression-suite-generate-once-run-many).
 
+### 7. Amendments (2026-09-24)
+
+- **Vocabulary not implemented:** the pack-level TESTED | OBSERVED | INFERRED |
+  UNTESTABLE vocabulary in section 2 is not in code. `ProvenanceLayer` has
+  DECLARED | INFERRED | HYPOTHESIZED, which describes where a fact came from,
+  not how thoroughly something was tested. Both are needed; ADR-005 defines them.
+- **Known risk to pruning (section 6):** capabilities are identified by text
+  taken from PRD headings (`ingest/requirements.py`, capped at 12). Renaming a
+  heading can make sync treat the capability as removed and prune its tests.
+  Fix: requirements get stable IDs as first-class entities (ADR-005).
+- **Section 4 still holds:** Inspect AI remains the execution and scorer runtime
+  (ADR-001 reaffirmed); slice B9 is now the migration path, not an optional
+  compiler.
+
 ## Alternatives Considered
 
 ### A: Extend `ScenarioCompiler` only

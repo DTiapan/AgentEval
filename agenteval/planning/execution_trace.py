@@ -1,6 +1,5 @@
 """Sealed execution trajectory from black-box HTTP runs (no fictional steps)."""
 
-from typing import Any
 from uuid import uuid4
 
 from agenteval.planning.models import ExecutionStep, ObservationBundle

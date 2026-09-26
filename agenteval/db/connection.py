@@ -24,3 +24,6 @@ def init_schema(conn: sqlite3.Connection) -> None:
     ddl = schema_sql_path().read_text(encoding="utf-8")
     conn.executescript(ddl)
     conn.commit()
+    from agenteval.db.migrations import apply_migrations
+
+    apply_migrations(conn)

@@ -1,12 +1,5 @@
 import React, { useEffect, useState } from "react";
-import {
-  ChevronDown,
-  Moon,
-  PlayCircle,
-  Shield,
-  Sliders,
-  Sun,
-} from "lucide-react";
+import { ChevronDown, Moon, PlayCircle, Shield, Sliders, Sun } from "lucide-react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -34,8 +27,6 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const {
     workspace,
-    workspaces,
-    setWorkspace,
     suites,
     activeAgentId,
     setActiveAgentId,
@@ -123,8 +114,8 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="mr-2 text-xs text-muted-foreground">Agent:</span>
               <div className="relative">
                 <select
-                  value={activeAgentId || ""}
-                  onChange={(e) => setActiveAgentId(e.target.value || null)}
+                  value={activeAgentId ?? ""}
+                  onChange={(e) => setActiveAgentId(e.target.value ? e.target.value : null)}
                   disabled={lockAgentSwitcher}
                   title={
                     lockAgentSwitcher
@@ -133,6 +124,7 @@ export const Header: React.FC<HeaderProps> = ({
                   }
                   className="appearance-none rounded-md border border-border bg-card py-1.5 pl-2.5 pr-7 font-mono text-xs font-medium text-foreground hover:border-border/80 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
                 >
+                  <option value="">New suite…</option>
                   {suites.map((s) => (
                     <option key={s.agent_id} value={s.agent_id}>
                       {s.agent_id} (v{s.suite_version})
@@ -144,24 +136,9 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Workspace Pill */}
-          <div className="relative">
-            <select
-              value={workspace.id}
-              onChange={(e) => {
-                const found = workspaces.find((w) => w.id === e.target.value);
-                if (found) setWorkspace(found);
-              }}
-              className="appearance-none rounded-md border border-border bg-card py-1.5 pl-2.5 pr-7 text-xs font-medium text-foreground hover:border-border/80 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
-            >
-              {workspaces.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
-          </div>
+          <Badge variant="outline" className="font-normal text-xs text-muted-foreground">
+            {workspace.name}
+          </Badge>
 
           {/* Sun / Moon Theme Toggle */}
           <Button

@@ -4,7 +4,8 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
+from urllib.parse import urlparse
 
 from agenteval.db.config import (
     DEFAULT_WORKSPACE_ID,
@@ -61,8 +62,7 @@ class SuiteRepository:
         ).fetchone()
         if exists is not None and not force:
             raise SuiteExistsError(
-                f"Suite already exists for agent '{agent_id}' in database. "
-                "Use force to replace."
+                f"Suite already exists for agent '{agent_id}' in database. Use force to replace."
             )
 
         now = datetime.now(UTC).isoformat()
@@ -202,6 +202,66 @@ class SuiteRepository:
                 ),
             )
 
+    def ensure_default_target(self, agent_id: str, endpoint_url: str) -> str | None:
+        """
+        Ensure a v002 HTTP transport target exists for ``endpoint_url``.
+
+        Returns target id when the ``targets`` table exists; otherwise ``None``.
+        """
+        row = self._conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'targets'"
+        ).fetchone()
+        if row is None:
+            return None
+
+        existing = self._conn.execute(
+            "SELECT id FROM targets WHERE agent_id = ? ORDER BY created_at LIMIT 1",
+            (agent_id,),
+        ).fetchone()
+        if existing is not None:
+            return str(existing["id"])
+
+        parsed = urlparse(endpoint_url)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            endpoint_url = endpoint_url if endpoint_url.startswith("import://") else endpoint_url
+        now = datetime.now(UTC).isoformat()
+        connector_id = f"{agent_id}-http-transport"
+        target_id = f"{agent_id}-default-target"
+        config = json.dumps({"url": endpoint_url, "method": "POST"})
+        with self._conn:
+            self._ensure_default_workspace()
+            self._conn.execute(
+                """
+                INSERT OR IGNORE INTO connectors (
+                    id, workspace_id, slug, kind, config_json, created_at
+                ) VALUES (?, ?, ?, 'http_transport', ?, ?)
+                """,
+                (
+                    connector_id,
+                    DEFAULT_WORKSPACE_ID,
+                    f"{agent_id}-http",
+                    config,
+                    now,
+                ),
+            )
+            self._conn.execute(
+                """
+                INSERT OR IGNORE INTO targets (
+                    id, workspace_id, agent_id, environment_id,
+                    display_name, transport_connector_id, created_at
+                ) VALUES (?, ?, ?, NULL, ?, ?, ?)
+                """,
+                (
+                    target_id,
+                    DEFAULT_WORKSPACE_ID,
+                    agent_id,
+                    f"{agent_id} default",
+                    connector_id,
+                    now,
+                ),
+            )
+        return target_id
+
     def save_run(
         self,
         agent_id: str,
@@ -222,32 +282,58 @@ class SuiteRepository:
             )
         suite_version_id = str(row["id"])
         now = datetime.now(UTC).isoformat()
-        run_diff_json = (
-            json.dumps(report.run_diff) if report.run_diff is not None else None
-        )
+        run_diff_json = json.dumps(report.run_diff) if report.run_diff is not None else None
+        target_id = self.ensure_default_target(agent_id, endpoint_url)
+        has_target_column = self._conn.execute(
+            "SELECT 1 FROM pragma_table_info('assurance_runs') WHERE name = 'target_id'"
+        ).fetchone()
 
         with self._conn:
-            self._conn.execute(
-                """
-                INSERT OR REPLACE INTO assurance_runs (
-                    run_id, agent_id, suite_version_id, environment_id,
-                    endpoint_url, started_at, finished_at,
-                    passed, failed, unverifiable, run_diff_json
-                ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    report.run_id,
-                    agent_id,
-                    suite_version_id,
-                    endpoint_url,
-                    now,
-                    now,
-                    report.passed,
-                    report.failed,
-                    report.unverifiable,
-                    run_diff_json,
-                ),
-            )
+            if has_target_column is not None:
+                self._conn.execute(
+                    """
+                    INSERT OR REPLACE INTO assurance_runs (
+                        run_id, agent_id, suite_version_id, environment_id,
+                        endpoint_url, started_at, finished_at,
+                        passed, failed, unverifiable, run_diff_json, target_id, status
+                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'completed')
+                    """,
+                    (
+                        report.run_id,
+                        agent_id,
+                        suite_version_id,
+                        endpoint_url,
+                        now,
+                        now,
+                        report.passed,
+                        report.failed,
+                        report.unverifiable,
+                        run_diff_json,
+                        target_id,
+                    ),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    INSERT OR REPLACE INTO assurance_runs (
+                        run_id, agent_id, suite_version_id, environment_id,
+                        endpoint_url, started_at, finished_at,
+                        passed, failed, unverifiable, run_diff_json
+                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        report.run_id,
+                        agent_id,
+                        suite_version_id,
+                        endpoint_url,
+                        now,
+                        now,
+                        report.passed,
+                        report.failed,
+                        report.unverifiable,
+                        run_diff_json,
+                    ),
+                )
             self._conn.execute(
                 "DELETE FROM test_case_results WHERE run_id = ?",
                 (report.run_id,),
@@ -310,9 +396,7 @@ class SuiteRepository:
 
         results: list[TestCaseResult] = []
         for r in result_rows:
-            observation = ObservationBundle.model_validate_json(
-                str(r["observation_json"])
-            )
+            observation = ObservationBundle.model_validate_json(str(r["observation_json"]))
             steps = self._load_steps(str(r["id"]))
             results.append(
                 TestCaseResult(
@@ -351,7 +435,7 @@ class SuiteRepository:
         self._conn.commit()
 
     def _latest_suite_row(self, agent_id: str) -> sqlite3.Row | None:
-        return self._conn.execute(
+        row = self._conn.execute(
             """
             SELECT * FROM suite_versions
             WHERE agent_id = ?
@@ -360,6 +444,7 @@ class SuiteRepository:
             """,
             (agent_id,),
         ).fetchone()
+        return cast(sqlite3.Row | None, row)
 
     @staticmethod
     def _suite_version_id(agent_id: str, version: int) -> str:

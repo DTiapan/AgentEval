@@ -198,7 +198,15 @@ def test_api_suite_report_endpoint(
     res = client.get(f"/v1/suites/test-refund-agent/report?suite_root={tmp_path}")
     assert res.status_code == 200
     assert "text/html" in res.headers["content-type"]
+    assert res.headers.get("x-frame-options", "").upper() == "SAMEORIGIN"
+    assert "frame-ancestors 'self'" in res.headers.get("content-security-policy", "")
     assert "test-refund-agent" in res.text
+
+    embed_res = client.get(
+        f"/v1/suites/test-refund-agent/report?suite_root={tmp_path}&embed=true&theme=dark"
+    )
+    assert embed_res.status_code == 200
+    assert 'data-embed="1"' in embed_res.text
 
     # Nonexistent suite
     res_404 = client.get(f"/v1/suites/missing-agent/report?suite_root={tmp_path}")
@@ -249,4 +257,3 @@ def test_cli_suite_report(
     assert "HTML report generated" in result.stdout
     assert out_file.is_file()
     assert "<!DOCTYPE html>" in out_file.read_text(encoding="utf-8")
-

@@ -340,7 +340,9 @@ def plan(
         p_table.add_column("Testing Intent / Invariants")
         for cand, status_str in matched_personas:
             status_badge = (
-                "[green]CACHED[/green]" if status_str == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
+                "[green]CACHED[/green]"
+                if status_str == "CACHED"
+                else "[yellow]SYNTHESIZED[/yellow]"
             )
             p_table.add_row(
                 f"#{cand.rank}",
@@ -495,7 +497,9 @@ def run(
             )
             raise typer.Exit(code=1)
         scenario = scenarios[0]
-        status_str = "[green]CACHED[/green]" if status == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
+        status_str = (
+            "[green]CACHED[/green]" if status == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
+        )
         console.print(
             f"[dim]Auto-selected #{ranked_cands[0].rank} {ranked_cands[0].tier.value} Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
         )
@@ -516,7 +520,9 @@ def run(
             )
             raise typer.Exit(code=1)
         scenario = scenarios[0]
-        status_str = "[green]CACHED[/green]" if status == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
+        status_str = (
+            "[green]CACHED[/green]" if status == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
+        )
         console.print(
             f"[dim]Auto-selected #{ranked_cands[0].rank} {ranked_cands[0].tier.value} Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
         )
@@ -541,7 +547,9 @@ def run(
                 )
                 raise typer.Exit(code=1)
             scenario = scenarios[0]
-            status_str = "[green]CACHED[/green]" if status == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
+            status_str = (
+                "[green]CACHED[/green]" if status == "CACHED" else "[yellow]SYNTHESIZED[/yellow]"
+            )
             console.print(
                 f"[dim]Auto-selected #{ranked_cands[0].rank} {ranked_cands[0].tier.value} Persona:[/dim] [bold cyan]{card.name}[/bold cyan] ({status_str})"
             )

@@ -3,7 +3,7 @@
 > Read this file before non-trivial work. Update at end of each substantive session.
 
 **Active phase:** Build → Verify  
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-21 ([DR-023](decisions.md#dr-023--langwatch-oss-architecture-lessons-assurance-appliance-vs-llmops-platform) LangWatch architecture guardrails)
 
 ## Current focus
 
@@ -17,6 +17,13 @@
 
 ## Recent sessions
 
+- **2026-09-25 (session 28)**: **Backbone + domain packs requirements** — ADR-001..004 implementation-status notes; PRD §9A backbone requirements (FR-B-01..23, FR-P-01..06, NFR-B-01..07) with pack slots; PM-as-primary-user direction captured as deferred in [idea one-pager §8](../ideas/agent-assurance-platform.md). Target market set to small regulated companies (pack order fintech → insurance → health); PRD §4 persona set v5 (U1 engineer, U2 compliance/product sign-off, U3 CI bot). [Domain model draft](../design/domain-model.md); [ADR-005](../decisions/ADR-005-backbone-domain-packs-source-of-truth.md) accepted (packs via entry points; SQLite source of truth + Inspect logs alongside; one target per run; stored test data). [persistence-schema.md](../design/persistence-schema.md) v2 draft + [schema_v2.sql](../../agenteval/db/schema_v2.sql) (not wired). Code: FR-B-02 stable `requirement_id()` (hash of description), suite sync legacy remap, SQLite migration v002 + default HTTP `targets` on import/run save.
+- **2026-09-21 (session 27)**: **LangWatch OSS review → [DR-023](decisions.md#dr-023--langwatch-oss-architecture-lessons-assurance-appliance-vs-llmops-platform)** — Documented upstream architecture (PG/CH/event sourcing/LangEvals/connected agents) vs AgentEval assurance appliance; explicit non-goals + selective adoption table; ROADMAP cross-link.
+- **2026-09-21 (session 26)**: **Real-agent pivot ([DR-022](decisions.md#active-index))** — LangChain ops agent + SQLite tools (`examples/real-agent/`); mocks demoted to CI fixtures; Jev judge + ΔS next, not more mocks.
+- **2026-09-21 (session 25)**: **Roadmap — category adoption (LangWatch)** — `docs/ROADMAP.md`: competitive row + phased “what to adopt later” (simulation, trace→repro, CI, OTel export, optional judge) with explicit non-goals; no product rush.
+- **2026-09-21 (session 24)**: **MVP M4 + Assurance empty states** — report `SAMEORIGIN` / `frame-ancestors` headers; embed CSS; `ReportEmbedFrame` (lazy load, flex min-height); `AssuranceEmptyState` (no suites / no run).
+- **2026-09-21 (session 23)**: **MVP M2–M4 (partial)** — PRD `.md`/`.txt` import (`read-prd-file.ts`), Studio MVP flow strip + endpoint required on create; Assurance **Download report** via `downloadSuiteReport()`; navigate to Assurance only on first `POST /v1/suites`.
+- **2026-09-21 (session 22)**: **MVP slice M1 (honest console)** — `docs/MVP.md` iterative checklist; single **Local workspace** (no fake Acme orgs); Studio empty PRD/URL defaults + optional example presets; Assurance subtitle from `GET /v1/suites/{id}`; Mandatory Floors tab from engine `coverage.critical_uncovered`.
 - **2026-09-21 (session 21)**: **B5 gap loop (full)** — `SuiteGapExtender`, `extend_gaps_from_latest_run`, `POST /v1/suites/{id}/extend-gaps`, Studio + Assurance **Close gaps** (append-only from candidate pool after assurance run).
 - **2026-09-21 (session 20)**: **Spec drift sync (DR-011, DR-021)** — `SuiteSynchronizer.compute_sync`, `SuiteWorkflow.sync_from_prd_text`, `SuiteRepository.apply_sync`, `POST /v1/suites/{id}/sync`, Studio **Update Pack** when frozen suite exists.
 - **2026-09-21 (session 19)**: **Web UI-first delivery ([DR-021](decisions.md#active-index))** — README quickstart → `agenteval serve` + `web/dist`; `serve` auto-enables console when build exists (`--no-ui` for API-only); `suite` CLI labeled advanced; ROADMAP/attack-plan focus shifted from CLI `suite sync` to API + Studio. Supersedes DR-012 “UI-later” ordering.

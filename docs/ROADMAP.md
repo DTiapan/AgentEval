@@ -98,6 +98,62 @@ AgentEval gives them **sealed, deterministic proof — or honestly tells them wh
 | **TestMu AI (formerly LambdaTest)** | AI Assurance + Kane CLI + Agentic Testing | Requirement-linked lifecycle, browser automation | Proprietary cloud platform. Heavy enterprise pricing. No open-source core. |
 | **NVIDIA NemoClaw / OpenShell** | Agent runtime security & sandbox isolation | Kernel-level Landlock/seccomp isolation, privacy routing | Security-focused, not evaluation-focused. Doesn't score trajectories or generate test suites. **Complementary to us.** |
 | **NeMo Guardrails** | Conversational safety rails (Colang policies) | Jailbreak detection, topical boundaries, hallucination checks | Guards *what an agent says*, not *what an agent did*. Orthogonal to our trajectory + side-effect verification. |
+| **[LangWatch](https://langwatch.ai/)** | Agent simulation testing, LLM evals, OTel observability, prompt registry, “Langy” spec→scenario→PR loop | Polished **loop engineering** narrative; multi-turn simulations; online prod evals; enterprise deploy options | Platform-first SaaS; LLM-judge-heavy; not centered on **sealed environmental proof** or explicit **`UNVERIFIABLE`**. Complements our **assurance** wedge if we stay evidence-hard and BYOA black-box first. |
+
+### Category validation — do not rush parity
+
+Players like [LangWatch](https://langwatch.ai/) (simulate → evaluate → observe → improve) confirm the market wants **requirements-driven testing**, **multi-turn runs**, **trace-backed debugging**, and **continuous regression**—not vibes-based QA. That validates AgentEval’s **PRD → frozen pack → assurance run → report/replay** path ([DR-021](engineering-ledger/decisions.md#active-index), [MVP](MVP.md)).
+
+**We do not chase feature parity.** Ship the **assurance core** first; adopt adjacent ideas only when they strengthen **deterministic evidence**, **frozen suites**, or **honest coverage**—never demo fiction on product surfaces ([no-demo-ui-data](../.cursor/rules/no-demo-ui-data.mdc)). Architectural guardrails from LangWatch OSS review: [DR-023](engineering-ledger/decisions.md#dr-023--langwatch-oss-architecture-lessons-assurance-appliance-vs-llmops-platform).
+
+### Future adoption playbook (inspired by category leaders)
+
+Ideas to **consider later**, mapped to our planes and black-box slices. “Adopt” means **engine + API first**, then console—same rule as today.
+
+| Theme (market pattern) | What it looks like elsewhere | AgentEval adoption (when) | Our twist / guardrail |
+|------------------------|------------------------------|---------------------------|------------------------|
+| **Spec → scenarios automatically** | PM goal → generated scenario plan | **v0.2.x (now):** PRD upload → `preview` / `init` — keep improving parser + capability extraction | Pack is **optimized set cover**, not “run everything”; freeze on create ([DR-010](engineering-ledger/decisions.md#active-index)) |
+| **Multi-turn simulation** | Simulated user pushes agent turn-by-turn | **v0.3:** Optional **simulator persona** step in black-box runner (HTTP multi-POST), persisted as real trajectory spans | No client-side invented turns; only stored `execution_steps` in replay |
+| **Trace → reproduction** | Production trace becomes a scenario | **v0.3–0.4:** Import OTel/OpenInference span → **candidate test** or **suite extend** (B5 gap loop + pool growth) | Must cite source run id; mark provenance **INFERRED** |
+| **Red teaming / adversarial suites** | Jailbreak & policy-break probes | **v0.3:** Expand **mandatory floor** templates + adversarial hypotheses in rule catalog (B1) | Verdicts stay rule-first; LLM judge optional overlay only |
+| **Tool / MCP mock & fixture** | Deterministic tool responses in CI | **v0.4:** HTTP **stub profile** or recorded fixtures for black-box; harness mocks for in-process | Mocks are **declared in suite manifest**, not hidden in UI |
+| **LLM-as-judge + rationale** | Judge reads full trace, explains score | **v0.4+:** Optional **Tier-2** scorer via LiteLLM ([ADR-002](decisions/ADR-002-dynamic-persona-synthesis-litellm.md)) after deterministic tier passes | Never downgrade **UNVERIFIABLE** to PASS; judge cannot invent side-effects |
+| **CI / PR gate** | Same scenarios on laptop and in CI | **v0.3:** Documented **GitHub Action** + `agenteval suite run` exit codes; API `POST .../runs` for pipelines | Same artifacts as console (SQLite/JSON), no separate “CI fiction” |
+| **Online / production evals** | Score live traffic continuously | **v0.5+:** Sample prod traces → **rolling coverage** + anomaly flags (Plane 7–8) | Sampling + retention policy; not a full observability replacement |
+| **Observability platform** | OTel-native search, cost, Cmd+K, clustering | **v0.5+:** **Export** runs/spans to customer’s OTel stack; optional thin **read-only** trace viewer | We **emit** evidence; Phoenix/LangSmith remain optional sinks |
+| **Prompt registry & auto-PR** | Failed sim → prompt patch PR | **Defer / partner:** Link **report + replay URL** in PR comments; prompt git sync only if customer owns registry | No autonomous prompt merge without human review in v1 |
+| **Voice / multimodal eval** | Voice agent simulation | **Defer** until HTTP text black-box loop is boring | |
+| **Enterprise SaaS** | RBAC, SSO, SCIM, multi-tenant | **After** local-first MVP proven: workspace API ([MVP M5](MVP.md)), auth, audit | SQLite → hosted DB; **single-tenant self-host** remains supported |
+
+```mermaid
+flowchart LR
+  subgraph now["Now — v0.2 assurance"]
+    PRD[PRD + endpoint]
+    Pack[Frozen pack]
+    Run[Assurance run]
+    Ev[Sealed steps + UNVERIFIABLE]
+    PRD --> Pack --> Run --> Ev
+  end
+  subgraph next["Next — v0.3–0.4 adopt selectively"]
+    SIM[Multi-turn HTTP sim]
+    CI[CI gate]
+    GAP[Trace → gap loop]
+    SIM --> Run
+    GAP --> Pack
+    Run --> CI
+  end
+  subgraph later["Later — v0.5+ optional"]
+    OTEL[OTel export / prod sample]
+    JUDGE[Optional LLM judge tier]
+    OTEL --> GAP
+    Run --> JUDGE
+  end
+  now --> next --> later
+```
+
+**Reference target ([DR-022](engineering-ledger/decisions.md#active-index)):** Evolve features against **`examples/real-agent/`** (LangChain + SQLite mutations), not `examples/blackbox/` keyword mocks. Immediate follow-ons: **ΔS on ticket/audit tables**, then **Jev Tier-1 judge** on the same traces.
+
+**Explicit non-goals (unless strategy changes):** competing as a full **LLM observability** product, **prompt management SaaS**, **voice simulation platform**, or **autonomous “AI writes your prompts”** agent ([LangWatch Langy](https://langwatch.ai/) lane). Partner or integrate instead.
 
 ### Where AgentEval Sits
 

@@ -53,6 +53,19 @@ To prevent evaluation overkill, the CLI provides a configurable `--top-personas 
 - Additional runtime dependency on `litellm`.
 - LLM non-determinism during initial synthesis (mitigated by strict Pydantic schema validation and local disk caching).
 
+## Implementation status (2026-09-24)
+
+- LiteLLM persona synthesis, `.agenteval/personas/` caching and the local
+  heuristic fallback are implemented (`personas/dynamic.py`,
+  `personas/synthesizer.py`, `recommender/jev_client.py`).
+- `--top-personas` exists on the CLI only; the Web UI and `/v1/suites/*` do not
+  expose it, although they are the default product path (DR-021).
+- The Jev endpoint (`TYPESAFE_API_URL`, default `https://api.typesafe.ai/v1/classify`)
+  has not been verified against a live service; the local heuristic may be the
+  path that runs in practice.
+- Under ADR-005, personas become a contribution from domain plugins rather than
+  a backbone concern.
+
 ## References
 - [LiteLLM Documentation](https://docs.litellm.ai/)
 - [AgentEval Product Roadmap (Plane 0 & Plane 5)](../ROADMAP.md)

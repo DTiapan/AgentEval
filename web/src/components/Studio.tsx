@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -6,11 +6,20 @@ import {
   Copy,
   Eye,
   LayoutTemplate,
+  Play,
   RefreshCw,
   Save,
   Terminal,
+  Upload,
 } from "lucide-react";
-import { extendSuiteGaps, getSuiteDetail, initSuite, previewSuite, syncSuite } from "../api";
+import {
+  extendSuiteGaps,
+  getSuiteDetail,
+  initSuite,
+  previewSuite,
+  probeAgentEndpoint,
+  syncSuite,
+} from "../api";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { CandidateTest, CoverageReport, SuiteDetailResult, SuitePreviewResult } from "../types";
 import { Button } from "@/components/ui/button";
@@ -21,46 +30,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { CodeViewer } from "@/components/ui/code-viewer";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import {
-  DEMO_AGENT_ID,
-  DEMO_STAGING_ENDPOINT,
-  FROZEN_TEST_PACK_SIZE,
-  LOCAL_AGENT_ENDPOINT,
-  refundAgentPrdMarkdown,
-} from "@/lib/product";
 import { formatTestTabLabel } from "@/lib/format-test-label";
+import { EMPTY_PRD_TEMPLATE, SAMPLE_AGENT_ENDPOINT_PLACEHOLDER } from "@/lib/mvp-defaults";
+import { navigateConsoleView } from "@/lib/console-route";
+import {
+  PRD_FILE_ACCEPT,
+  agentIdFromPrdFilename,
+  readPrdFile,
+} from "@/lib/read-prd-file";
 
-const PRD_PRESETS = [
-  {
-    name: "Customer Refund Agent",
-    agent_id: DEMO_AGENT_ID,
-    endpoint: DEMO_STAGING_ENDPOINT,
-    text: refundAgentPrdMarkdown(),
-  },
-  {
-    name: "Order Fulfillment Swarm",
-    agent_id: "order-fulfillment-bot",
-    endpoint: LOCAL_AGENT_ENDPOINT,
-    text: `# Order Fulfillment Swarm Specification
-
-## 1. Capabilities
-- Ingest warehouse stock levels and allocate items for shipment.
-- Print shipping labels through logistics carrier APIs.
-- Notify customer of parcel tracking updates.
-
-## 2. Invariants
-- Enforce idempotency on shipment creation.
-- Cannot dispatch orders with unpaid invoices.`,
-  },
-];
-
-export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreated }) => {
+export const Studio: React.FC = () => {
   const { addToast, refreshSuites, setActiveAgentId, activeAgentId } = useWorkspace();
 
-  const [agentId, setAgentId] = useState(DEMO_AGENT_ID);
-  const [endpointUrl, setEndpointUrl] = useState(DEMO_STAGING_ENDPOINT);
-  const [requirementsText, setRequirementsText] = useState(PRD_PRESETS[0].text);
-  const [maxTests, setMaxTests] = useState(FROZEN_TEST_PACK_SIZE);
+  const [agentId, setAgentId] = useState("");
+  const [endpointUrl, setEndpointUrl] = useState("");
+  const [requirementsText, setRequirementsText] = useState(EMPTY_PRD_TEMPLATE);
+  const [maxTests, setMaxTests] = useState(10);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isLoadingFrozen, setIsLoadingFrozen] = useState(false);
   const [isSavingSuite, setIsSavingSuite] = useState(false);
@@ -72,6 +57,8 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
   const [activeTestIndex, setActiveTestIndex] = useState(0);
   const [activeBottomTab, setActiveBottomTab] = useState<"gaps" | "floors" | "compression">("gaps");
   const [terminalViewMode, setTerminalViewMode] = useState<"cards" | "monaco">("cards");
+  const prdFileInputRef = useRef<HTMLInputElement>(null);
+  const [justCreatedPack, setJustCreatedPack] = useState(false);
 
   const loadFrozenSuite = useCallback(async (id: string) => {
     if (!id.trim()) {
@@ -98,25 +85,20 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
   }, []);
 
   useEffect(() => {
-    const id = activeAgentId || DEMO_AGENT_ID;
-    setAgentId(id);
+    if (!activeAgentId) {
+      setFrozenDetail(null);
+      setPreviewData(null);
+      setJustCreatedPack(false);
+      setAgentId("");
+      setEndpointUrl("");
+      setRequirementsText(EMPTY_PRD_TEMPLATE);
+      setActiveTestIndex(0);
+      return;
+    }
+    setAgentId(activeAgentId);
     setPreviewData(null);
-    loadFrozenSuite(id);
+    loadFrozenSuite(activeAgentId);
   }, [activeAgentId, loadFrozenSuite]);
-
-  const handleApplyPreset = (preset: typeof PRD_PRESETS[0]) => {
-    setAgentId(preset.agent_id);
-    setEndpointUrl(preset.endpoint);
-    setRequirementsText(preset.text);
-    setPreviewData(null);
-    setActiveAgentId(preset.agent_id);
-    addToast({
-      type: "info",
-      title: `Loaded preset: ${preset.name}`,
-      message: "PRD filled locally. Test pack loads from frozen suite or Preview Pack.",
-    });
-    loadFrozenSuite(preset.agent_id);
-  };
 
   const optimizedPack = previewData?.optimized_pack ?? frozenDetail?.optimized_pack ?? null;
   const coverageReport: CoverageReport | null | undefined =
@@ -202,17 +184,49 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
     }
   };
 
+  const handlePrdFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await readPrdFile(file);
+      setRequirementsText(text);
+      setPreviewData(null);
+      if (!agentId.trim()) {
+        const suggested = agentIdFromPrdFilename(file.name);
+        if (suggested) setAgentId(suggested);
+      }
+      addToast({
+        type: "success",
+        title: "PRD imported",
+        message: `${file.name} (${text.length} chars). Preview or freeze when ready.`,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast({ type: "error", title: "Import failed", message: msg });
+    }
+  };
+
   const handleSaveSuite = async () => {
     if (!requirementsText.trim() || !agentId.trim()) {
       addToast({
         type: "error",
         title: "Validation Error",
-        message: "Agent ID and Requirements text are required.",
+        message: "Agent ID and requirements (PRD) are required.",
+      });
+      return;
+    }
+    if (!frozenDetail?.manifest && !endpointUrl.trim()) {
+      addToast({
+        type: "error",
+        title: "Endpoint required",
+        message: "Set the target HTTP endpoint before freezing a new suite.",
       });
       return;
     }
 
     setIsSavingSuite(true);
+    let createdNewSuite = false;
     try {
       const endpoint = endpointUrl.trim() || undefined;
       if (frozenDetail?.manifest) {
@@ -250,17 +264,18 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
           max_tests: maxTests,
           force_new_version: false,
         });
+        createdNewSuite = true;
         addToast({
           type: "success",
-          title: "Regression Suite Frozen",
-          message: `Suite for ${result.agent_id} saved (${result.optimized_pack_size} tests).`,
+          title: "Suite created",
+          message: `${result.agent_id} frozen with ${result.optimized_pack_size} tests. Review the pack, then run assurance.`,
         });
       }
       await refreshSuites();
       setActiveAgentId(agentId);
       setPreviewData(null);
       await loadFrozenSuite(agentId);
-      if (onSuiteCreated) onSuiteCreated();
+      setJustCreatedPack(createdNewSuite);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       addToast({
@@ -287,29 +302,43 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
   };
 
   const handleProbeEndpoint = async () => {
-    if (!endpointUrl.trim()) return;
+    const url = endpointUrl.trim();
+    if (!url) return;
+    if (!url.includes("/chat")) {
+      addToast({
+        type: "warning",
+        title: "Check endpoint path",
+        message: "Agent endpoints expect a path like http://127.0.0.1:8770/chat (include /chat).",
+      });
+    }
     setIsProbing(true);
     setProbeStatus(null);
     try {
-      const start = performance.now();
-      const res = await fetch(endpointUrl.trim(), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: "ping" }),
-      });
-      const latency = Math.round(performance.now() - start);
-      setProbeStatus({ ok: res.ok, text: `${res.status} OK (${latency}ms)` });
-      addToast({
-        type: res.ok ? "success" : "warning",
-        title: "Endpoint Probed",
-        message: `HTTP ${res.status} returned in ${latency}ms`,
-      });
-    } catch {
+      const result = await probeAgentEndpoint(url);
+      const latency = Math.round(result.latency_ms);
+      if (result.reachable) {
+        setProbeStatus({ ok: true, text: `HTTP ${result.http_status} (${latency}ms)` });
+        addToast({
+          type: "success",
+          title: "Endpoint reachable",
+          message: `Engine probe: HTTP ${result.http_status} in ${latency}ms`,
+        });
+      } else {
+        const detail = result.error || `HTTP ${result.http_status}`;
+        setProbeStatus({ ok: false, text: "Unreachable" });
+        addToast({
+          type: "error",
+          title: "Probe failed",
+          message: detail,
+        });
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       setProbeStatus({ ok: false, text: "Unreachable" });
       addToast({
         type: "error",
-        title: "Probe Failed",
-        message: "Endpoint did not respond. Verify the service is running.",
+        title: "Probe failed",
+        message: msg,
       });
     } finally {
       setIsProbing(false);
@@ -326,43 +355,34 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
     ? JSON.stringify(currentTest, null, 2)
     : "{\n  \"message\": \"Select a test case to view engine CandidateTest JSON.\"\n}";
 
+  const packTestCount = optimizedPack?.tests?.length ?? 0;
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+      {justCreatedPack && frozenDetail && (
+        <div className="mb-5 flex flex-col gap-3 rounded-md border border-primary/30 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold text-foreground">
+              Suite frozen — {packTestCount} test{packTestCount === 1 ? "" : "s"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Review each case in the inspector, then run them against your agent in Assurance.
+            </p>
+          </div>
+          <Button
+            type="button"
+            className="shrink-0"
+            onClick={() => navigateConsoleView("assurance")}
+          >
+            <Play className="mr-2 h-3.5 w-3.5 fill-current" />
+            Go to Assurance
+          </Button>
+        </div>
+      )}
       {/* Two Balanced Columns matching Shadcn Dashboard Cards Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column (5 Cols): Specification & Settings */}
         <div className="lg:col-span-5 flex flex-col gap-5">
-          {/* Preset Selector Card */}
-          <Card className="border border-border bg-card shadow-xs">
-            <CardHeader className="p-4 pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-xs font-semibold text-foreground">
-                  Specification Presets
-                </CardTitle>
-                <span className="text-[11px] text-muted-foreground font-mono">Quick Fill</span>
-              </div>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <div className="flex flex-wrap gap-2">
-                {PRD_PRESETS.map((p) => (
-                  <Button
-                    key={p.name}
-                    variant={agentId === p.agent_id ? "secondary" : "outline"}
-                    size="sm"
-                    onClick={() => handleApplyPreset(p)}
-                    className={
-                      agentId === p.agent_id
-                        ? "border-primary/50 text-foreground font-semibold"
-                        : "text-muted-foreground hover:text-foreground"
-                    }
-                  >
-                    {p.name}
-                  </Button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
           {/* Core Configuration & Requirements Card */}
           <Card className="border border-border bg-card shadow-xs">
             <CardHeader className="p-4 pb-2 border-b border-border/50">
@@ -371,8 +391,8 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
               </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 p-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="min-w-0">
                   <label className="mb-1.5 block text-xs font-medium text-foreground">
                     Agent ID
                   </label>
@@ -387,13 +407,13 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
                       setActiveAgentId(id);
                       loadFrozenSuite(id);
                     }}
-                    placeholder="e.g. refund-bot"
-                    className="font-mono text-xs"
+                    placeholder="e.g. refund-agent"
+                    className="font-mono text-xs w-full"
                   />
                 </div>
-                <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <label className="text-xs font-medium text-foreground">
+                <div className="min-w-0 sm:col-span-2">
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <label className="text-xs font-medium text-foreground shrink-0">
                       Target Endpoint
                     </label>
                     {probeStatus && (
@@ -406,13 +426,14 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
                       </span>
                     )}
                   </div>
-                  <div className="flex gap-1.5">
+                  <div className="flex gap-1.5 min-w-0">
                     <Input
-                      type="text"
+                      type="url"
                       value={endpointUrl}
                       onChange={(e) => setEndpointUrl(e.target.value)}
-                      placeholder={DEMO_STAGING_ENDPOINT}
-                      className="font-mono text-xs flex-1"
+                      placeholder={SAMPLE_AGENT_ENDPOINT_PLACEHOLDER}
+                      className="font-mono text-xs flex-1 min-w-0"
+                      spellCheck={false}
                     />
                     <Button
                       variant="secondary"
@@ -430,17 +451,36 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
 
               {/* PRD Editor */}
               <div>
-                <div className="mb-1.5 flex items-center justify-between">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
                   <label className="text-xs font-medium text-foreground">
                     PRD / Capabilities Markdown
                   </label>
-                  <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
-                    {capabilityCount > 0 && (
-                      <span className="text-primary font-semibold">
-                        {capabilityCount} capabilities detected •
-                      </span>
-                    )}
-                    <span>{requirementsText.length} chars</span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={prdFileInputRef}
+                      type="file"
+                      accept={PRD_FILE_ACCEPT}
+                      className="hidden"
+                      onChange={handlePrdFileSelected}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-[10px] px-2"
+                      onClick={() => prdFileInputRef.current?.click()}
+                    >
+                      <Upload className="h-3 w-3 mr-1" />
+                      Import file
+                    </Button>
+                    <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                      {capabilityCount > 0 && (
+                        <span className="text-primary font-semibold">
+                          {capabilityCount} capabilities •
+                        </span>
+                      )}
+                      <span>{requirementsText.length} chars</span>
+                    </div>
                   </div>
                 </div>
                 <Textarea
@@ -472,7 +512,7 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
                 />
                 <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
                   <span>Fast (3)</span>
-                  <span>Canonical ({FROZEN_TEST_PACK_SIZE})</span>
+                  <span>Max tests ({maxTests})</span>
                   <span>Thorough (25)</span>
                 </div>
               </div>
@@ -504,7 +544,7 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
                   ) : (
                     <Save className="h-3.5 w-3.5 mr-2" />
                   )}
-                  <span>{frozenDetail ? "Update Pack" : "Freeze Suite"}</span>
+                  <span>{frozenDetail ? "Update pack" : "Create suite"}</span>
                 </Button>
               </div>
             </CardContent>
@@ -644,7 +684,7 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
 
                         <div>
                           <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                            // Input Prompt (Sent to Target Agent Endpoint)
+                            Input Prompt (Sent to Target Agent Endpoint)
                           </div>
                           <div className="rounded-lg border border-border bg-muted/20 p-3.5 font-mono text-xs text-foreground leading-relaxed">
                             {currentTest.user_prompt}
@@ -653,7 +693,7 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
 
                         <div>
                           <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                            // Expected Observable Behavior (Verification Criterion)
+                            Expected Observable Behavior (Verification Criterion)
                           </div>
                           <div className="rounded-lg border-l-2 border-primary border-y border-r border-border bg-primary/5 p-3.5 font-mono text-xs text-foreground leading-relaxed">
                             {currentTest.expected_behavior}
@@ -765,16 +805,25 @@ export const Studio: React.FC<{ onSuiteCreated?: () => void }> = ({ onSuiteCreat
                     </div>
                   </TabsContent>
                   <TabsContent value="floors" className="mt-0">
-                    <div className="space-y-2">
-                      <div className="flex items-center gap-2 text-foreground">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                        <span>Authorization & Privileges floor satisfied</span>
+                    {!coverageReport ? (
+                      <p className="text-xs text-muted-foreground">
+                        Preview or load a frozen pack to see mandatory floor coverage from the engine.
+                      </p>
+                    ) : (coverageReport.critical_uncovered?.length ?? 0) === 0 ? (
+                      <div className="flex items-center gap-2 text-foreground text-xs">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                        <span>No mandatory gaps in the selected pack (optimizer coverage).</span>
                       </div>
-                      <div className="flex items-center gap-2 text-foreground">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                        <span>Prompt injection & boundary resistance verified</span>
+                    ) : (
+                      <div className="space-y-2">
+                        {coverageReport.critical_uncovered.map((gap) => (
+                          <div key={gap} className="flex items-center gap-2 text-foreground text-xs">
+                            <AlertCircle className="h-4 w-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                            <span className="font-mono">{gap}</span>
+                          </div>
+                        ))}
                       </div>
-                    </div>
+                    )}
                   </TabsContent>
                   <TabsContent value="compression" className="mt-0">
                     <div className="space-y-1.5 font-mono text-muted-foreground">

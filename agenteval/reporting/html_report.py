@@ -95,25 +95,29 @@ class HTMLReportGenerator:
                     else str(test_def.category)
                 )
 
-            merged_tests.append({
-                "test_id": res.test_id,
-                "tab_label": cls._format_test_label(test_def, res.test_id, index),
-                "title": test_def.name if test_def else res.test_id,
-                "category": cat_val,
-                "capability_id": test_def.capability_id if test_def else "unknown",
-                "persona_slug": test_def.persona_id if test_def else "default",
-                "input_prompt": test_def.user_prompt if test_def else res.observation.user_prompt,
-                "expected_behavior": test_def.expected_behavior if test_def else "",
-                "coverage_tags": test_def.coverage_tags if test_def else [],
-                "rationale": res.rationale or (test_def.rationale if test_def else ""),
-                "verdict": res.verdict,
-                "http_status": res.observation.http_status,
-                "latency_ms": round(res.observation.latency_ms, 1),
-                "response_text": res.observation.response_text,
-                "raw_json": res.observation.raw_json,
-                "is_regression": is_regression,
-                "is_fix": is_fix,
-            })
+            merged_tests.append(
+                {
+                    "test_id": res.test_id,
+                    "tab_label": cls._format_test_label(test_def, res.test_id, index),
+                    "title": test_def.name if test_def else res.test_id,
+                    "category": cat_val,
+                    "capability_id": test_def.capability_id if test_def else "unknown",
+                    "persona_slug": test_def.persona_id if test_def else "default",
+                    "input_prompt": test_def.user_prompt
+                    if test_def
+                    else res.observation.user_prompt,
+                    "expected_behavior": test_def.expected_behavior if test_def else "",
+                    "coverage_tags": test_def.coverage_tags if test_def else [],
+                    "rationale": res.rationale or (test_def.rationale if test_def else ""),
+                    "verdict": res.verdict,
+                    "http_status": res.observation.http_status,
+                    "latency_ms": round(res.observation.latency_ms, 1),
+                    "response_text": res.observation.response_text,
+                    "raw_json": res.observation.raw_json,
+                    "is_regression": is_regression,
+                    "is_fix": is_fix,
+                }
+            )
 
         avg_latency = round(total_latency_ms / latency_count, 1) if latency_count > 0 else 0.0
         p95_latency = cls._p95_latency(latencies)
@@ -201,12 +205,18 @@ class HTMLReportGenerator:
                 if regressions
                 else ""
             )
-            fix_chip = f'<span class="diff-chip chip-fix">{len(fixes)} Fixes</span>' if fixes else ""
+            fix_chip = (
+                f'<span class="diff-chip chip-fix">{len(fixes)} Fixes</span>' if fixes else ""
+            )
             stable_chip = (
                 f'<span class="diff-chip">{len(diff.get("stable_pass", []))} Stable Passed</span>'
             )
             prior_id = html.escape(str(diff.get("prior_run_id", "baseline")))
-            diff_class = "surface-card diff-banner has-regression" if regressions else "surface-card diff-banner"
+            diff_class = (
+                "surface-card diff-banner has-regression"
+                if regressions
+                else "surface-card diff-banner"
+            )
             diff_banner_html = f"""
             <div class="{diff_class}">
               <div>
@@ -310,10 +320,15 @@ class HTMLReportGenerator:
     html[data-embed="1"] body {{
       background: transparent;
       padding: 0 0 1rem;
+      min-height: 100%;
     }}
 
     html[data-embed="1"] .surface-card {{
       box-shadow: none;
+    }}
+
+    html[data-embed="1"] .container {{
+      max-width: none;
     }}
 
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -796,12 +811,12 @@ class HTMLReportGenerator:
       </div>
       <div class="surface-card kpi-card">
         <div class="kpi-label">Failures</div>
-        <div class="kpi-value {'kpi-bad' if failed > 0 else ''}">{failed}</div>
+        <div class="kpi-value {"kpi-bad" if failed > 0 else ""}">{failed}</div>
         <div class="kpi-sub">violations</div>
       </div>
       <div class="surface-card kpi-card">
         <div class="kpi-label">Unverifiable</div>
-        <div class="kpi-value {'kpi-warn' if unverifiable > 0 else ''}">{unverifiable}</div>
+        <div class="kpi-value {"kpi-warn" if unverifiable > 0 else ""}">{unverifiable}</div>
         <div class="kpi-sub">unprovable</div>
       </div>
       <div class="surface-card kpi-card">

@@ -19,8 +19,6 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   BREACH_AMOUNT_USD,
-  DEMO_AGENT_ID,
-  FROZEN_TEST_PACK_SIZE,
   PRODUCT_DOMAIN,
   REFUND_CEILING_USD,
   formatUsd,
@@ -103,9 +101,9 @@ export const Landing: React.FC<LandingProps> = ({ onStartFree, onOpenConsole }) 
                   Live demo console
                 </Button>
               </div>
-              <p className="mt-6 font-mono text-[11px] text-muted-foreground">
-                Demo pack: {DEMO_AGENT_ID} · {FROZEN_TEST_PACK_SIZE} frozen tests · ceiling{" "}
-                {formatUsd(REFUND_CEILING_USD)} · breach case {formatUsd(BREACH_AMOUNT_USD)}
+              <p className="mt-6 text-[11px] text-muted-foreground">
+                Bring your PRD and agent HTTP endpoint — evaluation packs and runs come from the
+                engine, not preloaded demo data.
               </p>
             </div>
             <Card className="overflow-hidden border-border shadow-xs">

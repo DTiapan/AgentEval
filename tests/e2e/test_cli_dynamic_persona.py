@@ -15,7 +15,11 @@ def test_cli_plan_dynamic_persona_synthesis_and_caching() -> None:
     res1 = runner.invoke(app, ["plan", "--endpoint", "http://localhost:8000/db-service"])
     assert res1.exit_code == 0
     assert "Dynamic Stack-Ranked Personas" in res1.output
-    assert "SRE Engineer" in res1.output or "Database Reliability" in res1.output or "FREQUENT_OPERATION" in res1.output
+    assert (
+        "SRE Engineer" in res1.output
+        or "Database Reliability" in res1.output
+        or "FREQUENT_OPERATION" in res1.output
+    )
 
     # 2. Second run: should show CACHED
     res2 = runner.invoke(app, ["plan", "--endpoint", "http://localhost:8000/db-service"])

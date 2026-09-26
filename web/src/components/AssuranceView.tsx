@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowUpRight,
   CheckCircle,
+  Download,
   ChevronRight,
   Code,
   Code2,
@@ -16,7 +17,13 @@ import {
   Waypoints,
   XCircle,
 } from "lucide-react";
-import { extendSuiteGaps, getSuiteDetail, getSuiteReportUrl, runSuite } from "../api";
+import {
+  downloadSuiteReport,
+  extendSuiteGaps,
+  getSuiteDetail,
+  getSuiteReportUrl,
+  runSuite,
+} from "../api";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { SuiteDetailResult, SuiteRunReport, TestCaseResult } from "../types";
 import { Button } from "@/components/ui/button";
@@ -34,15 +41,11 @@ import {
   TableRow,
   TableCell,
 } from "@/components/ui/table";
-import {
-  BREACH_AMOUNT_USD,
-  DEMO_STAGING_ENDPOINT,
-  FROZEN_TEST_PACK_SIZE,
-  LOCAL_AGENT_ENDPOINT,
-  REFUND_CEILING_USD,
-  formatUsd,
-} from "@/lib/product";
+import { SAMPLE_AGENT_ENDPOINT_PLACEHOLDER } from "@/lib/mvp-defaults";
 import { openTrajectoryReplay } from "@/lib/replay-session";
+import { navigateConsoleView } from "@/lib/console-route";
+import { AssuranceEmptyState } from "@/components/AssuranceEmptyState";
+import { ReportEmbedFrame } from "@/components/ReportEmbedFrame";
 
 function useConsoleTheme(): "light" | "dark" {
   const [theme, setTheme] = useState<"light" | "dark">(() =>
@@ -59,19 +62,20 @@ function useConsoleTheme(): "light" | "dark" {
 }
 
 export const AssuranceView: React.FC = () => {
-  const { activeAgentId, addToast } = useWorkspace();
+  const { activeAgentId, addToast, suites, isLoadingSuites } = useWorkspace();
   const consoleTheme = useConsoleTheme();
 
   const [suiteDetail, setSuiteDetail] = useState<SuiteDetailResult | null>(null);
   const [latestRun, setLatestRun] = useState<SuiteRunReport | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [isExtendingGaps, setIsExtendingGaps] = useState(false);
-  const [, setIsLoadingDetail] = useState(false);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [filterVerdict, setFilterVerdict] = useState<"ALL" | "PASS" | "FAIL" | "UNVERIFIABLE">("ALL");
   const [selectedTest, setSelectedTest] = useState<TestCaseResult | null>(null);
-  const [customEndpoint, setCustomEndpoint] = useState(LOCAL_AGENT_ENDPOINT);
+  const [customEndpoint, setCustomEndpoint] = useState("");
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
+  const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [evidenceViewMode, setEvidenceViewMode] = useState<"cards" | "monaco">("cards");
 
   const loadSuiteData = async (agentId: string) => {
@@ -79,6 +83,9 @@ export const AssuranceView: React.FC = () => {
     try {
       const detail = await getSuiteDetail(agentId);
       setSuiteDetail(detail);
+      if (detail.manifest.endpoint_profile?.trim()) {
+        setCustomEndpoint(detail.manifest.endpoint_profile);
+      }
       if (detail.latest_run) {
         setLatestRun(detail.latest_run);
         if (detail.latest_run.results?.length > 0) {
@@ -162,6 +169,24 @@ export const AssuranceView: React.FC = () => {
       });
     } finally {
       setIsRunning(false);
+    }
+  };
+
+  const handleDownloadReport = async () => {
+    if (!activeAgentId || !latestRun) return;
+    setIsDownloadingReport(true);
+    try {
+      await downloadSuiteReport(activeAgentId, latestRun.run_id, { theme: consoleTheme });
+      addToast({
+        type: "success",
+        title: "Report saved",
+        message: "HTML report downloaded from engine.",
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast({ type: "error", title: "Download failed", message: msg });
+    } finally {
+      setIsDownloadingReport(false);
     }
   };
 
@@ -264,6 +289,10 @@ export const AssuranceView: React.FC = () => {
       ? diff.same_verdict_count
       : changes.filter((c) => c.kind === "STABLE").length;
 
+  const showNoSuitesEmpty = !isLoadingSuites && suites.length === 0;
+  const showNoRunEmpty =
+    Boolean(activeAgentId) && !isLoadingDetail && suiteDetail !== null && !latestRun;
+
   const evidenceJson = selectedTest
     ? JSON.stringify(
         {
@@ -281,6 +310,18 @@ export const AssuranceView: React.FC = () => {
       )
     : `// Select a test case to view its sealed execution JSON trace.`;
 
+  if (showNoSuitesEmpty) {
+    return (
+      <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
+        <h1 className="text-xl font-bold tracking-tight text-foreground mb-2">Assurance Runs</h1>
+        <p className="text-xs text-muted-foreground mb-6">
+          No suites in the engine yet. Start in Studio with a PRD and agent URL.
+        </p>
+        <AssuranceEmptyState variant="no-suites" />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
       {/* Top Action & Control Bar */}
@@ -297,10 +338,11 @@ export const AssuranceView: React.FC = () => {
             )}
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
-            Black-box regression telemetry, deterministic invariant verdicts, and side-effect evidence.
-            Demo ceiling {formatUsd(REFUND_CEILING_USD)} · breach case {formatUsd(BREACH_AMOUNT_USD)} ·{" "}
-            {FROZEN_TEST_PACK_SIZE} frozen tests · staging{" "}
-            <span className="font-mono">{DEMO_STAGING_ENDPOINT}</span>
+            {activeAgentId
+              ? suiteDetail
+                ? `Frozen pack v${suiteDetail.manifest.version} · ${suiteDetail.optimized_pack?.tests?.length ?? 0} tests · target ${suiteDetail.manifest.endpoint_profile?.trim() || "not set in manifest"}`
+                : "Loading suite from engine…"
+              : "Select or create a suite in Studio to run assurance against your agent endpoint."}
           </p>
         </div>
 
@@ -313,7 +355,7 @@ export const AssuranceView: React.FC = () => {
               value={customEndpoint}
               onChange={(e) => setCustomEndpoint(e.target.value)}
               className="h-7 w-56 border-0 bg-transparent px-0 font-mono text-xs shadow-none focus-visible:ring-0"
-              placeholder={LOCAL_AGENT_ENDPOINT}
+              placeholder={SAMPLE_AGENT_ENDPOINT_PLACEHOLDER}
             />
           </div>
 
@@ -351,17 +393,44 @@ export const AssuranceView: React.FC = () => {
 
           {/* HTML Report Trigger */}
           {activeAgentId && latestRun && (
-            <Button
-              variant="outline"
-              onClick={() => setIsReportModalOpen(true)}
-              className="cursor-pointer"
-            >
-              <span>Full HTML Report</span>
-              <ArrowUpRight className="h-3.5 w-3.5 ml-1 text-muted-foreground" />
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                onClick={handleDownloadReport}
+                disabled={isDownloadingReport}
+                className="cursor-pointer"
+              >
+                {isDownloadingReport ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                ) : (
+                  <Download className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                <span>Download report</span>
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setIsReportModalOpen(true)}
+                className="cursor-pointer"
+              >
+                <span>View report</span>
+                <ArrowUpRight className="h-3.5 w-3.5 ml-1 text-muted-foreground" />
+              </Button>
+            </>
           )}
         </div>
       </div>
+
+      {showNoRunEmpty && (
+        <div className="mb-6">
+          <AssuranceEmptyState
+            variant="no-run"
+            agentId={activeAgentId ?? undefined}
+            packSize={suiteDetail?.optimized_pack?.tests?.length}
+            onExecuteRun={handleRunSuite}
+            isRunning={isRunning}
+          />
+        </div>
+      )}
 
       {/* KPI Metric Strip - Styled matching Screenshots 2 & 3 */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -488,7 +557,7 @@ export const AssuranceView: React.FC = () => {
         </div>
       )}
 
-      {/* Ready-Made Resizable Split Pane Group */}
+      {showNoRunEmpty ? null : (
       <ResizablePanelGroup
         direction="horizontal"
         className="min-h-[580px] gap-5"
@@ -754,7 +823,7 @@ export const AssuranceView: React.FC = () => {
                   {/* Rationale / Verdict Explanation */}
                   <div>
                     <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                      // Deterministic Verdict Rationale
+                      Deterministic Verdict Rationale
                     </div>
                     <div className="rounded-lg border border-border bg-muted/30 p-3 text-xs leading-relaxed text-foreground">
                       {selectedTest.rationale || "No specific rationale recorded."}
@@ -764,7 +833,7 @@ export const AssuranceView: React.FC = () => {
                   {/* Sent Prompt */}
                   <div>
                     <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                      // Sent User Prompt
+                      Sent User Prompt
                     </div>
                     <div className="rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs text-foreground leading-relaxed">
                       {selectedTest.observation?.user_prompt || "No prompt recorded"}
@@ -774,7 +843,7 @@ export const AssuranceView: React.FC = () => {
                   {/* Target Agent Response */}
                   <div>
                     <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
-                      // Target Agent Observed Response
+                      Target Agent Observed Response
                     </div>
                     <div className="rounded-lg border border-border bg-muted/30 p-3 font-mono text-xs text-primary leading-relaxed max-h-48 overflow-y-auto">
                       {selectedTest.observation?.response_text ||
@@ -812,11 +881,15 @@ export const AssuranceView: React.FC = () => {
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
+      )}
 
       {/* Standalone HTML Report In-App Modal with Shadcn Dialog */}
       <Dialog open={isReportModalOpen} onOpenChange={setIsReportModalOpen}>
-        {activeAgentId && latestRun && (
-          <DialogContent className="max-w-6xl h-[90vh] p-0 flex flex-col bg-card border-border overflow-hidden">
+        <DialogContent
+          className="max-w-6xl h-[90vh] p-0 flex flex-col bg-card border-border overflow-hidden sm:max-w-6xl"
+        >
+        {activeAgentId && latestRun ? (
+          <>
             {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-border bg-muted/30 px-5 py-3.5">
               <div className="flex items-center gap-3">
@@ -842,19 +915,30 @@ export const AssuranceView: React.FC = () => {
               </div>
             </div>
 
-            {/* Modal Body: Embed the native Allure-class HTML report */}
-            <div className="flex-1 w-full bg-background">
-              <iframe
-                src={getSuiteReportUrl(activeAgentId, latestRun.run_id, {
-                  embed: true,
-                  theme: consoleTheme,
-                })}
-                title="AgentEval Standalone Assurance Report"
-                className="h-full w-full border-0"
-              />
-            </div>
-          </DialogContent>
+            <ReportEmbedFrame
+              agentId={activeAgentId}
+              runId={latestRun.run_id}
+              theme={consoleTheme}
+              active={isReportModalOpen}
+            />
+          </>
+        ) : (
+          <div className="p-8 text-center text-sm text-muted-foreground">
+            Run assurance first to view a report.
+            <Button
+              type="button"
+              variant="link"
+              className="mt-2"
+              onClick={() => {
+                setIsReportModalOpen(false);
+                navigateConsoleView("studio");
+              }}
+            >
+              Go to Studio
+            </Button>
+          </div>
         )}
+        </DialogContent>
       </Dialog>
     </div>
   );

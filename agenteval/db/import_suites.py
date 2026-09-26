@@ -38,9 +38,7 @@ def _backfill_trajectories(report: SuiteRunReport) -> SuiteRunReport:
     return report.model_copy(update={"results": results})
 
 
-def _collect_run_reports(
-    store: SuiteStore, agent_id: str
-) -> list[SuiteRunReport]:
+def _collect_run_reports(store: SuiteStore, agent_id: str) -> list[SuiteRunReport]:
     seen: set[str] = set()
     reports: list[SuiteRunReport] = []
 
@@ -81,9 +79,7 @@ def import_suites_from_filesystem(
                 pool = store.load_pool(agent_id)
                 card_path = store.agent_dir(agent_id) / "derived_agent_card.json"
                 agent_card_json = (
-                    card_path.read_text(encoding="utf-8")
-                    if card_path.is_file()
-                    else None
+                    card_path.read_text(encoding="utf-8") if card_path.is_file() else None
                 )
                 repo.init_suite(
                     manifest,
@@ -93,6 +89,7 @@ def import_suites_from_filesystem(
                     agent_card_json=agent_card_json,
                 )
                 endpoint = manifest.endpoint_profile or "import://unknown"
+                repo.ensure_default_target(agent_id, endpoint)
                 for report in _collect_run_reports(store, agent_id):
                     repo.save_run(agent_id, report, endpoint_url=endpoint)
                     result.runs_imported += 1

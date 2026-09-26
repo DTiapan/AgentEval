@@ -19,12 +19,12 @@ import {
   trajectoryFromResult,
 } from "@/lib/trajectory";
 import type { ExecutionStep } from "@/types";
-import { DEMO_AGENT_ID } from "@/lib/product";
 import { useWorkspace } from "@/context/WorkspaceContext";
 
 function panelEditorHeight(text: string): string {
   const lines = Math.max(1, text.split("\n").length);
-  const px = Math.min(220, Math.max(88, lines * 18 + 28));
+  // Word-wrapped markdown needs extra room; Monaco scrolls inside fixed height.
+  const px = Math.min(420, Math.max(140, lines * 22 + 48));
   return `${px}px`;
 }
 
@@ -75,6 +75,11 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
     }
   }, [session?.agentId, activeAgentId, setActiveAgentId]);
 
+  useEffect(() => {
+    setStepIndex(0);
+    setIsPlaying(false);
+  }, [session?.runId, session?.test?.test_id]);
+
   if (!session || !model) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
@@ -107,12 +112,23 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
   const panels = panelContentForStep(currentStep);
   const failIndex = model.failStepIndex;
   const canJumpToFail = failIndex !== null && model.verdict === "FAIL";
-  const agentLabel = session.agentId || DEMO_AGENT_ID;
+  const agentLabel = session.agentId || "—";
   const shortTestId =
     model.testId.length > 40 ? `${model.testId.slice(0, 38)}…` : model.testId;
 
   const goTo = (idx: number) => {
     setStepIndex(Math.max(0, Math.min(steps.length - 1, idx)));
+  };
+
+  const togglePlayback = () => {
+    if (isPlaying) {
+      setIsPlaying(false);
+      return;
+    }
+    if (stepIndex >= steps.length - 1) {
+      setStepIndex(0);
+    }
+    setIsPlaying(true);
   };
 
   return (
@@ -178,9 +194,21 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
               variant="secondary"
               size="icon"
               className="h-8 w-8"
-              onClick={() => setIsPlaying((p) => !p)}
-              title={isPlaying ? "Pause" : "Play"}
-              aria-label={isPlaying ? "Pause playback" : "Play playback"}
+              onClick={togglePlayback}
+              title={
+                isPlaying
+                  ? "Pause"
+                  : stepIndex >= steps.length - 1
+                    ? "Replay from beginning"
+                    : "Play"
+              }
+              aria-label={
+                isPlaying
+                  ? "Pause playback"
+                  : stepIndex >= steps.length - 1
+                    ? "Replay from beginning"
+                    : "Play playback"
+              }
             >
               {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
             </Button>
@@ -231,42 +259,54 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
         </CardContent>
       </Card>
 
-      {/* Timeline */}
-      <div className="mb-6 overflow-x-auto pb-2">
-        <div className="flex min-w-max items-center gap-2">
-          {steps.map((step, idx) => {
-            const active = idx === stepIndex;
-            const failed = step.is_failure;
-            return (
-              <React.Fragment key={step.step_id}>
-                <button
-                  type="button"
-                  onClick={() => goTo(idx)}
-                  className={`flex flex-col items-center gap-1 rounded-md px-2 py-1.5 text-center transition-colors cursor-pointer min-w-[88px] ${
-                    active
-                      ? "bg-primary/10 ring-1 ring-primary"
-                      : "hover:bg-muted/60"
-                  }`}
-                >
-                  <span
-                    className={`h-2.5 w-2.5 rounded-full ${
-                      failed
-                        ? "bg-rose-500"
-                        : active
-                        ? "bg-primary"
-                        : "bg-muted-foreground/40"
+      {/* Timeline — horizontal pills + connectors on one centered row */}
+      <div className="mb-6">
+        <div className="overflow-x-auto py-2">
+          <div
+            className="flex min-w-max items-center gap-0 px-1 py-1"
+            role="tablist"
+            aria-label="Trajectory steps"
+          >
+            {steps.map((step, idx) => {
+              const active = idx === stepIndex;
+              const failed = step.is_failure;
+              return (
+                <React.Fragment key={step.step_id}>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => goTo(idx)}
+                    className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-left transition-colors cursor-pointer max-w-[10.5rem] shrink-0 ring-offset-2 ring-offset-background ${
+                      active
+                        ? "bg-primary/10 ring-2 ring-primary"
+                        : "hover:bg-muted/60"
                     }`}
-                  />
-                  <span className="text-[10px] font-medium leading-tight text-foreground">
-                    {step.label}
-                  </span>
-                </button>
-                {idx < steps.length - 1 && (
-                  <div className="h-px w-6 shrink-0 bg-border self-center mt-[-12px]" aria-hidden />
-                )}
-              </React.Fragment>
-            );
-          })}
+                  >
+                    <span
+                      className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                        failed
+                          ? "bg-rose-500"
+                          : active
+                            ? "bg-primary"
+                            : "bg-muted-foreground/40"
+                      }`}
+                      aria-hidden
+                    />
+                    <span className="text-[10px] font-medium leading-snug text-foreground">
+                      {step.label}
+                    </span>
+                  </button>
+                  {idx < steps.length - 1 && (
+                    <div
+                      className="mx-1 h-px w-8 shrink-0 bg-border"
+                      aria-hidden
+                    />
+                  )}
+                </React.Fragment>
+              );
+            })}
+          </div>
         </div>
       </div>
 
@@ -310,7 +350,7 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
                 {panel.title}
               </CardTitle>
             </CardHeader>
-            <CardContent className="p-0 flex-1">
+            <CardContent className="p-0 flex-1 min-h-0 overflow-hidden">
               <CodeViewer
                 code={panel.body}
                 language={panel.lang === "json" ? "json" : "markdown"}

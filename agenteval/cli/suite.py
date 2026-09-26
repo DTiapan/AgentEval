@@ -214,7 +214,9 @@ def suite_sync(
         raise typer.Exit(code=1) from None
 
     if result.noop:
-        console.print("[green]Suite already matches manifest[/green] (fingerprint and capabilities).")
+        console.print(
+            "[green]Suite already matches manifest[/green] (fingerprint and capabilities)."
+        )
         raise typer.Exit(code=0)
 
     console.print(

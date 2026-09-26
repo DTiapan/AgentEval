@@ -1,5 +1,21 @@
 # Black-box MVP walkthrough (no LLM judge)
 
+## Sample agents + PRDs (console upload)
+
+| Agent | PRD file | Endpoint | Start |
+|-------|----------|----------|--------|
+| Customer refunds | `refund-agent-prd.md` | `http://127.0.0.1:8765/chat` | `python3 refund_agent_server.py` |
+| IT helpdesk | `helpdesk-agent-prd.md` | `http://127.0.0.1:8767/chat` | `python3 helpdesk_agent_server.py` |
+| Warehouse fulfillment | `fulfillment-agent-prd.md` | `http://127.0.0.1:8768/chat` | `python3 fulfillment_agent_server.py` |
+
+Start all mocks (from this directory):
+
+```bash
+chmod +x start_sample_agents.sh && ./start_sample_agents.sh
+```
+
+In AgentEval Studio: **Import file** → PRD, set **agent id** (e.g. `helpdesk-agent`), paste **endpoint** from the table, **Create suite**.
+
 ## What this proves
 
 1. **Suite init** — requirements + `AgentCard` → candidate pool → optimized pack → saved under `.agenteval/suites/`

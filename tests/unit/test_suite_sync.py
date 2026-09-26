@@ -40,7 +40,10 @@ def test_suite_sync_prunes_removed_capability(tmp_path: Path) -> None:
         pack,
         force=True,
     )
-    assert any(t.capability_id == "lookup-order" for t in pack.tests)
+    lookup_req_id = next(
+        c.requirement_id() for c in card_v1.capabilities if c.description == "Find orders"
+    )
+    assert any(t.capability_id == lookup_req_id for t in pack.tests)
 
     manifest_v2 = tmp_path / "v2.yaml"
     _write_manifest(
@@ -48,15 +51,13 @@ def test_suite_sync_prunes_removed_capability(tmp_path: Path) -> None:
         [{"name": "Issue Refund", "description": "Refund orders only now"}],
     )
     card_v2 = AgentCard.from_yaml(manifest_v2)
-    result = SuiteSynchronizer(max_tests=12).sync(
-        store, "sync-agent", card_v2, manifest_v2, None
-    )
+    result = SuiteSynchronizer(max_tests=12).sync(store, "sync-agent", card_v2, manifest_v2, None)
 
     assert not result.noop
-    assert result.removed_capabilities == ["lookup-order"]
+    assert result.removed_capabilities == [lookup_req_id]
     assert result.new_version == 2
 
     updated_pack = store.load_pack("sync-agent")
-    assert all(t.capability_id != "lookup-order" for t in updated_pack.tests)
+    assert all(t.capability_id != lookup_req_id for t in updated_pack.tests)
     assert (root / "sync-agent" / "archive" / "pruned_v2.json").exists()
     assert (root / "sync-agent" / "sync_changelog.jsonl").exists()

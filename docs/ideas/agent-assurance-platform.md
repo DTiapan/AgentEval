@@ -85,3 +85,65 @@ We evaluated three strategic paths:
    * *Mitigation*: Profile early in v0.1; introduce lightweight streaming event-bus mode for live runs.
 2. **Agent Framework Diversity**: How cleanly can LangGraph, CrewAI, and raw OpenAI function calling be unified under `CallableAdapter`?
    * *Mitigation*: The adapter interface requires only `(user_input, history) -> List[ToolCall]`. Any callable agent fits this signature.
+
+---
+
+## 8. Deferred direction: requirements owner (PM) as primary user
+
+> **Status:** Captured 2026-09-25, not active. Build continues on the
+> domain-agnostic backbone and domain packs; this repositioning is applied later
+> with small changes (copy, onboarding, report emphasis), not a rebuild.
+
+**Intent:** Position AgentEval as an assurance tool for the **requirements owner**
+(product manager, domain lead, compliance-minded lead) rather than another
+engineer-first eval platform. The PM owns the spec, approves requirements and
+acceptance criteria, and signs off on an evidence-backed report. The engineer
+connects the agent URL and evidence sources once.
+
+**Positioning:** "Turn your PRD into a signed assurance report, with domain packs
+for finance and healthcare." Differentiators: requirement-level verdicts,
+sealed evidence of what the agent did, explicit `UNVERIFIABLE`, and domain packs
+that add mandatory requirements and compliance mapping.
+
+**Market signal (2026-09-24 research):**
+- PMs struggle to turn "good enough" into concrete test criteria
+  ([r/LLMDevs](https://www.reddit.com/r/LLMDevs/comments/1rdbhvr/how_do_pms_define_good_enough_for_ai_agents_when/),
+  [r/ProductManagement](https://www.reddit.com/r/ProductManagement/comments/1k0ynnj/how_do_product_requirements_work_for_ai_agent/)).
+- Non-technical teams are blocked when eval tools require code
+  ([r/LocalLLaMA](https://www.reddit.com/r/LocalLLaMA/comments/1q8v1be/evaluated_llm_observability_platforms_heres_what/),
+  [r/AI_Agents](https://www.reddit.com/r/AI_Agents/comments/1rcmh5a/tested_3_ai_evaluation_platforms_heres_what/)).
+- Domain experts in regulated industries lack usable tools
+  ([EvalDesk post](https://www.reddit.com/r/AI_Governance/comments/1tar999/opensource_ai_evaluation_platform/)).
+- Companies hire PMs specifically for AI evaluation and quality (LinkedIn job posts).
+
+**Competitors already claiming PM usability:** Maxim AI (no-code evals and agent
+builder), LangWatch (platform scenarios), EvalDesk (OSS, domain experts). The
+wedge must be requirements-first assurance with evidence, not "we also have a UI".
+
+**Risks:** setup still needs an engineer for connectors; PM budgets are smaller;
+the PM-friendly narrative is crowded.
+
+**Target market (decided 2026-09-25):** small companies (10–200 people) in
+regulated industries deploying customer-facing agents. They are underserved:
+compliance software is quote-priced enterprise tooling
+([Kosmoy review](https://www.kosmoy.com/resources/blog/best-eu-ai-act-compliance-software-2026/));
+SMB tools produce documents but do not test agents; agent testing vendors
+(Vigilium, Aveni) are enterprise services. The gap is affordable, self-hosted
+agent testing that produces regulator-acceptable evidence, including an honest
+statement of what could not be tested (`UNVERIFIABLE`).
+
+**Pack order:** fintech, then insurance, then health.
+- Fintech first: written rules (disclosures, refunds and disputes, collections),
+  easy synthetic data, strong deterministic side-effect checks, and the sample
+  refund agent already fits.
+- Insurance second: claims agents share the refund shape (approve or deny,
+  limits, audit trail).
+- Health last: sensitive data and many checks need clinical judgment.
+- Override: if a real design partner exists in another domain, start there.
+
+**Risks specific to this market:** buyers expect SOC 2 or similar (favours
+self-hosted OSS over a hosted service); EU AI Act high-risk dates may slip.
+
+**What changes when activated:** persona priority in PRD §4 (requirements owner
+first), Studio onboarding copy, report layout led by requirement status. Backbone
+entities and the pack contract do not change.

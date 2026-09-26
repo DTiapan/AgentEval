@@ -20,6 +20,7 @@
 7. [Core product workflows](#7-core-product-workflows)
 8. [Information architecture & navigation](#8-information-architecture--navigation)
 9. [Functional requirements by epic](#9-functional-requirements-by-epic)
+   - 9A. [Backbone requirements (domain-agnostic) — DRAFT](#9a-backbone-requirements-domain-agnostic--draft)
 10. [Non-functional requirements](#10-non-functional-requirements)
 11. [Out of scope & later phases](#11-out-of-scope--later-phases)
 12. [Success metrics & release gates](#12-success-metrics--release-gates)
@@ -127,7 +128,27 @@ flowchart LR
 
 Methodology: [ux-planner](../../.agents/skills/ux-planner/SKILL.md) — role, mental model, 5-second intent, fears, success threshold.
 
-### Persona matrix (primary UX targets)
+### Persona set v5 (active, 2026-09-25)
+
+**Target market:** small companies (10–200 people) in regulated industries
+deploying customer-facing agents. First domain pack: fintech; then insurance,
+then health. Rationale: [idea one-pager §8](../ideas/agent-assurance-platform.md).
+
+| ID | Role | Example | Goal | Fear | Success |
+|----|------|---------|------|------|---------|
+| U1 | **Agent / QA engineer** (hands-on, primary) | Engineer at a 30-person fintech who owns the support agent | Connect the agent and evidence sources once; run the frozen suite; find why a case failed | Tests pass on wording while the agent moved money wrongly | Every failure links to the requirement and the evidence that disproved it |
+| U2 | **Compliance or product lead** (sign-off, primary) | Head of compliance or the PM for the agent | Approve requirements (including pack-mandated ones); sign a report an auditor or partner bank accepts | Signing off on something nobody actually tested | Report shows each requirement and control as proven, failing or `UNVERIFIABLE`, with nothing hidden |
+| U3 | **CI bot** (service account) | GitHub Actions job | Run the frozen suite on each release candidate | Flaky gates | Blocks release when a mandatory requirement fails; same evidence gives same verdict |
+
+**Mapping from v4:** Alex and Sam merge into U1. Maya, Marcus and Priya merge
+into U2. CI Bot is U3. Jordan (workspace admin) and Riley (executive viewer)
+are deferred until multi-user auth (E-AUTH / E-ORG). Pack authors are not a
+persona: packs ship with AgentEval in v1.
+
+The v4 matrix and journeys below are kept for reference; §5 journeys will be
+rewritten against U1–U3.
+
+### Persona matrix v4 (superseded, reference only)
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -540,6 +561,102 @@ Priority: **P0** (MVP SaaS), **P1** (fast follow), **P2** (later).
 
 ---
 
+## 9A. Backbone requirements (domain-agnostic) — DRAFT
+
+> **Status:** Draft 2026-09-24, pending approval. Source for the domain model
+> (`docs/design/domain-model.md`) and ADR-005.
+>
+> **One sentence:** Given a specification and a way to reach an agent, the
+> backbone turns requirements into a frozen, traceable test suite, runs it, and
+> records a verdict per acceptance criterion backed by evidence, or
+> `UNVERIFIABLE` when no evidence can prove it, for any domain supplied by a
+> domain pack (for example finance or healthcare).
+>
+> **Rule:** requirements in this section never name a domain (refund, ticket,
+> order, …) or an implementation (a database, a framework). Epics in §9 build on
+> these. Status reflects code as of 2026-09-24: **Built**, **Partial**, **Not started**.
+
+### Core (the backbone lives or dies by these)
+
+1. Requirements are first-class, with stable IDs and acceptance criteria (FR-B-02, FR-B-03).
+2. A frozen suite traces every test case to the criteria it checks (FR-B-07, FR-B-08).
+3. Verdicts are recorded per criterion and cite evidence, with `UNVERIFIABLE` when proof is missing (FR-B-13, FR-B-14).
+
+### Functional — backbone
+
+| ID | Requirement | Refines | Status |
+|----|-------------|---------|--------|
+| **Specification & requirements** | | | |
+| FR-B-01 | User can submit a specification as text; the system keeps each submitted version unchanged | E-SPEC-01, E-SPEC-04 | Partial — text + fingerprint stored per suite; no spec version entity |
+| FR-B-02 | The system extracts requirements from a specification, each with a stable ID that survives edits to wording or headings | E-SPEC-03 | Not started — capabilities keyed by heading text |
+| FR-B-03 | Each requirement has one or more acceptance criteria, each stating an observable condition and the kind of evidence that could prove it | — | Not started |
+| FR-B-04 | User can review and correct extracted requirements and criteria before a suite is frozen | E-STUDIO-05 | Not started |
+| FR-B-05 | When a new specification version is submitted, the system reports requirements added, changed and removed, by ID | E-SUITE-03 | Partial — diff by capability name |
+| **Suite** | | | |
+| FR-B-06 | The system generates a candidate pool of test cases from requirements and criteria, without running them | E-STUDIO-01 | Built (keyed by capability) |
+| FR-B-07 | The system selects a test pack from the pool under a size budget, never dropping applicable mandatory categories | E-STUDIO-02..04 | Built |
+| FR-B-08 | Every test case links to at least one acceptance criterion; every criterion shows which test cases cover it | — | Partial — links to capability, not criterion |
+| FR-B-09 | User can freeze a pack as an immutable suite version; runs always reference a version | E-SUITE-01, E-SUITE-02 | Built |
+| FR-B-10 | On spec change, user can derive a new suite version that removes tests only for removed requirement IDs, with a changelog | E-SUITE-03 | Partial — keyed by heading; renaming a heading can prune tests |
+| **Execution** | | | |
+| FR-B-11 | User can run a suite version against a target (an agent plus an environment), through any installed connector | E-RUN-01 | Partial — HTTP only; no environment entity used |
+| FR-B-12 | The system records every interaction step of each test case in order, as it happened, and never reconstructs steps afterwards | E-REPLAY-02 | Built (`execution_steps`) |
+| **Evidence & verdicts** | | | |
+| FR-B-13 | Each test case execution collects evidence items, each recording its source and what it observed | E-RUN-04 | Partial — HTTP observations; state diff only in harness path |
+| FR-B-14 | The system records a verdict (PASS, FAIL, UNVERIFIABLE) per acceptance criterion per execution, citing the evidence items used | E-RUN-03 | Not started — verdict per test case |
+| FR-B-15 | A criterion is `UNVERIFIABLE` when no enabled pack or connected evidence source can produce the evidence kind it requires; it is never silently passed | E-RUN-03 | Partial |
+| FR-B-16 | The same evidence always produces the same deterministic verdict; model-judged verdicts are labeled as such and never override `UNVERIFIABLE` | — | Partial — deterministic rules only; no judge tier |
+| **Coverage & results** | | | |
+| FR-B-17 | For each requirement, the system reports whether it is proven, failing, unverifiable or untested in a run | — | Partial — coverage per capability |
+| FR-B-18 | User can compare a run against a chosen baseline run of the same suite version and see new failures, fixes and unchanged results | E-RUN-05, E-RUN-06 | Partial — compares to previous run only |
+| FR-B-19 | User can produce a self-contained report of a run from stored results only | E-REPORT-01 | Built (contains domain wording) |
+| FR-B-20 | Every backbone operation is available through the library and the HTTP API with the same behavior | E-API-01 | Partial |
+| **Domain packs** | | | |
+| FR-B-21 | User can enable one or more domain packs for a suite and set each pack's options; the selection is part of the suite version | E-STUDIO-06 | Not started — presets are UI examples, not packs |
+| FR-B-22 | An enabled pack can add mandatory requirements; every requirement records its source (the specification, or a pack and its version) | E-STUDIO-04 | Partial — mandatory security categories exist as optimizer floors, not as requirements |
+| FR-B-23 | The report groups results by the compliance controls declared by enabled packs, alongside results per requirement | E-REPORT-01 | Not started |
+
+### Functional — pack and connector contract
+
+Packs are written by the AgentEval maintainer in v1; customers enable them, they do not write them.
+
+| ID | Requirement | Status |
+|----|-------------|--------|
+| FR-P-01 | A domain pack can be installed and used without changing any backbone file | Not started — domain logic in 15 backbone modules |
+| FR-P-02 | A domain pack declares the acceptance-criterion kinds it can evaluate and the evidence kinds each one needs | Not started |
+| FR-P-03 | A domain pack can contribute: options, domain terms for extraction, mandatory requirements, test scenarios, personas, synthetic test data, evidence interpreters, checks, and compliance mappings. Any subset is valid | Not started |
+| FR-P-04 | A connector provides either agent transport (sending inputs, receiving outputs) or an evidence source, independently of any domain | Not started — adapters exist but are not registered as connectors |
+| FR-P-05 | A suite version records which packs, connectors and versions produced it, so a run can be reproduced | Not started |
+| FR-P-06 | The backbone lists installed packs and connectors and what each provides | Not started |
+
+### Non-functional — backbone (assumptions, revisable)
+
+| ID | Constraint | Target |
+|----|------------|--------|
+| NFR-B-01 | Deployment | Single node; one process for API, UI and runs; no external services required except the agent and an optional LLM provider |
+| NFR-B-02 | Scale (small enterprise, assumed) | Up to 50 agents, 500 test cases per suite version, 10,000 test case executions per day |
+| NFR-B-03 | Engine overhead | ≤ 200 ms per test case execution, excluding agent and LLM time |
+| NFR-B-04 | Determinism | Re-scoring stored evidence yields identical deterministic verdicts, 100% of the time |
+| NFR-B-05 | Durability | Frozen suite versions and completed runs are never modified or lost on process crash |
+| NFR-B-06 | Offline | Everything except LLM-assisted generation and model-judged verdicts works without internet access |
+| NFR-B-07 | Boundary enforcement | CI fails if backbone code imports a pack or contains domain vocabulary |
+
+### Out of scope — backbone
+
+- Authentication, workspaces and RBAC (covered by E-AUTH / E-ORG, built later on top of the backbone)
+- Production trace ingestion and live monitoring (see §11, [DR-023](../engineering-ledger/decisions.md))
+- Any domain-specific logic, presets or wording (belongs in packs)
+- Customer-written packs (possible later; v1 packs ship with AgentEval)
+- Multi-node execution and horizontal scaling
+
+### Open questions
+
+1. ~~Are acceptance criteria always extracted automatically, or can users author them directly?~~ **Resolved 2026-09-25:** extraction and packs propose criteria; the requirements owner can edit, add or remove them before freezing. Each criterion records its source (extracted, pack, or user). (FR-B-03, FR-B-04.)
+2. ~~Is a target always one agent in one environment, or can one run compare several targets?~~ **Resolved 2026-09-25 ([ADR-005](../decisions/ADR-005-backbone-domain-packs-source-of-truth.md)):** one target per run; compare via baseline runs. (FR-B-11, FR-B-18.)
+3. Do the scale assumptions in NFR-B-02 match your intended users?
+
+---
+
 ## 10. Non-functional requirements
 
 | Category | Target (v1 SaaS) |
@@ -694,3 +811,4 @@ Typography: **Inter** UI, **JetBrains Mono** code. Flat surfaces, minimal shadow
 |---------|--------|
 | 3.0.0 | Pre-release console screen specs |
 | 4.0.0 | Full SaaS: user ecosystem, 8 personas, journeys, auth/onboarding/RBAC, epics, NFR, scope |
+| 4.1.0-draft | §9A backbone requirements (domain-agnostic) and plugin contract, with code status |

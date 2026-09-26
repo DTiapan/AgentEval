@@ -12,7 +12,11 @@ def render_endpoint_probe(console: Console, probe: EndpointProbeResult) -> None:
     else:
         status = f"[red]unreachable[/red] {probe.error or 'probe failed'}"
 
-    tools = ", ".join(probe.inferred_tool_names) if probe.inferred_tool_names else "[dim]none inferred[/dim]"
+    tools = (
+        ", ".join(probe.inferred_tool_names)
+        if probe.inferred_tool_names
+        else "[dim]none inferred[/dim]"
+    )
     keys = ", ".join(probe.response_keys) if probe.response_keys else "[dim]n/a[/dim]"
 
     console.print(

@@ -79,12 +79,7 @@ class SuiteGapExtender:
         added: list[CandidateTest] = []
         new_tests = list(pack.tests)
 
-        while (
-            len(added) < max_add
-            and len(new_tests) < max_pack_tests
-            and targets
-            and available
-        ):
+        while len(added) < max_add and len(new_tests) < max_pack_tests and targets and available:
             best: CandidateTest | None = None
             best_score = 0
             for candidate in available:
@@ -98,11 +93,7 @@ class SuiteGapExtender:
             added.append(best)
             selected_ids.add(best.id)
             available = [c for c in available if c.id != best.id]
-            targets = {
-                tag
-                for tag in targets
-                if not _candidate_hits_target(best, tag)
-            }
+            targets = {tag for tag in targets if not _candidate_hits_target(best, tag)}
 
         if not added:
             after = mapper.report(pool, pack.tests)

@@ -1,6 +1,6 @@
 # ADR-001: Build on Inspect AI as Evaluation Engine Foundation
 
-- **Status**: Accepted
+- **Status**: Accepted (reaffirmed 2026-09-24; not yet implemented)
 - **Date**: 2026-09-20
 - **Decision Makers**: @ajas.bakran
 - **Tags**: architecture, foundation, build-vs-buy
@@ -66,6 +66,18 @@ AgentEval needs an evaluation engine that can run test scenarios against agents,
 | Inspect AI deprecates or breaks Solver API | Pin major version; our adapter layer isolates consumers from changes |
 | Performance overhead of Inspect AI's logging | Profile early; disable verbose logging in CI mode |
 | DeepEval licensing changes | All DeepEval imports are optional; our core evaluators have zero DeepEval dependency |
+
+## Implementation status (2026-09-24)
+
+Not implemented as of v0.2. `inspect-ai` is listed only as an optional extra in
+`pyproject.toml` and is not imported anywhere in `agenteval/`. The runner,
+scorers, sandbox and replay were built in-repo, so the code currently matches
+Option C, not Option A.
+
+Decision reaffirmed: the domain-agnostic backbone is built on Inspect AI.
+Domain plugins ship as separate packages that contribute tasks, solvers and
+scorers through Inspect's setuptools entry points. Migration of existing
+modules onto Inspect primitives is planned in ADR-005.
 
 ## References
 - [Inspect AI Documentation](https://inspect.ai-safety-institute.org.uk/)

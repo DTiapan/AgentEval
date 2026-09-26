@@ -1,211 +1,358 @@
-# AgentEval — persistence schema (SQLite v1)
+# AgentEval — persistence schema (SQLite v2, draft)
 
-> **ADR:** [ADR-004-sqlite-local-persistence.md](../decisions/ADR-004-sqlite-local-persistence.md)  
-> **Skill:** data-storage — relational default, model access paths first, SQLite until scale demands Postgres.  
-> **Maps from today:** `SuiteStore` JSON files → normalized rows + JSON snapshots where bulk is rare.
+> **ADRs:** [ADR-004](../decisions/ADR-004-sqlite-local-persistence.md) (SQLite),
+> [ADR-005](../decisions/ADR-005-backbone-domain-packs-source-of-truth.md) (packs,
+> SQLite source of truth + Inspect logs alongside, one target per run, stored test data)  
+> **Domain model:** [domain-model.md](domain-model.md)  
+> **DDL file (not wired yet):** [schema_v2.sql](../../agenteval/db/schema_v2.sql)  
+> **Replaces:** v1 sections of this doc and [schema.sql](../../agenteval/db/schema.sql) once migration ships.
 
 ## Design principles
 
-1. **Tenant boundary:** Every agent, suite, and run belongs to a **workspace**. Users access via **membership**.
-2. **Freeze is immutable:** A `suite_version` row is append-only; new freeze → new `version` number. Tests at freeze time are snapshotted.
-3. **Run is append-only:** Each assurance run inserts `assurance_runs` + `test_case_results` + `execution_steps` (sealed at run time per [execution_trace.py](../../agenteval/planning/execution_trace.py)).
-4. **No demo columns:** UI/API read these tables (or repository DTOs), not client-side synthesis.
-5. **JSON TEXT in SQLite:** `observation_json`, `action_args_json`, `run_diff_json`, `pack_json` — validate with Pydantic on read/write. Postgres migration → `JSONB`.
+1. **SQLite is authoritative** for API, UI, and reports. Each run also stores an Inspect `EvalLog` path + SHA-256; logs are audit and re-score input, not the primary query surface.
+2. **Tenant boundary:** workspaces own agents, targets, connectors, and specifications.
+3. **Freeze is immutable:** a `suite_versions` row with `status = 'frozen'` never updates child rows; changes create a new suite version.
+4. **One target per run:** `assurance_runs.target_id` is required (v1 allowed `environment_id` + `endpoint_url` only).
+5. **Reproducible runs:** `test_cases.test_data_json` is set at freeze and replayed; runs do not regenerate pack data.
+6. **Per-criterion verdicts:** `criterion_verdicts` is the sign-off unit (FR-B-14); `test_case_results.verdict` becomes a derived rollup during transition.
+7. **JSON TEXT:** large or rare blobs stay in validated JSON columns until Postgres `JSONB`; normalize hot paths (requirements, criteria, verdicts).
 
-## Entity relationship (v1)
+## Entity relationship (v2)
 
 ```mermaid
 erDiagram
-    workspaces ||--o{ workspace_members : has
-    users ||--o{ workspace_members : belongs
     workspaces ||--o{ agents : owns
-    workspaces ||--o{ environments : configures
-    agents ||--o{ suite_versions : freezes
-    suite_versions ||--o{ assurance_runs : executed_against
-    environments ||--o{ assurance_runs : optional_target
-    assurance_runs ||--|{ test_case_results : contains
-    test_case_results ||--|{ execution_steps : trajectory
-    workspaces ||--o{ api_keys : optional
-    workspaces ||--o{ audit_events : logs
+    workspaces ||--o{ connectors : configures
+    workspaces ||--o{ specifications : owns
+    specifications ||--o{ specification_versions : versions
+    agents ||--o{ targets : exposes
+    environments ||--o{ targets : in
+    connectors ||--o{ targets : transport
+    specification_versions ||--o{ suite_versions : built_from
+    suite_versions ||--o{ requirements : contains
+    requirements ||--o{ acceptance_criteria : proven_by
+    suite_versions ||--o{ test_cases : freezes
+    test_cases }o--o{ acceptance_criteria : exercises
+    packs ||--o{ compliance_controls : declares
+    acceptance_criteria }o--o{ compliance_controls : maps_to
+    suite_versions ||--o{ suite_pack_selections : enables
+    suite_versions ||--o{ assurance_runs : executed
+    targets ||--o{ assurance_runs : against
+    assurance_runs ||--|{ case_executions : contains
+    case_executions ||--o{ execution_steps : trajectory
+    case_executions ||--o{ evidence_items : seals
+    case_executions ||--|{ criterion_verdicts : yields
+    criterion_verdicts }o--o{ evidence_items : cites
 ```
+
+Tenancy tables (`users`, `workspace_members`, `api_keys`, `audit_events`) unchanged from v1; omitted from the diagram.
 
 ## Access patterns (drives indexes)
 
 | Query | Tables | Index |
 |-------|--------|--------|
 | List agents in workspace | `agents` | `(workspace_id)` |
-| Latest suite version for agent | `suite_versions` | `(agent_id, version DESC)` |
-| List runs for agent (newest first) | `assurance_runs` | `(agent_id, started_at DESC)` |
-| Run detail + all test results | `assurance_runs`, `test_case_results` | `(run_id)` |
-| Trajectory replay for one test | `execution_steps` | `(test_case_result_id, step_index)` |
-| User’s workspaces | `workspace_members` | `(user_id)` |
-| Audit trail | `audit_events` | `(workspace_id, created_at DESC)` |
+| Latest frozen suite for agent | `suite_versions` | `(agent_id, status, version DESC)` |
+| Requirements for suite version | `requirements` | `(suite_version_id)` |
+| Criteria for requirement | `acceptance_criteria` | `(requirement_id)` |
+| Test cases in frozen suite | `test_cases` | `(suite_version_id)` |
+| Runs for agent (newest) | `assurance_runs` | `(agent_id, started_at DESC)` |
+| Run + per-criterion verdicts | `criterion_verdicts`, `case_executions` | `(run_id)` via executions |
+| Report by compliance control | `compliance_controls`, `criterion_compliance_map`, `criterion_verdicts` | `(control_id, run_id)` |
+| Trajectory replay | `execution_steps` | `(case_execution_id, step_index)` |
+| Installed packs | `packs` | `(name, version DESC)` |
 
 ## Table definitions
 
-### Identity & tenancy
+### Identity and tenancy (unchanged from v1)
+
+Keep `users`, `workspaces`, `workspace_members`, `api_keys`, `audit_events` as in [schema.sql](../../agenteval/db/schema.sql).
+
+### Agents and environments (unchanged)
+
+Keep `agents`, `environments` as in v1.
+
+### Connectors and targets (new)
 
 ```sql
-CREATE TABLE users (
-    id            TEXT PRIMARY KEY,  -- uuid
-    email         TEXT NOT NULL UNIQUE,
-    display_name  TEXT NOT NULL DEFAULT '',
-    password_hash TEXT,              -- null when SSO-only later
-    created_at    TEXT NOT NULL      -- ISO-8601 UTC
+CREATE TABLE connectors (
+    id            TEXT PRIMARY KEY,
+    workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    slug          TEXT NOT NULL,
+    kind          TEXT NOT NULL CHECK (kind IN ('http_transport','mcp_transport','db_diff','audit_log','trace')),
+    config_json   TEXT NOT NULL DEFAULT '{}',
+    created_at    TEXT NOT NULL,
+    UNIQUE (workspace_id, slug)
 );
 
-CREATE TABLE workspaces (
-    id         TEXT PRIMARY KEY,
-    slug       TEXT NOT NULL UNIQUE,  -- acme-ai-core → app.agenteval.app/acme-ai-core
-    name       TEXT NOT NULL,
-    created_at TEXT NOT NULL
+CREATE TABLE targets (
+    id                     TEXT PRIMARY KEY,
+    workspace_id           TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+    agent_id               TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    environment_id         TEXT REFERENCES environments(id),
+    display_name           TEXT NOT NULL,
+    transport_connector_id TEXT NOT NULL REFERENCES connectors(id),
+    created_at             TEXT NOT NULL
 );
 
-CREATE TABLE workspace_members (
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    role         TEXT NOT NULL CHECK (role IN ('OWNER','ADMIN','MEMBER','VIEWER')),
-    created_at   TEXT NOT NULL,
-    PRIMARY KEY (workspace_id, user_id)
+CREATE TABLE target_evidence_connectors (
+    target_id    TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+    connector_id TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+    PRIMARY KEY (target_id, connector_id)
 );
 ```
 
-### Agents & environments
+`connectors.config_json` holds endpoint URL, headers, DB path, etc. (validated Pydantic). A **target** is what a run executes against (ADR-005: one target per run).
+
+### Specifications (new)
 
 ```sql
-CREATE TABLE agents (
+CREATE TABLE specifications (
     id           TEXT PRIMARY KEY,
     workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    slug         TEXT NOT NULL,       -- demo-refund-agent
-    display_name TEXT NOT NULL,
+    slug         TEXT NOT NULL,
+    title        TEXT NOT NULL,
     created_at   TEXT NOT NULL,
     UNIQUE (workspace_id, slug)
 );
 
-CREATE TABLE environments (
-    id           TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    name         TEXT NOT NULL,       -- Staging, Local, CI
-    base_url     TEXT NOT NULL,       -- https://staging.acme.com/v1/chat
-    is_default   INTEGER NOT NULL DEFAULT 0,
-    created_at   TEXT NOT NULL
+CREATE TABLE specification_versions (
+    id                TEXT PRIMARY KEY,
+    specification_id  TEXT NOT NULL REFERENCES specifications(id) ON DELETE CASCADE,
+    version           INTEGER NOT NULL CHECK (version >= 1),
+    body_text         TEXT NOT NULL,
+    body_sha256       TEXT NOT NULL,
+    created_at        TEXT NOT NULL,
+    created_by_user_id TEXT REFERENCES users(id),
+    UNIQUE (specification_id, version)
 );
 ```
 
-### Frozen suites (replaces per-agent JSON dir metadata + pack files)
+### Packs and compliance (new)
+
+Pack **binaries** ship as Python packages; the DB records what was enabled at freeze time.
+
+```sql
+CREATE TABLE packs (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    version         TEXT NOT NULL,
+    manifest_json   TEXT NOT NULL DEFAULT '{}',
+    installed_at    TEXT NOT NULL,
+    UNIQUE (name, version)
+);
+
+CREATE TABLE compliance_controls (
+    id           TEXT PRIMARY KEY,
+    pack_id      TEXT NOT NULL REFERENCES packs(id) ON DELETE CASCADE,
+    control_key  TEXT NOT NULL,
+    title        TEXT NOT NULL,
+    framework    TEXT NOT NULL DEFAULT '',
+    UNIQUE (pack_id, control_key)
+);
+```
+
+### Suite versions — draft and frozen (evolve v1)
 
 ```sql
 CREATE TABLE suite_versions (
     id                       TEXT PRIMARY KEY,
     agent_id                 TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
     version                  INTEGER NOT NULL CHECK (version >= 1),
+    status                   TEXT NOT NULL CHECK (status IN ('draft','frozen')) DEFAULT 'draft',
+    specification_version_id TEXT REFERENCES specification_versions(id),
     requirements_fingerprint TEXT NOT NULL,
-    requirements_text        TEXT NOT NULL,   -- PRD markdown at freeze time
+    requirements_text        TEXT NOT NULL,
     endpoint_profile         TEXT NOT NULL DEFAULT '',
-    pack_json                TEXT NOT NULL,   -- serialized TestPack (optimized tests)
-    candidate_pool_json      TEXT,            -- optional full pool snapshot
-    agent_card_json          TEXT,            -- optional AgentCard snapshot
+    candidate_pool_json      TEXT,
+    agent_card_json          TEXT,
+    pack_json                TEXT,
+    frozen_at                TEXT,
     created_at               TEXT NOT NULL,
     created_by_user_id       TEXT REFERENCES users(id),
     UNIQUE (agent_id, version)
 );
+
+CREATE TABLE suite_pack_selections (
+    suite_version_id TEXT NOT NULL REFERENCES suite_versions(id) ON DELETE CASCADE,
+    pack_id          TEXT NOT NULL REFERENCES packs(id),
+    options_json     TEXT NOT NULL DEFAULT '{}',
+    PRIMARY KEY (suite_version_id, pack_id)
+);
 ```
 
-`pack_json` / `candidate_pool_json` match `TestPack` and `list[CandidateTest]` from the API today. Normalizing each test into rows is **Phase 2** if we need SQL analytics on coverage tags; v1 keeps freeze snapshot as JSON for minimal migration from `test_pack.json`.
+During migration, `pack_json` remains a denormalized `TestPack` snapshot (v1 behavior). New freezes also populate normalized `requirements`, `acceptance_criteria`, and `test_cases`. When import is complete, `pack_json` becomes optional cache.
 
-### Assurance runs & sealed evidence
+### Requirements and acceptance criteria (new)
+
+```sql
+CREATE TABLE requirements (
+    id               TEXT PRIMARY KEY,
+    suite_version_id TEXT NOT NULL REFERENCES suite_versions(id) ON DELETE CASCADE,
+    stable_id        TEXT NOT NULL,
+    statement        TEXT NOT NULL,
+    source_kind      TEXT NOT NULL CHECK (source_kind IN ('spec','pack')),
+    source_pack_id   TEXT REFERENCES packs(id),
+    review_status    TEXT NOT NULL CHECK (review_status IN ('proposed','approved','rejected')) DEFAULT 'proposed',
+    UNIQUE (suite_version_id, stable_id)
+);
+
+CREATE TABLE acceptance_criteria (
+    id               TEXT PRIMARY KEY,
+    requirement_id   TEXT NOT NULL REFERENCES requirements(id) ON DELETE CASCADE,
+    stable_id        TEXT NOT NULL,
+    description      TEXT NOT NULL,
+    evidence_kind    TEXT NOT NULL,
+    check_kind       TEXT NOT NULL,
+    source_kind      TEXT NOT NULL CHECK (source_kind IN ('extracted','pack','user')),
+    source_pack_id   TEXT REFERENCES packs(id),
+    UNIQUE (requirement_id, stable_id)
+);
+
+CREATE TABLE criterion_compliance_map (
+    criterion_id TEXT NOT NULL REFERENCES acceptance_criteria(id) ON DELETE CASCADE,
+    control_id   TEXT NOT NULL REFERENCES compliance_controls(id) ON DELETE CASCADE,
+    PRIMARY KEY (criterion_id, control_id)
+);
+```
+
+`stable_id` survives PRD heading renames (FR-B-02). Pack-sourced rows set `source_pack_id` (FR-B-22).
+
+### Test cases (new)
+
+```sql
+CREATE TABLE test_cases (
+    id               TEXT PRIMARY KEY,
+    suite_version_id TEXT NOT NULL REFERENCES suite_versions(id) ON DELETE CASCADE,
+    stable_id        TEXT NOT NULL,
+    title            TEXT NOT NULL DEFAULT '',
+    persona_json     TEXT NOT NULL DEFAULT '{}',
+    inputs_json      TEXT NOT NULL DEFAULT '{}',
+    test_data_json   TEXT NOT NULL DEFAULT '{}',
+    UNIQUE (suite_version_id, stable_id)
+);
+
+CREATE TABLE test_case_criteria (
+    test_case_id TEXT NOT NULL REFERENCES test_cases(id) ON DELETE CASCADE,
+    criterion_id TEXT NOT NULL REFERENCES acceptance_criteria(id) ON DELETE CASCADE,
+    PRIMARY KEY (test_case_id, criterion_id)
+);
+```
+
+`test_data_json` is frozen at suite freeze and replayed on every run (ADR-005).
+
+### Runs, executions, evidence, verdicts (evolve v1)
 
 ```sql
 CREATE TABLE assurance_runs (
-    run_id           TEXT PRIMARY KEY,   -- e.g. uuid hex[:12] as today
-    agent_id         TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    suite_version_id TEXT NOT NULL REFERENCES suite_versions(id),
-    environment_id   TEXT REFERENCES environments(id),
-    endpoint_url     TEXT NOT NULL,      -- actual URL used for POST
-    started_at       TEXT NOT NULL,
-    finished_at      TEXT NOT NULL,
-    passed           INTEGER NOT NULL DEFAULT 0,
-    failed           INTEGER NOT NULL DEFAULT 0,
-    unverifiable     INTEGER NOT NULL DEFAULT 0,
-    run_diff_json    TEXT,               -- SuiteRunDiff serialized
-    triggered_by     TEXT,               -- user_id or ci:github:repo:workflow
-    FOREIGN KEY (agent_id) REFERENCES agents(id)
+    run_id             TEXT PRIMARY KEY,
+    agent_id           TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    suite_version_id   TEXT NOT NULL REFERENCES suite_versions(id),
+    target_id          TEXT NOT NULL REFERENCES targets(id),
+    baseline_run_id    TEXT REFERENCES assurance_runs(run_id),
+    started_at         TEXT NOT NULL,
+    finished_at        TEXT,
+    status             TEXT NOT NULL CHECK (status IN ('queued','running','completed','failed','cancelled')) DEFAULT 'queued',
+    passed             INTEGER NOT NULL DEFAULT 0,
+    failed             INTEGER NOT NULL DEFAULT 0,
+    unverifiable       INTEGER NOT NULL DEFAULT 0,
+    run_diff_json      TEXT,
+    inspect_log_path   TEXT,
+    inspect_log_sha256 TEXT,
+    triggered_by       TEXT
 );
 
-CREATE TABLE test_case_results (
+CREATE TABLE case_executions (
     id               TEXT PRIMARY KEY,
     run_id           TEXT NOT NULL REFERENCES assurance_runs(run_id) ON DELETE CASCADE,
-    test_id          TEXT NOT NULL,      -- stable id within pack
-    verdict          TEXT NOT NULL CHECK (verdict IN ('PASS','FAIL','UNVERIFIABLE')),
+    test_case_id     TEXT NOT NULL REFERENCES test_cases(id),
+    verdict_rollup   TEXT CHECK (verdict_rollup IN ('PASS','FAIL','UNVERIFIABLE')),
     rationale        TEXT NOT NULL DEFAULT '',
-    observation_json TEXT NOT NULL,      -- ObservationBundle
-    UNIQUE (run_id, test_id)
+    observation_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE (run_id, test_case_id)
 );
 
 CREATE TABLE execution_steps (
-    id                   TEXT PRIMARY KEY,
-    test_case_result_id  TEXT NOT NULL REFERENCES test_case_results(id) ON DELETE CASCADE,
-    step_index           INTEGER NOT NULL,
-    step_id              TEXT NOT NULL,
-    kind                 TEXT NOT NULL,
-    label                TEXT NOT NULL,
-    thought              TEXT NOT NULL DEFAULT '',
-    action_tool          TEXT NOT NULL DEFAULT '',
-    action_args_json     TEXT NOT NULL DEFAULT '{}',
-    observation          TEXT NOT NULL DEFAULT '',
-    http_status          INTEGER,
-    latency_ms           REAL,
-    is_failure           INTEGER NOT NULL DEFAULT 0,
-    UNIQUE (test_case_result_id, step_index)
+    id                  TEXT PRIMARY KEY,
+    case_execution_id   TEXT NOT NULL REFERENCES case_executions(id) ON DELETE CASCADE,
+    step_index          INTEGER NOT NULL,
+    step_id             TEXT NOT NULL,
+    kind                TEXT NOT NULL,
+    label               TEXT NOT NULL,
+    thought             TEXT NOT NULL DEFAULT '',
+    action_tool         TEXT NOT NULL DEFAULT '',
+    action_args_json    TEXT NOT NULL DEFAULT '{}',
+    observation         TEXT NOT NULL DEFAULT '',
+    http_status         INTEGER,
+    latency_ms          REAL,
+    is_failure          INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (case_execution_id, step_index)
+);
+
+CREATE TABLE evidence_items (
+    id                 TEXT PRIMARY KEY,
+    case_execution_id  TEXT NOT NULL REFERENCES case_executions(id) ON DELETE CASCADE,
+    connector_id       TEXT REFERENCES connectors(id),
+    kind               TEXT NOT NULL,
+    payload_json       TEXT NOT NULL,
+    content_sha256     TEXT NOT NULL,
+    captured_at        TEXT NOT NULL
+);
+
+CREATE TABLE criterion_verdicts (
+    id                 TEXT PRIMARY KEY,
+    case_execution_id  TEXT NOT NULL REFERENCES case_executions(id) ON DELETE CASCADE,
+    criterion_id       TEXT NOT NULL REFERENCES acceptance_criteria(id),
+    verdict            TEXT NOT NULL CHECK (verdict IN ('PASS','FAIL','UNVERIFIABLE')),
+    verdict_tier       TEXT NOT NULL CHECK (verdict_tier IN ('deterministic','model_judged')) DEFAULT 'deterministic',
+    rationale          TEXT NOT NULL DEFAULT '',
+    UNIQUE (case_execution_id, criterion_id)
+);
+
+CREATE TABLE criterion_verdict_evidence (
+    verdict_id        TEXT NOT NULL REFERENCES criterion_verdicts(id) ON DELETE CASCADE,
+    evidence_item_id  TEXT NOT NULL REFERENCES evidence_items(id) ON DELETE CASCADE,
+    PRIMARY KEY (verdict_id, evidence_item_id)
 );
 ```
 
-Maps 1:1 to `ExecutionStep` in `models.py`. Replay UI loads `execution_steps` ordered by `step_index`.
+**Invariant (app-enforced):** `PASS` / `FAIL` rows in `criterion_verdicts` must have ≥1 row in `criterion_verdict_evidence`; otherwise verdict must be `UNVERIFIABLE` (FR-B-15).
 
-### Governance (SaaS PRD — slice after core runs)
+**Transition:** v1 `test_case_results` maps to `case_executions` with `test_case_id` resolved from `pack_json` or new `test_cases.stable_id`. Rollup `verdict_rollup` mirrors today's per-test verdict until UI reads `criterion_verdicts`.
 
-```sql
-CREATE TABLE api_keys (
-    id           TEXT PRIMARY KEY,
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    name         TEXT NOT NULL,
-    key_prefix   TEXT NOT NULL,          -- display ae_live_xxxx
-    key_hash     TEXT NOT NULL,          -- never store raw secret
-    created_at   TEXT NOT NULL,
-    revoked_at   TEXT
-);
+## Mapping from v1 schema and `SuiteStore`
 
-CREATE TABLE audit_events (
-    id            TEXT PRIMARY KEY,
-    workspace_id  TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-    actor_user_id TEXT REFERENCES users(id),
-    action        TEXT NOT NULL,         -- suite.freeze, run.execute, api_key.create
-    entity_type   TEXT NOT NULL,
-    entity_id     TEXT NOT NULL,
-    metadata_json TEXT NOT NULL DEFAULT '{}',
-    created_at    TEXT NOT NULL
-);
+| v1 | v2 |
+|----|-----|
+| `suite_versions.pack_json` | `test_cases` + `requirements` + `acceptance_criteria`; keep `pack_json` until backfill done |
+| `suite_versions` (always frozen implicitly) | `status = 'frozen'`; new drafts before freeze |
+| `assurance_runs.environment_id`, `endpoint_url` | `targets` + `connectors`; run stores `target_id` |
+| `test_case_results` | `case_executions` |
+| `execution_steps.test_case_result_id` | `execution_steps.case_execution_id` |
+| (missing) | `criterion_verdicts`, `evidence_items`, Inspect log columns |
+| `{agent_id}/requirements` in JSON | `specification_versions` + `requirements` |
+
+| File today (`SuiteStore`) | DB destination |
+|---------------------------|----------------|
+| `suite.manifest.json` | `suite_versions` + `agents` |
+| `test_pack.json` | normalized rows + optional `pack_json` cache |
+| `candidate_pool.json` | `candidate_pool_json` |
+| `runs/{run_id}.json` | `assurance_runs` + `case_executions` + steps + verdicts |
+| Inspect log (future) | `{data_dir}/runs/{run_id}/eval.json` + `inspect_log_*` columns |
+
+## Migration plan (phased)
+
+```text
+Phase 0 (now)     Document v2 DDL; no app wire
+Phase 1           Alembic v002: add new tables; nullable target_id; dual-write optional
+Phase 2           Import tool: JSON suites → v2 rows; synthesize default target from endpoint_url
+Phase 3           SuiteWorkflow writes requirements/criteria/test_cases on freeze
+Phase 4           Runner writes criterion_verdicts + evidence_items; copy Inspect log
+Phase 5           API/UI read verdicts; deprecate test_case_results table
+Phase 6           Drop pack_json requirement; CI boundary check (NFR-B-07)
 ```
 
-### Future: harness / OTel (not v1 SQLite DDL)
-
-| Table | Purpose |
-|-------|---------|
-| `execution_traces` | Harness profile: full `ExecutionTrace` id, agent_id, run linkage |
-| `trace_spans` | OpenInference-compatible spans for multi-turn tool loops |
-| `report_artifacts` | HTML report blob path or content hash |
-
-Black-box MVP uses `execution_steps` only; harness replay merges into the same step model or links `execution_traces.id` → `assurance_runs.run_id`.
-
-## Mapping from current `SuiteStore` files
-
-| File today | DB destination |
-|------------|----------------|
-| `{agent_id}/suite.manifest.json` | `suite_versions` (latest version row) + `agents.slug` |
-| `test_pack.json` | `suite_versions.pack_json` |
-| `candidate_pool.json` | `suite_versions.candidate_pool_json` |
-| `runs/{run_id}.json` | `assurance_runs` + `test_case_results` + `execution_steps` |
-| `latest_run.json` | View or query: `ORDER BY started_at DESC LIMIT 1` per agent |
+Default target for legacy imports: one `http_transport` connector per environment URL, one target per agent+environment pair.
 
 ## SQLite bootstrap
 
@@ -214,26 +361,36 @@ PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
 ```
 
-Application:
-
-- **Python:** SQLAlchemy 2.x Core or `sqlite3` + small repository layer; migrations via Alembic when schema stabilizes.
-- **Config:** `AGENTEVAL_DATABASE_URL=sqlite:///.agenteval/agenteval.db`
-- **Tests:** `:memory:` or temp file per pytest session.
+Application: same as v1 (`AGENTEVAL_DATABASE_URL`, `SuiteRepository` → split repositories per aggregate later).
 
 ## Postgres migration notes (later)
 
-- Same table names; `TEXT` JSON → `JSONB`; `INTEGER` booleans → `BOOLEAN`.
-- Add `workspace_id` to `assurance_runs` denormalized for partition-by-tenant if needed.
-- Row-level security policies per `workspace_id` when multi-tenant hosted.
+Same table names; JSON columns → `JSONB`; add RLS on `workspace_id` where denormalized.
 
-## Implementation order (suggested)
+## Code module map (planned, not implemented)
 
-1. **`schema.sql`** + migration `v001` applying DDL (no app wire yet).
-2. **`SuiteRepository`** — `save_run`, `load_latest_run`, `init_suite` mirroring `SuiteStore` API.
-3. **Wire `SuiteWorkflow`** — feature flag `AGENTEVAL_USE_SQLITE=1`.
-4. **Import tool** — one-shot ingest from `.agenteval/suites/**` JSON into SQLite.
-5. **Auth tables** — when sign-up slice ships; until then single default workspace in seed data.
+| Area | v1 today | v2 action |
+|------|----------|-----------|
+| `agenteval/db/schema.sql` | v1 DDL | **Change** → apply `schema_v2.sql` via migration |
+| `agenteval/db/suite_repository.py` | pack_json runs | **Change** → freeze writes normalized rows |
+| `agenteval/planning/suite_store.py` | JSON files | **Keep** until import + flag; then thin adapter |
+| `agenteval/planning/blackbox_runner.py` | per-test verdict | **Change** → criterion verdicts + evidence |
+| `agenteval/planning/observable_scorer.py` | test-level | **Change** → per-criterion + evidence kinds |
+| `agenteval/planning/models.py` | TestPack-centric | **Change** → domain model DTOs |
+| `agenteval/ingest/requirements.py` | blob text | **Change** → `requirements` with stable IDs |
+| Domain presets in `web/`, `gap_loop`, personas | refund/ticket wording | **Move** → fintech pack (first) |
+| `agenteval/api/schemas.py`, `suite_workflow.py` | suite/run DTOs | **Change** → expose requirements + verdicts |
+| Inspect integration | none | **Add** hook + log path persistence |
+
+## Implementation order (next slices)
+
+1. Land `schema_v2.sql` + Alembic `v002` (additive only; v1 tables remain).
+2. Pydantic models for `Requirement`, `AcceptanceCriterion`, `CriterionVerdict`, `EvidenceItem`.
+3. Stable requirement ID fix in ingest (heading-rename bug) writing to draft suite rows.
+4. Import command: existing DB/JSON → v2 tables + default target.
+5. Runner slice: seal evidence + per-criterion verdict on one black-box path.
+6. API `GET /v1/suites/{id}/requirements` and run detail with `criterion_verdicts`.
 
 ## Seed for local dev (conceptual)
 
-One workspace `local-dev`, one user, one agent `demo-refund-agent`, optional environment `Local` → `http://127.0.0.1:8765/chat`. Matches web `WorkspaceContext` defaults without fake run data.
+Unchanged: workspace `local-dev`, agent `demo-refund-agent`, environment `Local`, connector `http-local` → sample server URL, target linking agent + connector. No fake run rows.

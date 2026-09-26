@@ -6,6 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel, ConfigDict, Field
 
 from agenteval.core.manifest import AgentCard
+from agenteval.core.requirement_ids import requirement_stable_id
 from agenteval.planning._utils import slugify
 from agenteval.planning.bootstrap import DEFAULT_PERSONAS, SuiteBootstrap
 from agenteval.planning.coverage import CoverageMapper
@@ -60,7 +61,42 @@ class SuiteSynchronizer:
 
     @staticmethod
     def capability_ids(card: AgentCard) -> set[str]:
-        return {slugify(cap.name) for cap in card.capabilities}
+        return {cap.requirement_id() for cap in card.capabilities}
+
+    @staticmethod
+    def _legacy_to_stable_map(card: AgentCard) -> dict[str, str]:
+        """Map legacy slug/name ids and stable ids to the current stable requirement id."""
+        mapping: dict[str, str] = {}
+        for cap in card.capabilities:
+            stable = cap.requirement_id()
+            mapping[stable] = stable
+            mapping[slugify(cap.name)] = stable
+            mapping[cap.name] = stable
+            mapping[requirement_stable_id(cap.description)] = stable
+        return mapping
+
+    @classmethod
+    def resolve_capability_id(cls, raw_id: str, card: AgentCard) -> str:
+        return cls._legacy_to_stable_map(card).get(raw_id, raw_id)
+
+    @classmethod
+    def _normalize_pool_capability_ids(
+        cls, pool: list[CandidateTest], card: AgentCard
+    ) -> list[CandidateTest]:
+        legacy_map = cls._legacy_to_stable_map(card)
+        normalized: list[CandidateTest] = []
+        for test in pool:
+            cap_prefix = test.name.split(":", 1)[0].strip()
+            stable = legacy_map.get(test.capability_id)
+            if stable is None and cap_prefix in legacy_map:
+                stable = legacy_map[cap_prefix]
+            if stable is None:
+                stable = test.capability_id
+            if stable != test.capability_id:
+                normalized.append(test.model_copy(update={"capability_id": stable}))
+            else:
+                normalized.append(test)
+        return normalized
 
     def compute_sync(
         self,
@@ -82,7 +118,8 @@ class SuiteSynchronizer:
         if not new_caps:
             raise ValueError("Updated manifest has no capabilities; refusing to sync.")
 
-        old_caps = {t.capability_id for t in old_pool}
+        normalized_pool = self._normalize_pool_capability_ids(old_pool, card)
+        old_caps = {self.resolve_capability_id(t.capability_id, card) for t in normalized_pool}
         removed_caps = sorted(old_caps - new_caps)
         added_caps = sorted(new_caps - old_caps)
 
@@ -103,17 +140,27 @@ class SuiteSynchronizer:
                 ),
             )
 
-        pruned_pool = [t for t in old_pool if t.capability_id in new_caps]
-        pruned_pack_tests = [t for t in old_pack.tests if t.capability_id in new_caps]
-        archived = [t for t in old_pool if t.capability_id not in new_caps]
+        pruned_pool = [
+            t
+            for t in normalized_pool
+            if self.resolve_capability_id(t.capability_id, card) in new_caps
+        ]
+        pruned_pack_tests = [
+            t
+            for t in self._normalize_pool_capability_ids(old_pack.tests, card)
+            if self.resolve_capability_id(t.capability_id, card) in new_caps
+        ]
+        archived = [
+            t
+            for t in normalized_pool
+            if self.resolve_capability_id(t.capability_id, card) not in new_caps
+        ]
         removed_test_ids = [t.id for t in archived]
 
         pool = pruned_pool
         if added_caps:
-            new_cap_objs = [c for c in card.capabilities if slugify(c.name) in added_caps]
-            pool.extend(
-                CandidatePoolGenerator().build_pool(card.id, new_cap_objs, self._personas)
-            )
+            new_cap_objs = [c for c in card.capabilities if c.requirement_id() in added_caps]
+            pool.extend(CandidatePoolGenerator().build_pool(card.id, new_cap_objs, self._personas))
 
         hyp_gen = FailureHypothesisGenerator()
         config = OptimizerConfig(
@@ -151,7 +198,9 @@ class SuiteSynchronizer:
             archived_tests=archived,
         )
 
-        profile = endpoint_profile if endpoint_profile is not None else old_manifest.endpoint_profile
+        profile = (
+            endpoint_profile if endpoint_profile is not None else old_manifest.endpoint_profile
+        )
         updated_manifest = SuiteManifest(
             agent_id=old_manifest.agent_id,
             version=new_version,

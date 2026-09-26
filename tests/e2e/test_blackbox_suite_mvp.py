@@ -20,6 +20,8 @@ _SERVER_MOD = importlib.util.spec_from_file_location(
 assert _SERVER_MOD and _SERVER_MOD.loader
 _refund_mod = importlib.util.module_from_spec(_SERVER_MOD)
 _SERVER_MOD.loader.exec_module(_refund_mod)
+
+
 class _RefundHandler(BaseHTTPRequestHandler):
     def log_message(self, format: str, *args: object) -> None:
         return

@@ -51,13 +51,13 @@ class CandidateTest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str = Field(description="Stable test identifier")
-    capability_id: str = Field(description="Declared capability this test exercises (for suite prune)")
+    capability_id: str = Field(
+        description="Declared capability this test exercises (for suite prune)"
+    )
     persona_id: str = Field(description="Persona slug or identifier")
     name: str = Field(description="Short human-readable title")
     user_prompt: str = Field(description="Input sent to the agent endpoint")
-    expected_behavior: str = Field(
-        description="Observable expectation (no internal state claims)"
-    )
+    expected_behavior: str = Field(description="Observable expectation (no internal state claims)")
     coverage_tags: list[str] = Field(
         default_factory=list,
         description="Tags for set cover, e.g. cap:refund, persona:adversary, security:auth",
@@ -70,7 +70,9 @@ class CandidateTest(BaseModel):
     failure_mode: str = Field(default="", description="Hypothesis under test")
     rationale: str = Field(default="", description="Why this test exists")
     template_id: str | None = Field(default=None, description="Rule template id if rule-generated")
-    execution_cost: float = Field(default=1.0, ge=0.01, description="Relative cost weight for optimizer")
+    execution_cost: float = Field(
+        default=1.0, ge=0.01, description="Relative cost weight for optimizer"
+    )
     is_mandatory: bool = Field(
         default=False,
         description="Always include in pack when present in pool",

@@ -164,12 +164,7 @@ const MainContent: React.FC<{ onBackToMarketing?: () => void }> = ({
               onMissingSession={() => navigateConsoleView("assurance")}
             />
           ) : consoleView === "studio" ? (
-            <Studio
-              onSuiteCreated={() => {
-                setConsoleView("assurance");
-                navigateConsoleView("assurance");
-              }}
-            />
+            <Studio />
           ) : (
             <AssuranceView />
           )}

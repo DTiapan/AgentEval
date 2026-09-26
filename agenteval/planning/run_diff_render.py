@@ -44,6 +44,4 @@ def render_run_diff(console: Console, diff: SuiteRunDiff) -> None:
         )
 
     console.print(table)
-    console.print(
-        f"[dim]Regressions: {len(diff.regressions)} | Fixes: {len(diff.fixes)}[/dim]"
-    )
+    console.print(f"[dim]Regressions: {len(diff.regressions)} | Fixes: {len(diff.fixes)}[/dim]")

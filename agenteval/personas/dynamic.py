@@ -125,7 +125,9 @@ class DynamicPersonaGenerator:
             "; ".join(f"{c.name}: {c.description}" for c in agent_card.capabilities)
             or "General assistance"
         )
-        context_extra = f"\nCustomer/Target Audience Context: {customer_context}" if customer_context else ""
+        context_extra = (
+            f"\nCustomer/Target Audience Context: {customer_context}" if customer_context else ""
+        )
 
         system_prompt = (
             "You are an expert AI Agent Reliability Architect. Given an agent definition and its capabilities, "
@@ -211,7 +213,9 @@ class DynamicPersonaGenerator:
         for idx, match in enumerate(matches):
             tier = tiers[idx % len(tiers)]
             reg_cand = registry.get_by_slug(match.slug)
-            invariants = reg_cand.default_rules if reg_cand else ["Never perform unverified actions"]
+            invariants = (
+                reg_cand.default_rules if reg_cand else ["Never perform unverified actions"]
+            )
 
             results.append(
                 RankedPersonaCandidate(
@@ -280,7 +284,10 @@ class DynamicPersonaGenerator:
         agent_card: AgentCard,
     ) -> str:
         """Create rich agency-style persona markdown."""
-        invariants_text = "\n".join(f"- {inv}" for inv in candidate.invariants) or "- Maintain verified audit trail"
+        invariants_text = (
+            "\n".join(f"- {inv}" for inv in candidate.invariants)
+            or "- Maintain verified audit trail"
+        )
 
         return f"""---
 name: {candidate.name}

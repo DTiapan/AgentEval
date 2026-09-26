@@ -12,17 +12,17 @@ from agenteval.ingest.endpoint_probe import EndpointProbeResult
 from agenteval.planning.blackbox_runner import BlackboxRunner
 from agenteval.planning.bootstrap import SuiteBootstrap
 from agenteval.planning.coverage import CoverageMapper
+from agenteval.planning.gap_loop import SuiteGapExtender
 from agenteval.planning.models import (
     CandidateTest,
     CoverageReport,
+    SuiteGapLoopResult,
     SuiteManifest,
     SuiteRunReport,
     TestPack,
 )
 from agenteval.planning.run_diff import diff_suite_runs
 from agenteval.planning.suite_store import SuiteExistsError, SuiteStore
-from agenteval.planning.gap_loop import SuiteGapExtender
-from agenteval.planning.models import SuiteGapLoopResult
 from agenteval.planning.suite_sync import SuiteSynchronizer, SuiteSyncResult
 
 
@@ -87,9 +87,7 @@ class SuiteWorkflow:
     ) -> None:
         self.suite_root = Path(suite_root)
         self.max_tests = max_tests
-        self._use_sqlite = (
-            use_sqlite if use_sqlite is not None else use_sqlite_persistence()
-        )
+        self._use_sqlite = use_sqlite if use_sqlite is not None else use_sqlite_persistence()
         self._db_path = Path(db_path) if db_path is not None else None
         self._repo: SuiteRepository | None = None
 
@@ -145,9 +143,7 @@ class SuiteWorkflow:
             return repo.load_latest_run(agent_id)
         return store.load_latest_run(agent_id)
 
-    def _load_run(
-        self, store: SuiteStore, agent_id: str, run_id: str
-    ) -> SuiteRunReport | None:
+    def _load_run(self, store: SuiteStore, agent_id: str, run_id: str) -> SuiteRunReport | None:
         repo = self._repository()
         if self._sqlite_primary() and repo is not None:
             return repo.load_run(agent_id, run_id)
@@ -443,9 +439,7 @@ class SuiteWorkflow:
             )
             derived = store.agent_dir(agent_id) / "derived_agent_card.json"
             derived.write_text(card.model_dump_json(indent=2), encoding="utf-8")
-            (store.agent_dir(agent_id) / "requirements.md").write_text(
-                prd_text, encoding="utf-8"
-            )
+            (store.agent_dir(agent_id) / "requirements.md").write_text(prd_text, encoding="utf-8")
         return outcome.result
 
     def get_suite(self, agent_id: str) -> SuiteDetailResult:

@@ -10,12 +10,14 @@ from fastapi.staticfiles import StaticFiles
 
 from agenteval import __version__
 from agenteval.api.schemas import (
+    EndpointProbeRequest,
     PrdBootstrapRequest,
+    SuiteGapExtendRequest,
     SuiteInitRequest,
     SuiteRunRequest,
-    SuiteGapExtendRequest,
     SuiteSyncRequest,
 )
+from agenteval.ingest.endpoint_probe import EndpointProber
 from agenteval.planning.suite_store import SuiteExistsError
 from agenteval.services.workflow_factory import create_suite_workflow, persistence_status
 
@@ -49,9 +51,7 @@ def create_app() -> FastAPI:
     def list_suites(suite_root: str = ".agenteval/suites") -> JSONResponse:
         workflow = create_suite_workflow(suite_root=suite_root)
         items = workflow.list_suites()
-        return JSONResponse(
-            content={"suites": [item.model_dump(mode="json") for item in items]}
-        )
+        return JSONResponse(content={"suites": [item.model_dump(mode="json") for item in items]})
 
     @app.get("/v1/suites/{agent_id}")
     def get_suite(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
@@ -65,11 +65,15 @@ def create_app() -> FastAPI:
             ) from None
         return JSONResponse(content=detail.model_dump(mode="json"))
 
+    @app.post("/v1/endpoints/probe")
+    def probe_agent_endpoint(body: EndpointProbeRequest) -> JSONResponse:
+        """Probe target agent from the engine (avoids browser CORS to user endpoints)."""
+        result = EndpointProber().probe(body.endpoint_url)
+        return JSONResponse(content=result.model_dump(mode="json"))
+
     @app.post("/v1/suites/preview")
     def preview_suite(body: PrdBootstrapRequest) -> JSONResponse:
-        workflow = create_suite_workflow(
-            suite_root=body.suite_root, max_tests=body.max_tests
-        )
+        workflow = create_suite_workflow(suite_root=body.suite_root, max_tests=body.max_tests)
         try:
             result = workflow.preview_from_prd_text(
                 body.requirements_text,
@@ -83,9 +87,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/suites")
     def init_suite(body: SuiteInitRequest) -> JSONResponse:
-        workflow = create_suite_workflow(
-            suite_root=body.suite_root, max_tests=body.max_tests
-        )
+        workflow = create_suite_workflow(suite_root=body.suite_root, max_tests=body.max_tests)
         try:
             result = workflow.init_from_prd_text(
                 body.requirements_text,
@@ -120,9 +122,7 @@ def create_app() -> FastAPI:
 
     @app.post("/v1/suites/{agent_id}/sync")
     def sync_suite(agent_id: str, body: SuiteSyncRequest) -> JSONResponse:
-        workflow = create_suite_workflow(
-            suite_root=body.suite_root, max_tests=body.max_tests
-        )
+        workflow = create_suite_workflow(suite_root=body.suite_root, max_tests=body.max_tests)
         try:
             result = workflow.sync_from_prd_text(
                 agent_id,
@@ -179,7 +179,14 @@ def create_app() -> FastAPI:
             )
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from None
-        return HTMLResponse(content=html_content)
+        return HTMLResponse(
+            content=html_content,
+            headers={
+                # Allow in-console iframe embed on same origin (M4).
+                "X-Frame-Options": "SAMEORIGIN",
+                "Content-Security-Policy": "frame-ancestors 'self'",
+            },
+        )
 
     ui_dist = Path(os.environ.get("AGENTEVAL_UI_DIST", str(_REPO_UI_DIST)))
     if os.environ.get("AGENTEVAL_SERVE_UI", "0") == "1" and ui_dist.is_dir():

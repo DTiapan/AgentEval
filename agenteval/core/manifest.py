@@ -38,9 +38,21 @@ class AgentCapability(BaseModel):
 
     name: str = Field(description="Action or task identifier")
     description: str = Field(description="Explanation of task fulfillment")
+    stable_id: str = Field(
+        default="",
+        description="Stable requirement id; computed from description when empty (FR-B-02)",
+    )
     idempotency_supported: bool = Field(
         default=False, description="Whether agent supplies idempotency keys on retries"
     )
+
+    def requirement_id(self) -> str:
+        """Identifier used for coverage, sync, and test linkage."""
+        from agenteval.core.requirement_ids import requirement_stable_id
+
+        if self.stable_id.strip():
+            return self.stable_id.strip()
+        return requirement_stable_id(self.description)
 
 
 class AgentInvariants(BaseModel):

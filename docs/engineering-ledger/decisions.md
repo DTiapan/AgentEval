@@ -29,8 +29,42 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-018 | **UI Theme Token Harmonization, Floating Card Layout & Production Bundle Rebuild:** Resolved root-cause visual regression where an unbuilt bundle was serving the old pitch-black canvas (`bg-[#09090B]`) and fused split-pane container. Refactored Studio and AssuranceView to render independent, floating `<Card>` primitives (`gap-6` grid) over the soft `#f8f9fa` / `#1a1b1e` canvas. Harmonized all Shadcn UI primitives (`card`, `tabs`, `slider`, `tooltip`, `dialog`, `resizable`, `separator`, `table`) to eliminate hardcoded `zinc` classes in favor of semantic CSS variables (`text-card-foreground`, `bg-muted`, `border-border`). Rebuilt `web/dist` cleanly (1.12s); full suite passes 113 tests at 86.16% coverage; 0 ruff/mypy errors. | Accepted | 2026-09-20 |
 | DR-020 | **SQLite v1 persistence schema (ADR-004):** Relational model for workspaces, users, agents, frozen `suite_versions`, `assurance_runs`, `test_case_results`, and `execution_steps` (sealed trajectories). Default embedded DB at `.agenteval/agenteval.db`; JSON `SuiteStore` remains import/export path. DDL: `agenteval/db/schema.sql`; design: `docs/design/persistence-schema.md`. Postgres later with same logical schema. | Accepted | 2026-09-21 |
 | DR-021 | **Web UI-first product delivery (supersedes DR-012 ordering):** Primary onboarding = **`agenteval serve`** + **Web Console** (Studio → freeze → Assurance → Replay) backed by **`SuiteWorkflow`** and **`/v1/suites/*`** with **SQLite-primary** persistence ([ADR-004](../decisions/ADR-004-sqlite-local-persistence.md)). New product slices ship API + UI first; **Typer** remains for `serve`, engineering `suite *`, harness `run`, and `db import-suites` — no new customer-facing flows CLI-only. Spec drift / sync targets **API + Studio**, not `agenteval suite sync` as the default path. | Accepted | 2026-09-21 |
-| DR-019 | **Enterprise SaaS Full PRD & Persona UX Architecture Formulated (`PRD_SAAS_FULL.md`):** Synthesized the complete end-to-end product requirements document for the enterprise AgentEval Cloud SaaS platform to feed external UX/UI tools (UX Pilot, Figma). Spans 9 core functional modules: Auth/SSO, Multi-Tenant Workspace Onboarding, Fleet Overview Dashboard, BYOA Agent Registry, Studio & Test Planner with set-cover optimization, Assurance Runs Console with regression diff gating, Time-Travel Trajectory Debugger, Spec/OpenAPI/Golden Dataset Hub, and Compliance Reports & RBAC. Fully mapped to 3 technical personas (Alex Chen, Maya Patel, Marcus Vance) with detailed layout grids, state machines, and Oklch design tokens. | Accepted | 2026-09-20 |
+| DR-022 | **Real-agent reference target (not keyword mocks):** Default sample for product learning is `examples/real-agent/` — LangChain/LangGraph ReAct + SQLite tools (`lookup_ticket`, `list_customer_tickets`, `update_ticket_status`, `delete_ticket`) on `POST /chat`. Rule-based `examples/blackbox/` mocks remain **fixtures** for CI without an API key, not the evaluation north star. Next slices: post-run ΔS on `.agenteval/real-agent-ops.db`, then **Jev as Tier-1 typed judge** (DR-001) on traces — not more mock agents. | Accepted | 2026-09-21 |
+| DR-023 | **LangWatch OSS architecture lessons — assurance appliance, integrate don’t rebuild:** Category validation from [langwatch/langwatch](https://github.com/langwatch/langwatch) (control plane PG + data plane ClickHouse, event-sourced workers, LangEvals sidecar, connected-agent relay). AgentEval stays **library + FastAPI + SQLite**, **verdict-first** (`PASS`/`FAIL`/`UNVERIFIABLE`), **PRD → frozen set-cover pack**; **emit** OTel from runs, **do not** ingest at LangWatch scale. Selective pattern adoption only (run isolation, optional outbound connect, trace→gap with provenance). See full entry below. | Accepted | 2026-09-21 |
 
+
+---
+
+### DR-023 — LangWatch OSS architecture lessons (assurance appliance vs LLMOps platform)
+
+- **Date:** 2026-09-21
+- **Status:** accepted
+- **Context:** LangWatch ships a large open-core monorepo (App + Workers + PostgreSQL + Redis + ClickHouse + S3 + LangEvals/NLP + optional AI Gateway). Agent Testing overlaps our surface (scenarios, suites, judges, CI). We need a durable guardrail so slices do not drift into rebuilding their data platform.
+- **Options:**
+  1. **Parity chase** — replicate observability lake, evaluator microservice, feature-map across CLI/MCP/SDK/UI.
+  2. **Assurance appliance** — minimal deploy (single process + SQLite), integrate with customer or vendor OTel for traces; borrow only high-leverage patterns.
+  3. **Fork/embed LangWatch** — reuse their stack for assurance runs.
+- **Decision:** **(2) Assurance appliance.** Validate the category; **do not** chase LangWatch feature parity ([ROADMAP](../ROADMAP.md) competitive section). Promote **integrate/partner** for observability, prompt loops, and evaluator catalogs.
+- **Rationale:** Their moat is **telemetry scale + loop engineering** (ingest → project → monitor → improve). Our moat is **sealed proof or honest `UNVERIFIABLE`**, **requirements-driven pack optimization**, and **BYOA black-box** with boring self-host ([DR-009](decisions.md#active-index), [DR-010](decisions.md#active-index), [DR-021](decisions.md#active-index)).
+- **LangWatch architecture (reference, not target):**
+  - **Control plane:** PostgreSQL (Prisma) — users, projects, prompts, suite config.
+  - **Data plane:** ClickHouse — traces, analytics, event-sourcing events/projections.
+  - **Processing:** Workers + custom Redis **GroupQueue** (per-aggregate FIFO for fold projections).
+  - **Agent testing:** `@langwatch/scenario`, sandboxed child with prefetched data; **connected agents** via outbound WebSocket relay ([ADR-128](https://github.com/langwatch/langwatch/blob/main/dev/docs/adr/128-connected-agents.md) in upstream repo).
+  - **Evaluators:** separate **LangEvals** Python service; online monitors and guardrails on trace stream.
+  - **Commercial:** enterprise modules under `platform/app/ee/` (SSO, SCIM, billing, audit) — same artifact, license-gated.
+- **Explicit non-goals (unless strategy changes):** full **LLM observability product**, **AI gateway / corp governance plane**, **prompt registry + Langy auto-PR loop**, **voice/multimodal simulation platform**, **LangEvals-scale built-in judge catalog**, **feature-map parity** across four product surfaces. Documented in [ROADMAP](../ROADMAP.md#competitive-landscape--positioning).
+- **Selective adoption (when a slice needs it):**
+  | Pattern | AgentEval use | Guardrail |
+  |---------|---------------|-----------|
+  | Multi-turn HTTP simulation | v0.3+ runner | Persist real `execution_steps` only ([no-demo-ui-data](../../.cursor/rules/no-demo-ui-data.mdc)) |
+  | Connected-agent relay | Optional `connect` later | Same as HTTP black-box evidence rules |
+  | Run isolation (child/prefetch) | Heavy sim workers | Security + cancel; not a second platform DB |
+  | Trace → candidate test | v0.3–0.4 gap loop | Provenance `INFERRED`, cite source run id |
+  | OTel | v0.5+ **export** from assurance runs | Customer’s Phoenix/LangWatch/LangSmith ingests; we do not replace CH |
+  | LLM judge | Tier-2 overlay ([DR-001](decisions.md#active-index)) | Never invent side-effects; never downgrade `UNVERIFIABLE` |
+- **Tradeoffs accepted:** No real-time trace explorer, instant evals at 10k rows/min, or enterprise SSO in core OSS v1 — by design.
+- **Links:** [ROADMAP — Competitive Landscape](../ROADMAP.md#competitive-landscape--positioning), [LangWatch self-host architecture](https://langwatch.ai/docs/self-hosting/infrastructure/architecture.md), upstream [FEATURE_MAP.md](https://github.com/langwatch/langwatch/blob/main/FEATURE_MAP.md).
 
 ---
 

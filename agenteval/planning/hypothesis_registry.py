@@ -71,7 +71,9 @@ def capability_signals(capability: AgentCapability) -> CapabilitySignals:
     )
 
 
-def base_coverage_tags(cap_id: str, failure_tag: str, category: str, coverage_tag: str) -> list[str]:
+def base_coverage_tags(
+    cap_id: str, failure_tag: str, category: str, coverage_tag: str
+) -> list[str]:
     tags = [f"cap:{cap_id}", f"failure:{failure_tag}"]
     if category == "security":
         tags.append(f"security:{coverage_tag}")

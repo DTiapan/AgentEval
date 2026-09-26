@@ -55,9 +55,7 @@ def test_bootstrap_from_prd_with_endpoint() -> None:
     url, server = _ephemeral_refund_url()
     prd = _REPO / "examples/blackbox/requirements.md"
     try:
-        card, _fp, probe = AgentBootstrap.from_prd(
-            prd, agent_id="refund-agent", endpoint_url=url
-        )
+        card, _fp, probe = AgentBootstrap.from_prd(prd, agent_id="refund-agent", endpoint_url=url)
         assert probe is not None and probe.reachable
         assert card.id == "refund-agent"
     finally:

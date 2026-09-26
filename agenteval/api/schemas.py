@@ -20,6 +20,12 @@ class SuiteInitRequest(PrdBootstrapRequest):
     force_new_version: bool = False
 
 
+class EndpointProbeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    endpoint_url: str = Field(min_length=1, description="Agent HTTP URL to POST (server-side probe)")
+
+
 class SuiteRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

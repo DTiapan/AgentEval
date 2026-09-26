@@ -2,7 +2,6 @@
 
 from agenteval.core.manifest import AgentCapability
 from agenteval.planning import hypothesis_catalog  # noqa: F401 — registers templates
-from agenteval.planning._utils import slugify
 from agenteval.planning.hypothesis_registry import (
     base_coverage_tags,
     capability_signals,
@@ -16,7 +15,7 @@ class FailureHypothesisGenerator:
 
     def generate_for_capability(self, capability: AgentCapability) -> list[FailureHypothesis]:
         """Return all registered templates that apply to this capability."""
-        cap_id = slugify(capability.name)
+        cap_id = capability.requirement_id()
         sig = capability_signals(capability)
         results: list[FailureHypothesis] = []
         for tmpl in iter_templates():

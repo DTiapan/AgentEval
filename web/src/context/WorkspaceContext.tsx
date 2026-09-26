@@ -24,34 +24,19 @@ interface WorkspaceContextValue {
   removeToast: (id: string) => void;
 }
 
-const DEFAULT_WORKSPACES: Workspace[] = [
-  {
-    id: "ws-local",
-    name: "Local Development",
-    slug: "local-dev",
-    role: "OWNER",
-    isEnterpriseCloud: false,
-  },
-  {
-    id: "ws-acme",
-    name: "Acme AI Core",
-    slug: "acme-ai-core",
-    role: "ADMIN",
-    isEnterpriseCloud: true,
-  },
-  {
-    id: "ws-prod-org",
-    name: "Enterprise Assurance Org",
-    slug: "enterprise-cloud",
-    role: "ADMIN",
-    isEnterpriseCloud: true,
-  },
-];
+/** MVP: one local workspace; suite list comes from GET /v1/suites only. */
+export const LOCAL_WORKSPACE: Workspace = {
+  id: "ws-local",
+  name: "Local workspace",
+  slug: "local",
+  role: "OWNER",
+  isEnterpriseCloud: false,
+};
 
 const WorkspaceContext = createContext<WorkspaceContextValue | undefined>(undefined);
 
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [workspace, setWorkspace] = useState<Workspace>(DEFAULT_WORKSPACES[0]);
+  const [workspace] = useState<Workspace>(LOCAL_WORKSPACE);
   const [suites, setSuites] = useState<SuiteListItem[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [isLoadingSuites, setIsLoadingSuites] = useState(false);
@@ -75,8 +60,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       const items = await listSuites();
       setSuites(items);
-      if (items.length > 0 && !activeAgentId) {
-        setActiveAgentId(items[0].agent_id);
+      if (activeAgentId && !items.some((s) => s.agent_id === activeAgentId)) {
+        setActiveAgentId(null);
       }
     } catch (err: unknown) {
       console.warn("Failed to load suites", err);
@@ -96,8 +81,10 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     <WorkspaceContext.Provider
       value={{
         workspace,
-        workspaces: DEFAULT_WORKSPACES,
-        setWorkspace,
+        workspaces: [LOCAL_WORKSPACE],
+        setWorkspace: () => {
+          /* MVP: single workspace until /v1/workspaces exists */
+        },
         suites,
         activeAgentId,
         setActiveAgentId,

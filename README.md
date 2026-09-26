@@ -18,7 +18,7 @@ AgentEval is an enterprise-grade agent assurance platform designed to test auton
 
 ## Quickstart (Web Console — product default)
 
-Upload **requirements (PRD)** and an optional **agent URL** in Studio; freeze the pack, run assurance, inspect trajectories and reports. Data is persisted in SQLite when you use `agenteval serve` (default).
+End-to-end MVP: **PRD → agent URL → create suite → run → report**. Console fields come from the engine API only ([MVP checklist](docs/MVP.md)). SQLite persistence is on by default with `agenteval serve`.
 
 ```bash
 # Install
@@ -27,14 +27,38 @@ uv pip install -e ".[dev]"
 # Build the console once
 cd web && npm install && npm run build && cd ..
 
-# API + Web UI + SQLite persistence (opens http://127.0.0.1:8766/)
+# API + Web UI + SQLite (http://127.0.0.1:8766/#/console)
 agenteval serve
 
 # API only (no web/dist)
 agenteval serve --no-ui
 ```
 
-For local UI development with hot reload, run `npm run dev` in `web/` (proxies API to port 8766) alongside `agenteval serve --no-ui` or full `agenteval serve`.
+**Try it with the sample refund agent** (`agenteval serve` does **not** start the agent for you)
+
+```bash
+# Terminal 1 — mock HTTP agent on :8765 (leave running)
+python3 examples/blackbox/refund_agent_server.py
+
+# Terminal 2 — serve console
+agenteval serve
+```
+
+**Preferred sample (real tools + SQLite):** see [examples/real-agent/README.md](examples/real-agent/README.md) — `OPENAI_API_KEY`, then `python3 examples/real-agent/ops_agent_server.py` (`http://127.0.0.1:8770/chat`) and import `examples/real-agent/ops-agent-prd.md`.
+
+Keyword mocks in `examples/blackbox/` are optional CI fixtures, not the product default.
+
+For local UI hot reload: `npm run dev` in `web/` (proxies to port 8766) with `agenteval serve` or `agenteval serve --no-ui`.
+
+**Clean slate** (removes persisted suites like old demo runs — not done automatically):
+
+```bash
+agenteval db reset --yes
+cd web && npm run build && cd ..
+agenteval serve
+```
+
+In the console header, choose **New suite…** for an empty Studio form without deleting other agents.
 
 ## Advanced: harness & engineering CLI
 

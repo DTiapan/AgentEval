@@ -49,6 +49,20 @@ We need a real persistence layer whose schema matches Pydantic domain models, wi
 - Full OTel span ingest (separate table later: `trace_spans` with OpenInference shape)
 - Billing meters, SSO identity provider tables (add with auth slice)
 
+## Implementation status (2026-09-24)
+
+- Implemented as decided: SQLite-primary writes via `SuiteRepository`, WAL and
+  foreign keys enabled (`db/connection.py`), JSON `SuiteStore` only when SQLite
+  is disabled.
+- Tenancy tables (`users`, `workspace_members`, `api_keys`, `audit_events`) are
+  defined in `schema.sql` but no code writes to them; they are speculative until
+  the auth slice.
+- The schema models storage, not the domain: requirements are stored as a text
+  blob plus fingerprint, with no Requirement or Acceptance criterion entity.
+- Open question for ADR-005: Inspect writes its own eval logs. We must decide
+  whether SQLite stays the product source of truth (mirrored from Inspect via
+  a logging hook) or Inspect logs become primary.
+
 ## References
 
 - Physical schema and DDL: [persistence-schema.md](../design/persistence-schema.md)

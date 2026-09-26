@@ -83,7 +83,7 @@ class RequirementsIngestor:
             desc = " ".join(line.strip() for line in body.strip().splitlines() if line.strip())
             if not desc:
                 continue
-            cap_name = cls._capability_name_from_heading(heading, desc)
+            cap_name = cls._short_name(desc)
             capabilities.append(AgentCapability(name=cap_name, description=desc))
 
         if capabilities:
@@ -98,11 +98,7 @@ class RequirementsIngestor:
                 continue
             if re.match(r"^\d+\.\s+", stripped):
                 stripped = re.sub(r"^\d+\.\s+", "", stripped)
-            clean = (
-                stripped.replace("Feature:", "")
-                .replace("Requirement:", "")
-                .strip()
-            )
+            clean = stripped.replace("Feature:", "").replace("Requirement:", "").strip()
             if len(clean) < 8:
                 continue
             capabilities.append(

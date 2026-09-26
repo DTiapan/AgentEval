@@ -149,7 +149,9 @@ def test_sqlite_sync_prunes_removed_capability(tmp_path: Path) -> None:
     )
     before = workflow.get_suite("sync-agent")
     assert before.manifest.version == 1
-    lookup_caps = [t.capability_id for t in before.optimized_pack.tests if "lookup" in t.capability_id]
+    lookup_caps = [
+        t.capability_id for t in before.optimized_pack.tests if "lookup" in t.capability_id
+    ]
     assert lookup_caps
 
     result = workflow.sync_from_prd_text(
@@ -168,9 +170,7 @@ def test_sqlite_sync_prunes_removed_capability(tmp_path: Path) -> None:
 
 
 @patch("agenteval.services.suite_workflow.BlackboxRunner")
-def test_extend_gaps_from_latest_run_sqlite(
-    mock_runner_cls: MagicMock, tmp_path: Path
-) -> None:
+def test_extend_gaps_from_latest_run_sqlite(mock_runner_cls: MagicMock, tmp_path: Path) -> None:
     db_path = tmp_path / "agenteval.db"
     workflow = SuiteWorkflow(
         suite_root=tmp_path / "suites",

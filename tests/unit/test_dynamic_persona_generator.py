@@ -43,7 +43,9 @@ def sample_database_agent() -> AgentCard:
     )
 
 
-def test_offline_fallback_discovers_and_ranks(sample_database_agent: AgentCard, tmp_path: Path) -> None:
+def test_offline_fallback_discovers_and_ranks(
+    sample_database_agent: AgentCard, tmp_path: Path
+) -> None:
     generator = DynamicPersonaGenerator(cache_dir=tmp_path)
 
     # Without API keys, offline fallback should fire and return top_k ranked personas
@@ -58,7 +60,9 @@ def test_offline_fallback_discovers_and_ranks(sample_database_agent: AgentCard, 
         assert "engineering" in domains
 
 
-def test_litellm_mock_discovery_and_stack_ranking(sample_database_agent: AgentCard, tmp_path: Path) -> None:
+def test_litellm_mock_discovery_and_stack_ranking(
+    sample_database_agent: AgentCard, tmp_path: Path
+) -> None:
     generator = DynamicPersonaGenerator(cache_dir=tmp_path)
 
     mock_payload = {
@@ -102,9 +106,7 @@ def test_litellm_mock_discovery_and_stack_ranking(sample_database_agent: AgentCa
     }
 
     mock_response = MagicMock()
-    mock_response.choices = [
-        MagicMock(message=MagicMock(content=json.dumps(mock_payload)))
-    ]
+    mock_response.choices = [MagicMock(message=MagicMock(content=json.dumps(mock_payload)))]
 
     with patch("litellm.completion", return_value=mock_response):
         with patch.dict("os.environ", {"OPENAI_API_KEY": "sk-test-key"}):
@@ -117,7 +119,9 @@ def test_litellm_mock_discovery_and_stack_ranking(sample_database_agent: AgentCa
             assert candidates[1].tier == OperationalTier.POWER_USER_EDGE
 
 
-def test_persona_synthesis_and_caching_lifecycle(sample_database_agent: AgentCard, tmp_path: Path) -> None:
+def test_persona_synthesis_and_caching_lifecycle(
+    sample_database_agent: AgentCard, tmp_path: Path
+) -> None:
     generator = DynamicPersonaGenerator(cache_dir=tmp_path)
     candidate = RankedPersonaCandidate(
         name="Site Reliability Engineer",

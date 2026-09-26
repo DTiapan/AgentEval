@@ -7,17 +7,14 @@ import {
   SuiteGapLoopResult,
   SuiteSyncResult,
 } from "./types";
+import { formatApiErrorBody } from "@/lib/api-error";
 
 const API_BASE = "";
 
 async function parseJson<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const detail =
-      typeof body.detail === "string"
-        ? body.detail
-        : JSON.stringify(body.detail ?? body);
-    throw new Error(detail || response.statusText);
+    throw new Error(formatApiErrorBody(body, response.statusText || "Request failed"));
   }
   return body as T;
 }
@@ -43,6 +40,26 @@ export async function listSuites(): Promise<SuiteListItem[]> {
   const res = await fetch(`${API_BASE}/v1/suites`);
   const body = await parseJson<{ suites: SuiteListItem[] }>(res);
   return body.suites;
+}
+
+/** Server-side POST probe (same as engine black-box runner; no browser CORS). */
+export type EngineEndpointProbeResult = {
+  endpoint_url: string;
+  reachable: boolean;
+  http_status: number;
+  latency_ms: number;
+  error?: string;
+};
+
+export async function probeAgentEndpoint(
+  endpointUrl: string,
+): Promise<EngineEndpointProbeResult> {
+  const res = await fetch(`${API_BASE}/v1/endpoints/probe`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ endpoint_url: endpointUrl }),
+  });
+  return parseJson(res);
 }
 
 export async function getSuiteDetail(agentId: string): Promise<SuiteDetailResult> {
@@ -154,4 +171,27 @@ export function getSuiteReportUrl(
   if (options?.theme) params.set("theme", options.theme);
   const query = params.toString();
   return `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/report${query ? `?${query}` : ""}`;
+}
+
+/** Fetch sealed HTML report from engine and save locally (same payload as GET report). */
+export async function downloadSuiteReport(
+  agentId: string,
+  runId?: string,
+  options?: { theme?: "light" | "dark" },
+): Promise<void> {
+  const url = getSuiteReportUrl(agentId, runId, { theme: options?.theme });
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(formatApiErrorBody(body, res.statusText || "Report download failed"));
+  }
+  const blob = await res.blob();
+  const runSuffix = runId ? `-${runId.slice(0, 8)}` : "";
+  const filename = `agenteval-${agentId}${runSuffix}-report.html`;
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(objectUrl);
 }

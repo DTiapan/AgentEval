@@ -1,5 +1,6 @@
 """Database maintenance commands (SQLite import, etc.)."""
 
+import shutil
 from pathlib import Path
 from typing import Annotated
 
@@ -62,3 +63,51 @@ def import_suites(
         console.print(f"  [red]skip[/red] {err}")
 
     raise typer.Exit(code=1 if result.errors and result.agents_imported == 0 else 0)
+
+
+@db_app.command("reset")
+def reset_local_data(
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", "-y", help="Skip confirmation prompt"),
+    ] = False,
+    suite_root: Annotated[
+        Path,
+        typer.Option("--suite-root", help="Filesystem suite tree to remove"),
+    ] = Path(".agenteval/suites"),
+    keep_suite_files: Annotated[
+        bool,
+        typer.Option(
+            "--keep-suite-files",
+            help="Only delete SQLite; leave .agenteval/suites on disk",
+        ),
+    ] = False,
+) -> None:
+    """Remove local engine persistence (SQLite + optional suite files) for a clean slate."""
+    db = database_path()
+    targets: list[Path] = []
+    if db.is_file():
+        targets.append(db)
+    if not keep_suite_files and suite_root.exists():
+        targets.append(suite_root)
+
+    if not targets:
+        console.print("[yellow]Nothing to reset[/yellow] — no database or suite tree found.")
+        raise typer.Exit(code=0)
+
+    if not yes:
+        console.print("[bold]Will delete:[/bold]")
+        for path in targets:
+            console.print(f"  • {path}")
+        if not typer.confirm("Continue?", default=False):
+            raise typer.Exit(code=1)
+
+    for path in targets:
+        if path.is_file():
+            path.unlink()
+        elif path.is_dir():
+            shutil.rmtree(path)
+
+    console.print(
+        "[green]Local engine data cleared.[/green] Restart [bold]agenteval serve[/bold] and refresh the console."
+    )
