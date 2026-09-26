@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agenteval"
 version = "0.1.0"
-description = "Production-Grade AI Agent Assurance, Reliability & Chaos Engineering Platform"
+description = "Open-source agent assurance: PRD + agent URL → frozen suites, evidence-backed PASS/FAIL/UNVERIFIABLE verdicts (Web UI, API, SQLite)."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
