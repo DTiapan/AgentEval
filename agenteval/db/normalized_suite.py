@@ -9,7 +9,14 @@ from agenteval.domain.models import (
     FrozenTestCaseRecord,
     RequirementRecord,
 )
+from agenteval.packs.audit_evidence import build_audit_evidence_payload, should_capture_audit_evidence
 from agenteval.packs.enabled import enabled_domain_pack_ids
+from agenteval.packs.scoring import score_criterion
+from agenteval.packs.freeze_metadata import (
+    persist_criterion_compliance_maps,
+    persist_pack_freeze_metadata,
+    resolve_enabled_pack_ids,
+)
 from agenteval.packs.protocol import RequirementDraft
 from agenteval.packs.registry import load_domain_pack
 from agenteval.planning.models import (
@@ -75,6 +82,10 @@ def _delete_normalized_children(conn: sqlite3.Connection, suite_version_id: str)
             req_ids,
         )
     conn.execute("DELETE FROM requirements WHERE suite_version_id = ?", (suite_version_id,))
+    conn.execute(
+        "DELETE FROM suite_pack_selections WHERE suite_version_id = ?",
+        (suite_version_id,),
+    )
 
 
 def build_requirements_and_criteria(
@@ -116,6 +127,21 @@ def build_requirements_and_criteria(
     return requirements, criteria, cap_to_criterion
 
 
+def collect_synthetic_test_data(pack_ids: list[str] | None) -> dict[str, object]:
+    if not pack_ids:
+        return {}
+    merged: dict[str, object] = {}
+    for pack_id in pack_ids:
+        pack = load_domain_pack(pack_id)
+        if pack is None:
+            continue
+        options = pack.contribute_options()
+        chunk = pack.synthetic_test_data(options)
+        if chunk:
+            merged.update(chunk)
+    return merged
+
+
 def collect_pack_requirement_drafts(
     pack_ids: list[str] | None = None,
 ) -> list[RequirementDraft]:
@@ -153,19 +179,21 @@ def append_pack_requirements_and_criteria(
                 stable_id=draft.stable_id,
                 statement=draft.statement,
                 source_kind="pack",
+                source_pack_name=draft.pack_name,
                 review_status="approved",
             )
         )
-        crit_id = f"{req_id}:crit:{DEFAULT_CRITERION_STABLE_ID}"
+        crit_id = f"{req_id}:crit:{draft.criterion_stable_id}"
         criteria.append(
             AcceptanceCriterionRecord(
                 id=crit_id,
                 requirement_id=req_id,
-                stable_id=DEFAULT_CRITERION_STABLE_ID,
-                description=f"Pack criterion (observable): {draft.statement}",
-                evidence_kind=EVIDENCE_KIND_HTTP,
-                check_kind=CHECK_KIND_BLACKBOX,
+                stable_id=draft.criterion_stable_id,
+                description=f"Pack criterion: {draft.statement}",
+                evidence_kind=draft.evidence_kind,
+                check_kind=draft.check_kind,
                 source_kind="pack",
+                source_pack_name=draft.pack_name,
             )
         )
 
@@ -174,7 +202,11 @@ def build_frozen_test_cases(
     suite_version_id: str,
     tests: list[CandidateTest],
     cap_to_criterion: dict[str, str],
+    *,
+    pack_ids: list[str] | None = None,
+    extra_criterion_ids: list[str] | None = None,
 ) -> list[FrozenTestCaseRecord]:
+    synthetic = collect_synthetic_test_data(pack_ids)
     records: list[FrozenTestCaseRecord] = []
     for test in tests:
         test_row_id = f"{suite_version_id}:tc:{test.id}"
@@ -185,15 +217,18 @@ def build_frozen_test_cases(
                 "expected_behavior": test.expected_behavior,
             }
         )
-        test_data = json.dumps(
-            {
-                "user_prompt": test.user_prompt,
-                "expected_behavior": test.expected_behavior,
-                "frozen": True,
-            }
-        )
+        test_data_obj: dict[str, object] = {
+            "user_prompt": test.user_prompt,
+            "expected_behavior": test.expected_behavior,
+            "frozen": True,
+        }
+        if synthetic:
+            test_data_obj.update(synthetic)
+        test_data = json.dumps(test_data_obj)
         crit_id = cap_to_criterion.get(test.capability_id)
         criterion_ids = [crit_id] if crit_id else []
+        if extra_criterion_ids:
+            criterion_ids = list(dict.fromkeys([*criterion_ids, *extra_criterion_ids]))
         records.append(
             FrozenTestCaseRecord(
                 id=test_row_id,
@@ -249,22 +284,37 @@ def persist_normalized_suite(
     requirements, criteria, cap_to_criterion = build_requirements_and_criteria(
         suite_version_id, capabilities
     )
-    pack_drafts = collect_pack_requirement_drafts()
+    enabled_ids = resolve_enabled_pack_ids()
+    pack_name_to_id = persist_pack_freeze_metadata(conn, suite_version_id, enabled_ids)
+
+    pack_drafts = collect_pack_requirement_drafts(enabled_ids)
     append_pack_requirements_and_criteria(
         suite_version_id,
         pack_drafts,
         requirements=requirements,
         criteria=criteria,
     )
-    test_cases = build_frozen_test_cases(suite_version_id, pack.tests, cap_to_criterion)
+    pack_criterion_ids = [c.id for c in criteria if c.source_kind == "pack"]
+    test_cases = build_frozen_test_cases(
+        suite_version_id,
+        pack.tests,
+        cap_to_criterion,
+        pack_ids=enabled_ids,
+        extra_criterion_ids=pack_criterion_ids,
+    )
 
     for req in requirements:
+        source_pack_id = (
+            pack_name_to_id.get(req.source_pack_name)
+            if req.source_kind == "pack" and req.source_pack_name
+            else None
+        )
         conn.execute(
             """
             INSERT INTO requirements (
                 id, suite_version_id, stable_id, statement,
                 source_kind, source_pack_id, review_status
-            ) VALUES (?, ?, ?, ?, ?, NULL, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 req.id,
@@ -272,17 +322,23 @@ def persist_normalized_suite(
                 req.stable_id,
                 req.statement,
                 req.source_kind,
+                source_pack_id,
                 req.review_status,
             ),
         )
 
     for crit in criteria:
+        source_pack_id = (
+            pack_name_to_id.get(crit.source_pack_name)
+            if crit.source_kind == "pack" and crit.source_pack_name
+            else None
+        )
         conn.execute(
             """
             INSERT INTO acceptance_criteria (
                 id, requirement_id, stable_id, description,
                 evidence_kind, check_kind, source_kind, source_pack_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 crit.id,
@@ -292,8 +348,11 @@ def persist_normalized_suite(
                 crit.evidence_kind,
                 crit.check_kind,
                 crit.source_kind,
+                source_pack_id,
             ),
         )
+
+    persist_criterion_compliance_maps(conn, enabled_ids, requirements, criteria)
 
     for tc in test_cases:
         conn.execute(
@@ -398,9 +457,9 @@ def persist_run_evidence_and_verdicts(
     """
     Write case_executions, evidence_items, and criterion_verdicts for a run.
 
-    Uses the same Tier-0 verdict as test_case_results for each linked criterion
-    (FR-B-14 slice 2). PASS/FAIL rows cite the HTTP observation evidence;
-    UNVERIFIABLE rows cite nothing (FR-B-15).
+    Writes HTTP observation evidence for every case; optional audit_log evidence when
+    ``AGENTEVAL_AUDIT_LOG_DB_PATH`` is set and domain packs are enabled. Pack check kinds
+    are scored via ``agenteval.pack_checks``; blackbox criteria mirror the test verdict.
     """
     if not v2_run_verdict_tables_present(conn):
         return
@@ -410,7 +469,7 @@ def persist_run_evidence_and_verdicts(
     for result in results:
         tc_row = conn.execute(
             """
-            SELECT id FROM test_cases
+            SELECT id, test_data_json FROM test_cases
             WHERE suite_version_id = ? AND stable_id = ?
             """,
             (suite_version_id, result.test_id),
@@ -456,6 +515,42 @@ def persist_run_evidence_and_verdicts(
             ),
         )
 
+        evidence_for_scoring: list[dict[str, str]] = [
+            {
+                "id": evidence_id,
+                "kind": "http_observation",
+                "payload_json": payload_json,
+            }
+        ]
+
+        if should_capture_audit_evidence():
+            test_data = json.loads(str(tc_row["test_data_json"] or "{}"))
+            audit_payload = build_audit_evidence_payload(test_data)
+            if audit_payload is not None:
+                audit_evidence_id = f"{case_execution_id}:ev:audit"
+                conn.execute(
+                    """
+                    INSERT INTO evidence_items (
+                        id, case_execution_id, connector_id, kind,
+                        payload_json, content_sha256, captured_at
+                    ) VALUES (?, ?, NULL, 'audit_log', ?, ?, ?)
+                    """,
+                    (
+                        audit_evidence_id,
+                        case_execution_id,
+                        audit_payload,
+                        _content_sha256(audit_payload),
+                        captured_at,
+                    ),
+                )
+                evidence_for_scoring.append(
+                    {
+                        "id": audit_evidence_id,
+                        "kind": "audit_log",
+                        "payload_json": audit_payload,
+                    }
+                )
+
         crit_rows = conn.execute(
             """
             SELECT criterion_id FROM test_case_criteria
@@ -466,6 +561,25 @@ def persist_run_evidence_and_verdicts(
 
         for crit_row in crit_rows:
             criterion_id = str(crit_row["criterion_id"])
+            crit_meta = conn.execute(
+                """
+                SELECT stable_id, description, check_kind
+                FROM acceptance_criteria
+                WHERE id = ?
+                """,
+                (criterion_id,),
+            ).fetchone()
+            if crit_meta is None:
+                continue
+
+            scored = score_criterion(
+                check_kind=str(crit_meta["check_kind"]),
+                test_verdict=result.verdict,
+                test_rationale=result.rationale,
+                criterion_stable_id=str(crit_meta["stable_id"]),
+                criterion_description=str(crit_meta["description"]),
+                evidence_items=evidence_for_scoring,
+            )
             verdict_id = f"{case_execution_id}:cv:{criterion_id}"
             conn.execute(
                 """
@@ -478,17 +592,17 @@ def persist_run_evidence_and_verdicts(
                     verdict_id,
                     case_execution_id,
                     criterion_id,
-                    result.verdict,
-                    result.rationale,
+                    scored.verdict,
+                    scored.rationale,
                 ),
             )
-            if result.verdict in ("PASS", "FAIL"):
+            for ev_id in scored.evidence_item_ids:
                 conn.execute(
                     """
                     INSERT INTO criterion_verdict_evidence (verdict_id, evidence_item_id)
                     VALUES (?, ?)
                     """,
-                    (verdict_id, evidence_id),
+                    (verdict_id, ev_id),
                 )
 
 

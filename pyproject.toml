@@ -60,6 +60,9 @@ agenteval = "agenteval.cli.main:app"
 [project.entry-points."agenteval.domain_packs"]
 fintech = "agenteval_packs.fintech.pack:FintechPack"
 
+[project.entry-points."agenteval.pack_checks"]
+fintech_audit_refund = "agenteval_packs.fintech.checks:audit_refund_check"
+
 [tool.hatch.build.targets.wheel]
 packages = ["agenteval", "agenteval_packs"]
 

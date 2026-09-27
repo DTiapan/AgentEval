@@ -21,6 +21,25 @@ class RequirementDraft(BaseModel):
     stable_id: str
     statement: str
     pack_name: str
+    criterion_stable_id: str = "observable-response"
+    evidence_kind: str = "http_observation"
+    check_kind: str = "blackbox_observable"
+
+
+class CriterionVerdictDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: str
+    rationale: str
+    evidence_item_ids: list[str] = Field(default_factory=list)
+
+
+class CheckRegistration(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    check_kind: str
+    evidence_kinds: list[str] = Field(default_factory=list)
+    entry_point_name: str
 
 
 class ComplianceControlDraft(BaseModel):
@@ -44,3 +63,5 @@ class DomainPack(Protocol):
     def mandatory_requirements(self, options: dict[str, object]) -> list[RequirementDraft]: ...
 
     def compliance_controls(self) -> list[ComplianceControlDraft]: ...
+
+    def synthetic_test_data(self, options: dict[str, object]) -> dict[str, object]: ...

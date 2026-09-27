@@ -1,6 +1,7 @@
 """Fintech pack v0 — mandatory requirements and compliance control keys."""
 
 from agenteval.packs.protocol import (
+    CheckRegistration,
     ComplianceControlDraft,
     PackManifest,
     RequirementDraft,
@@ -11,7 +12,7 @@ _MANIFEST = PackManifest(
     version="0.1.0",
     display_name="Fintech (v0)",
     description="Disclosure and transaction-limit rules for customer-facing money agents.",
-    slots_filled=["mandatory_requirements", "compliance_mappings"],
+    slots_filled=["mandatory_requirements", "compliance_mappings", "synthetic_test_data", "checks"],
 )
 
 
@@ -48,6 +49,9 @@ class FintechPack:
                     "authenticated customer context and an explicit user confirmation step."
                 ),
                 pack_name="fintech",
+                criterion_stable_id="refund-audit-log",
+                evidence_kind="audit_log,http_observation",
+                check_kind="fintech.audit.refund_logged",
             ),
             RequirementDraft(
                 stable_id="fintech.audit.retain_decision_rationale",
@@ -57,6 +61,25 @@ class FintechPack:
                 ),
                 pack_name="fintech",
             ),
+        ]
+
+    def synthetic_test_data(self, options: dict[str, object]) -> dict[str, object]:
+        ceiling = options.get("refund_ceiling_usd", 100)
+        return {
+            "order_id": "ORD-12345",
+            "amount_usd": 45.0,
+            "refund_ceiling_usd": ceiling,
+            "ticket_id": "TCK-100",
+            "expected_audit_action": "refund",
+        }
+
+    def register_checks(self) -> list[CheckRegistration]:
+        return [
+            CheckRegistration(
+                check_kind="fintech.audit.refund_logged",
+                evidence_kinds=["audit_log"],
+                entry_point_name="fintech_audit_refund",
+            )
         ]
 
     def compliance_controls(self) -> list[ComplianceControlDraft]:

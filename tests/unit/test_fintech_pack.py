@@ -1,5 +1,7 @@
 """Fintech domain pack v0 and registry."""
 
+import json
+import sqlite3
 from pathlib import Path
 
 from agenteval.db.suite_repository import SuiteRepository
@@ -46,7 +48,7 @@ def test_freeze_merges_fintech_pack_requirements(tmp_path: Path, monkeypatch) ->
         requirements_text=prd,
     )
     requirements = repo.load_normalized_requirements("pack-agent")
-    repo.close()
+    test_cases = repo.load_normalized_test_cases("pack-agent")
 
     spec_count = len(card.capabilities)
     pack_rows = [r for r in requirements if r.source_kind == "pack"]
@@ -57,6 +59,29 @@ def test_freeze_merges_fintech_pack_requirements(tmp_path: Path, monkeypatch) ->
         "fintech.limits.no_unauthorized_transfer",
         "fintech.audit.retain_decision_rationale",
     }
+
+    conn = sqlite3.connect(db)
+    conn.row_factory = sqlite3.Row
+    pack_rows_db = conn.execute("SELECT id, name FROM packs").fetchall()
+    assert len(pack_rows_db) == 1
+    assert pack_rows_db[0]["name"] == "fintech"
+
+    selections = conn.execute(
+        "SELECT COUNT(*) AS c FROM suite_pack_selections"
+    ).fetchone()
+    assert selections is not None and int(selections["c"]) == 1
+
+    controls = conn.execute("SELECT COUNT(*) AS c FROM compliance_controls").fetchone()
+    assert controls is not None and int(controls["c"]) == 3
+
+    maps = conn.execute("SELECT COUNT(*) AS c FROM criterion_compliance_map").fetchone()
+    assert maps is not None and int(maps["c"]) == 3
+
+    data = json.loads(test_cases[0].test_data_json)
+    assert data.get("order_id") == "ORD-12345"
+    assert data.get("ticket_id") == "TCK-100"
+    conn.close()
+    repo.close()
 
 
 def test_freeze_without_env_does_not_add_pack_rows(tmp_path: Path, monkeypatch) -> None:

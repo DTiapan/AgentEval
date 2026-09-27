@@ -35,7 +35,7 @@
 | Freeze → requirements / test_cases | Yes | **Yes** (slice 1) |
 | Freeze → full criteria UX | Yes (lifecycle doc) | Placeholder criterion only |
 | Run → criterion_verdicts + evidence | Yes | **Partial** (`save_run` + normalized suite) |
-| Packs | Interface doc | **Partial** (protocol + fintech v0 mandatory reqs) |
+| Packs | Interface doc | **v0** (mandatory reqs, compliance rows, synthetic data, audit check) |
 | Inspect integration | ADR-001/005 | **No** |
 
 ## Build order (enforced)
@@ -44,7 +44,7 @@
 ① Design debt closed (this index + lifecycle + pack interface + traceability)
 ② Runner writes evidence + per-criterion verdicts (slice 2 ✓)
 ③ API/UI reads criterion verdicts (slice 3 ✓)
-④ Fintech pack v0 (partial ✓ — enable via AGENTEVAL_ENABLED_DOMAIN_PACKS=fintech)
+④ Fintech pack v0 ✓ (`AGENTEVAL_ENABLED_DOMAIN_PACKS=fintech`; audit DB via `AGENTEVAL_AUDIT_LOG_DB_PATH`)
 ⑤ Inspect eval() wiring
 ⑥ CI backbone boundary (NFR-B-07)
 ```

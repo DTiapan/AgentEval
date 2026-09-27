@@ -29,19 +29,19 @@ Legend: **—** = not applicable yet | **⬜** not started | **◐** partial | *
 | FR-B-18 | Baseline compare | `baseline_run_id` ⬜ | diff ◐ | previous run only ◐ | ⬜ |
 | FR-B-19 | HTML report | — | report ✓ | `html_report` ✓ | html_report tests ✓ |
 | FR-B-20 | API = library | — | `/v1/*` ◐ | `SuiteWorkflow` ◐ | e2e partial ✓ |
-| FR-B-21 | Enable packs on suite | `suite_pack_selections` ⬜ | Studio ⬜ | presets UI only ◐ | ⬜ |
-| FR-B-22 | Pack-sourced requirements | `requirements.source_pack_id` ⬜ | — | spec only ◐ | ⬜ |
-| FR-B-23 | Report by control | `compliance_controls` ⬜ | report ⬜ | ⬜ | ⬜ |
+| FR-B-21 | Enable packs on suite | `suite_pack_selections` ◐ | Studio ⬜ | env `AGENTEVAL_ENABLED_DOMAIN_PACKS` ◐ | `test_fintech_pack` ◐ |
+| FR-B-22 | Pack-sourced requirements | `requirements.source_pack_id` ◐ | — | freeze merge ◐ | `test_fintech_pack` ◐ |
+| FR-B-23 | Report by control | `compliance_controls` ◐ | report ⬜ | freeze map ◐ | `test_fintech_pack` ◐ |
 
 ## FR-P — pack / connector contract
 
 | ID | Requirement | Design | Code |
 |----|-------------|--------|------|
-| FR-P-01 | Pack without backbone edits | [pack-interface.md](pack-interface.md) ✓ | ⬜ |
-| FR-P-02 | Declare check + evidence kinds | pack-interface ✓ | ⬜ |
-| FR-P-03 | Eight slots | pack-interface ✓ | ⬜ |
-| FR-P-04 | Connectors separate | pack-interface ✓ | `connectors` table ◐, adapters ◐ |
-| FR-P-05 | Reproducible freeze metadata | persistence schema ✓ | ⬜ |
+| FR-P-01 | Pack without backbone edits | [pack-interface.md](pack-interface.md) ✓ | `agenteval_packs` ◐ |
+| FR-P-02 | Declare check + evidence kinds | pack-interface ✓ | `pack_checks` entry points ◐ |
+| FR-P-03 | Eight slots | pack-interface ✓ | fintech subset ◐ |
+| FR-P-04 | Connectors separate | pack-interface ✓ | `audit_log` connector ◐ |
+| FR-P-05 | Reproducible freeze metadata | persistence schema ✓ | `freeze_metadata.py` ◐ |
 | FR-P-06 | List installed packs/connectors | — | ⬜ |
 
 ## NFR-B

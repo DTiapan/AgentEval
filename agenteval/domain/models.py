@@ -11,6 +11,7 @@ class RequirementRecord(BaseModel):
     stable_id: str
     statement: str
     source_kind: str = Field(pattern="^(spec|pack)$")
+    source_pack_name: str | None = None
     review_status: str = Field(default="approved")
 
 
@@ -24,6 +25,7 @@ class AcceptanceCriterionRecord(BaseModel):
     evidence_kind: str
     check_kind: str
     source_kind: str = Field(default="extracted")
+    source_pack_name: str | None = None
 
 
 class FrozenTestCaseRecord(BaseModel):

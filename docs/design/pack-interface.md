@@ -1,6 +1,6 @@
 # Domain pack and connector interface
 
-> **Status:** Contract + fintech v0 mandatory requirements (2026-09-27). Checks/connectors not wired.
+> **Status:** Contract + fintech v0 implemented (2026-09-27). Enable pack at freeze via env; audit evidence via `AGENTEVAL_AUDIT_LOG_DB_PATH`.
 > **ADR:** [ADR-006](../decisions/ADR-006-pack-and-connector-contract.md)
 > **Traces to:** FR-P-01..06, FR-B-21..23; [domain-model.md](domain-model.md).
 
@@ -101,6 +101,8 @@ Entry point group: `agenteval.connectors`
 | `compliance_mappings` | Map to named control keys (not legal advice) |
 | `checks` | One deterministic check against sample `audit_log` connector |
 | `synthetic_test_data` | Order ids / amounts for refund sample agent |
+
+**Enablement (v0):** `AGENTEVAL_ENABLED_DOMAIN_PACKS=fintech` at freeze; optional `AGENTEVAL_AUDIT_LOG_DB_PATH` at run for audit evidence.
 
 ## Out of scope (v1)
 
