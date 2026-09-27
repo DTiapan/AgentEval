@@ -483,6 +483,7 @@ Priority: **P0** (MVP SaaS), **P1** (fast follow), **P2** (later).
 | E-AGENT-02 | Per-environment endpoint URL + auth secret | P0 |
 | E-AGENT-03 | **Probe** reachability with latency and status | P0 |
 | E-AGENT-04 | Link agent to active specification | P0 |
+| E-AGENT-05 | **Delete agent & cascade**: remove agent from workspace dropdown with confirmation modal, cascading deletion of frozen suites, run records, and execution evidence | P1 |
 
 ### Epic E-SPEC — Requirements & ingest
 
