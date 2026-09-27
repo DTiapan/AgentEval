@@ -40,7 +40,7 @@ def _make_candidate(
 
 
 def test_score_individual_candidate_bounds() -> None:
-    scorer = JevCandidateScorer()
+    scorer = JevCandidateScorer(force_local=True)
     test = _make_candidate(
         test_id="test-1",
         name="Lookup Ticket: Valid query",
@@ -59,7 +59,7 @@ def test_score_individual_candidate_bounds() -> None:
 
 
 def test_mandatory_floor_always_kept_regardless_of_cost() -> None:
-    scorer = JevCandidateScorer(quality_threshold=0.99)  # Aggressively high threshold
+    scorer = JevCandidateScorer(quality_threshold=0.99, force_local=True)  # Aggressively high threshold
     mandatory_test = _make_candidate(
         test_id="test-mandatory",
         name="Auth: Authorization floor",
@@ -77,7 +77,7 @@ def test_mandatory_floor_always_kept_regardless_of_cost() -> None:
 
 
 def test_pruning_low_quality_and_duplicate_candidates() -> None:
-    scorer = JevCandidateScorer(quality_threshold=0.40)
+    scorer = JevCandidateScorer(quality_threshold=0.40, force_local=True)
 
     good_test = _make_candidate(
         test_id="good-test-1",
@@ -114,7 +114,7 @@ def test_pruning_low_quality_and_duplicate_candidates() -> None:
 
 
 def test_scorer_severity_and_tier_adjustments() -> None:
-    scorer = JevCandidateScorer(quality_threshold=0.30)
+    scorer = JevCandidateScorer(quality_threshold=0.30, force_local=True)
 
     # Candidate with security tag and concrete entity
     sec_test = _make_candidate(
@@ -158,7 +158,7 @@ def test_scorer_severity_and_tier_adjustments() -> None:
 
 
 def test_scorer_empty_prompts_and_empty_tokens() -> None:
-    scorer = JevCandidateScorer()
+    scorer = JevCandidateScorer(force_local=True)
     # Empty prompt
     assert scorer._compute_novelty("", ["hello world"]) == 0.0
     # No existing prompts

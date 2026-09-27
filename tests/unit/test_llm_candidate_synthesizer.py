@@ -46,7 +46,7 @@ def _sample_agent_card() -> AgentCard:
 
 def test_offline_fallback_candidate_synthesis() -> None:
     card = _sample_agent_card()
-    synthesizer = LLMCandidateSynthesizer(api_key=None)
+    synthesizer = LLMCandidateSynthesizer(force_offline=True)
 
     candidates = synthesizer.synthesize_candidates(card)
     assert len(candidates) >= 4

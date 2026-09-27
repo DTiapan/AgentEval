@@ -9,11 +9,14 @@ from typing import Any
 
 from agenteval.core.manifest import AgentCard
 from agenteval.core.requirement_ids import requirement_stable_id
+from agenteval.planning._utils import load_env
 from agenteval.planning.generator import PersonaRef
 from agenteval.planning.models import (
     CandidateTest,
     PriorityTier,
 )
+
+load_env()
 
 DEFAULT_SYNTHESIS_PERSONAS: list[PersonaRef] = [
     PersonaRef(slug="frequent-user", name="Frequent User", framing="a regular customer"),
@@ -34,10 +37,12 @@ class LLMCandidateSynthesizer:
         api_key: str | None = None,
         model: str | None = None,
         personas: list[PersonaRef] | None = None,
+        force_offline: bool = False,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.personas = personas or DEFAULT_SYNTHESIS_PERSONAS
+        self.force_offline = force_offline
 
     def _resolve_api_key(self) -> str | None:
         if self.api_key is not None:
@@ -62,15 +67,16 @@ class LLMCandidateSynthesizer:
         prd_text: str | None = None,
     ) -> list[CandidateTest]:
         """Synthesize candidate tests. Uses LiteLLM when available; otherwise falls back to deterministic heuristics."""
-        key = self._resolve_api_key()
-        if key:
-            try:
-                candidates = self._synthesize_with_litellm(card, prd_text, key)
-                if candidates:
-                    return candidates
-            except Exception:
-                # Fallback on any network/API failure
-                pass
+        if not self.force_offline:
+            key = self._resolve_api_key()
+            if key:
+                try:
+                    candidates = self._synthesize_with_litellm(card, prd_text, key)
+                    if candidates:
+                        return candidates
+                except Exception:
+                    # Fallback on any network/API failure
+                    pass
 
         return self._offline_heuristic_synthesis(card, prd_text)
 
@@ -123,15 +129,18 @@ class LLMCandidateSynthesizer:
             ],
             api_key=api_key,
             temperature=0.2,
-            max_tokens=1500,
+            max_tokens=4096,
         )
 
         raw_content = resp.choices[0].message.content or ""
-        # Clean json formatting if wrapped in code blocks
-        if "```json" in raw_content:
-            raw_content = raw_content.split("```json", 1)[1].split("```", 1)[0].strip()
-        elif "```" in raw_content:
-            raw_content = raw_content.split("```", 1)[1].split("```", 1)[0].strip()
+        if not raw_content.strip():
+            return []
+
+        import re
+
+        json_match = re.search(r"\{.*\}", raw_content, re.DOTALL)
+        if json_match:
+            raw_content = json_match.group(0)
 
         data = json.loads(raw_content)
         items = data.get("candidates", [])
