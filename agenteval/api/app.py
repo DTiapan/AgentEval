@@ -53,6 +53,20 @@ def create_app() -> FastAPI:
         items = workflow.list_suites()
         return JSONResponse(content={"suites": [item.model_dump(mode="json") for item in items]})
 
+    @app.get("/v1/suites/{agent_id}/requirements")
+    def get_suite_requirements(
+        agent_id: str, suite_root: str = ".agenteval/suites"
+    ) -> JSONResponse:
+        workflow = create_suite_workflow(suite_root=suite_root)
+        try:
+            result = workflow.get_requirements(agent_id)
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No suite for agent '{agent_id}'.",
+            ) from None
+        return JSONResponse(content=result.model_dump(mode="json"))
+
     @app.get("/v1/suites/{agent_id}")
     def get_suite(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
         workflow = create_suite_workflow(suite_root=suite_root)

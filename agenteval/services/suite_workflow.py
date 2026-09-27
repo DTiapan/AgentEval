@@ -18,6 +18,7 @@ from agenteval.planning.models import (
     CoverageReport,
     SuiteGapLoopResult,
     SuiteManifest,
+    SuiteRequirementsResult,
     SuiteRunReport,
     TestPack,
 )
@@ -58,6 +59,7 @@ class SuiteDetailResult(BaseModel):
     requirements_text: str = ""
     coverage: CoverageReport | None = None
     latest_run: SuiteRunReport | None = None
+    requirements: SuiteRequirementsResult | None = None
 
 
 class SuiteInitResult(BaseModel):
@@ -142,6 +144,28 @@ class SuiteWorkflow:
         if self._sqlite_primary() and repo is not None:
             return repo.load_latest_run(agent_id)
         return store.load_latest_run(agent_id)
+
+    def _load_requirements_result(self, agent_id: str) -> SuiteRequirementsResult | None:
+        repo = self._repository()
+        if self._sqlite_primary() and repo is not None:
+            try:
+                return repo.load_requirements_result(agent_id)
+            except FileNotFoundError:
+                return None
+        return None
+
+    def get_requirements(self, agent_id: str) -> SuiteRequirementsResult:
+        store = self._store()
+        self._load_manifest(store, agent_id)
+        result = self._load_requirements_result(agent_id)
+        if result is None:
+            manifest = self._load_manifest(store, agent_id)
+            return SuiteRequirementsResult(
+                agent_id=agent_id,
+                suite_version=manifest.version,
+                requirements=[],
+            )
+        return result
 
     def _load_run(self, store: SuiteStore, agent_id: str, run_id: str) -> SuiteRunReport | None:
         repo = self._repository()
@@ -295,6 +319,9 @@ class SuiteWorkflow:
                 report.run_diff = run_diff.model_dump(mode="json")
 
         self._save_run(store, agent_id, report, endpoint_url=url)
+        repo = self._repository()
+        if repo is not None:
+            return repo.enrich_run_report(report)
         return report
 
     def latest_run(self, agent_id: str) -> SuiteRunReport | None:
@@ -455,6 +482,7 @@ class SuiteWorkflow:
             requirements_text=self._load_requirements_text(store, agent_id),
             coverage=coverage,
             latest_run=self._load_latest_run(store, agent_id),
+            requirements=self._load_requirements_result(agent_id),
         )
 
     def generate_html_report(

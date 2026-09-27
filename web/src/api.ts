@@ -67,6 +67,13 @@ export async function getSuiteDetail(agentId: string): Promise<SuiteDetailResult
   return parseJson(res);
 }
 
+export async function getSuiteRequirements(agentId: string) {
+  const res = await fetch(
+    `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/requirements`,
+  );
+  return parseJson<import("./types").SuiteRequirementsResult>(res);
+}
+
 export async function previewSuite(payload: {
   requirements_text: string;
   agent_id: string;

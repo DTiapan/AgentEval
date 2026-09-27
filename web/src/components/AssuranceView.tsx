@@ -25,7 +25,12 @@ import {
   runSuite,
 } from "../api";
 import { useWorkspace } from "../context/WorkspaceContext";
-import { SuiteDetailResult, SuiteRunReport, TestCaseResult } from "../types";
+import {
+  CriterionVerdictSummary,
+  SuiteDetailResult,
+  SuiteRunReport,
+  TestCaseResult,
+} from "../types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
@@ -108,6 +113,15 @@ export const AssuranceView: React.FC = () => {
       loadSuiteData(activeAgentId);
     }
   }, [activeAgentId]);
+
+  const requirementRows = suiteDetail?.requirements?.requirements ?? [];
+  const criterionVerdicts: CriterionVerdictSummary[] =
+    latestRun?.criterion_verdicts ?? suiteDetail?.latest_run?.criterion_verdicts ?? [];
+  const showRequirementSignoff =
+    requirementRows.length > 0 && criterionVerdicts.length > 0;
+
+  const statementForRequirement = (stableId: string) =>
+    requirementRows.find((r) => r.stable_id === stableId)?.statement ?? stableId;
 
   const runCoverage =
     latestRun?.coverage_report ?? suiteDetail?.latest_run?.coverage_report ?? null;
@@ -555,6 +569,60 @@ export const AssuranceView: React.FC = () => {
             </span>
           </div>
         </div>
+      )}
+
+      {showRequirementSignoff && (
+        <Card className="mb-6 border-border bg-card shadow-xs overflow-hidden">
+          <div className="border-b border-border bg-muted/30 px-4 py-3">
+            <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+              Requirements sign-off (engine)
+            </h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Per-criterion verdicts from SQLite — same data as{" "}
+              <code className="font-mono text-[11px]">GET /v1/suites/…/requirements</code>
+            </p>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Requirement</TableHead>
+                <TableHead>Criterion</TableHead>
+                <TableHead className="w-[100px]">Test</TableHead>
+                <TableHead className="w-[110px]">Verdict</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {criterionVerdicts.map((cv) => (
+                <TableRow key={`${cv.criterion_id}-${cv.test_id}`}>
+                  <TableCell className="text-xs max-w-[240px]">
+                    <span className="font-mono text-[10px] text-muted-foreground block">
+                      {cv.requirement_stable_id}
+                    </span>
+                    {statementForRequirement(cv.requirement_stable_id)}
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {cv.criterion_stable_id}
+                  </TableCell>
+                  <TableCell className="font-mono text-[11px]">{cv.test_id}</TableCell>
+                  <TableCell>
+                    <Badge
+                      variant={
+                        cv.verdict === "PASS"
+                          ? "pass"
+                          : cv.verdict === "FAIL"
+                            ? "fail"
+                            : "outline"
+                      }
+                      className="text-[10px]"
+                    >
+                      {cv.verdict}
+                    </Badge>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
       {showNoRunEmpty ? null : (

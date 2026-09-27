@@ -563,8 +563,9 @@ Priority: **P0** (MVP SaaS), **P1** (fast follow), **P2** (later).
 
 ## 9A. Backbone requirements (domain-agnostic) — DRAFT
 
-> **Status:** Draft 2026-09-24, pending approval. Source for the domain model
-> (`docs/design/domain-model.md`) and ADR-005.
+> **Status:** Approved for build (2026-09-27 design gate). Source for the domain
+> model (`docs/design/domain-model.md`), ADR-005/006, and
+> [requirements-traceability.md](requirements-traceability.md).
 >
 > **One sentence:** Given a specification and a way to reach an agent, the
 > backbone turns requirements into a frozen, traceable test suite, runs it, and
@@ -588,14 +589,14 @@ Priority: **P0** (MVP SaaS), **P1** (fast follow), **P2** (later).
 |----|-------------|---------|--------|
 | **Specification & requirements** | | | |
 | FR-B-01 | User can submit a specification as text; the system keeps each submitted version unchanged | E-SPEC-01, E-SPEC-04 | Partial — text + fingerprint stored per suite; no spec version entity |
-| FR-B-02 | The system extracts requirements from a specification, each with a stable ID that survives edits to wording or headings | E-SPEC-03 | Not started — capabilities keyed by heading text |
-| FR-B-03 | Each requirement has one or more acceptance criteria, each stating an observable condition and the kind of evidence that could prove it | — | Not started |
+| FR-B-02 | The system extracts requirements from a specification, each with a stable ID that survives edits to wording or headings | E-SPEC-03 | Partial — `requirement_id()` + SQLite `requirements.stable_id` on freeze |
+| FR-B-03 | Each requirement has one or more acceptance criteria, each stating an observable condition and the kind of evidence that could prove it | — | Partial — default criterion on freeze; full lifecycle in [criterion-lifecycle.md](criterion-lifecycle.md) |
 | FR-B-04 | User can review and correct extracted requirements and criteria before a suite is frozen | E-STUDIO-05 | Not started |
 | FR-B-05 | When a new specification version is submitted, the system reports requirements added, changed and removed, by ID | E-SUITE-03 | Partial — diff by capability name |
 | **Suite** | | | |
 | FR-B-06 | The system generates a candidate pool of test cases from requirements and criteria, without running them | E-STUDIO-01 | Built (keyed by capability) |
 | FR-B-07 | The system selects a test pack from the pool under a size budget, never dropping applicable mandatory categories | E-STUDIO-02..04 | Built |
-| FR-B-08 | Every test case links to at least one acceptance criterion; every criterion shows which test cases cover it | — | Partial — links to capability, not criterion |
+| FR-B-08 | Every test case links to at least one acceptance criterion; every criterion shows which test cases cover it | — | Partial — `test_case_criteria` on freeze; API/report not exposed |
 | FR-B-09 | User can freeze a pack as an immutable suite version; runs always reference a version | E-SUITE-01, E-SUITE-02 | Built |
 | FR-B-10 | On spec change, user can derive a new suite version that removes tests only for removed requirement IDs, with a changelog | E-SUITE-03 | Partial — keyed by heading; renaming a heading can prune tests |
 | **Execution** | | | |

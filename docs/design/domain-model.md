@@ -1,7 +1,10 @@
-# AgentEval domain model — DRAFT
+# AgentEval domain model
 
-> **Status:** Accepted (2026-09-25). ADR-005 locked; persistence in
-> [persistence-schema.md](persistence-schema.md) (SQLite v2 draft).
+> **Status:** Accepted (2026-09-25, design gate 2026-09-27). Entry point:
+> [DESIGN_INDEX.md](DESIGN_INDEX.md). Persistence:
+> [persistence-schema.md](persistence-schema.md). Criteria:
+> [criterion-lifecycle.md](criterion-lifecycle.md). Traceability:
+> [requirements-traceability.md](requirements-traceability.md).
 > **Traces to:** PRD §9A (FR-B-01..23, FR-P-01..06), personas U1–U3 (PRD §4 v5).
 > **Rule:** no entity here names a domain. Domain meaning arrives only through
 > packs.
@@ -92,3 +95,13 @@ CriterionVerdict:       written once; never updated (re-score = new verdict row,
 1. **Source of truth:** SQLite. The Inspect `EvalLog` is stored alongside each run (path + hash) for audit, viewing and re-scoring.
 2. **One target per run.** Compare targets by comparing runs to a baseline.
 3. **Test data is stored** with each TestCase at freeze time and replayed by runs.
+
+## 7. Related design artifacts
+
+| Topic | Document |
+|-------|----------|
+| Read order / build gate | [DESIGN_INDEX.md](DESIGN_INDEX.md) |
+| Criteria propose → score | [criterion-lifecycle.md](criterion-lifecycle.md) |
+| Packs & connectors | [pack-interface.md](pack-interface.md), [ADR-006](../decisions/ADR-006-pack-and-connector-contract.md) |
+| FR → code map | [requirements-traceability.md](requirements-traceability.md) |
+| Black-box pipeline vocabulary | [DESIGN_INDEX.md](DESIGN_INDEX.md) § vocabulary bridge |

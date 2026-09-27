@@ -4,8 +4,23 @@
 > [ADR-005](../decisions/ADR-005-backbone-domain-packs-source-of-truth.md) (packs,
 > SQLite source of truth + Inspect logs alongside, one target per run, stored test data)  
 > **Domain model:** [domain-model.md](domain-model.md)  
-> **DDL file (not wired yet):** [schema_v2.sql](../../agenteval/db/schema_v2.sql)  
-> **Replaces:** v1 sections of this doc and [schema.sql](../../agenteval/db/schema.sql) once migration ships.
+> **DDL:** v1 [schema.sql](../../agenteval/db/schema.sql); v2 additive via
+> [migrations.py](../../agenteval/db/migrations.py) on `init_schema()`.
+> [schema_v2.sql](../../agenteval/db/schema_v2.sql) is a **reference** snapshot (may
+> differ in table names); migrations are authoritative in code.  
+> **Design index:** [DESIGN_INDEX.md](DESIGN_INDEX.md)
+
+### Implementation status (2026-09-27)
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| 0 | Document v2 DDL | Done |
+| 1 | Additive migration v002 on init | Done (`migrations.py`) |
+| 2 | Import → default `targets` | Partial |
+| 3 | Freeze → `requirements`, `test_cases`, criteria | **Partial** (`normalized_suite.py`) |
+| 4 | Run → `evidence_items`, `criterion_verdicts` | **Partial** (`persist_run_evidence_and_verdicts` on `save_run`) |
+| 5 | API/UI read criterion verdicts | Not started |
+| 6 | Drop `pack_json` requirement; NFR-B-07 CI | Not started |
 
 ## Design principles
 
@@ -343,8 +358,8 @@ CREATE TABLE criterion_verdict_evidence (
 ## Migration plan (phased)
 
 ```text
-Phase 0 (now)     Document v2 DDL; no app wire
-Phase 1           Alembic v002: add new tables; nullable target_id; dual-write optional
+Phase 0           Document v2 DDL — done
+Phase 1           Migration v002 on init_schema — done (see migrations.py)
 Phase 2           Import tool: JSON suites → v2 rows; synthesize default target from endpoint_url
 Phase 3           SuiteWorkflow writes requirements/criteria/test_cases on freeze
 Phase 4           Runner writes criterion_verdicts + evidence_items; copy Inspect log

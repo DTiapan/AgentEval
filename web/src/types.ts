@@ -180,6 +180,39 @@ export type SuiteRunDiff = {
   same_verdict_count?: number;
 };
 
+export type AcceptanceCriterionSummary = {
+  id: string;
+  stable_id: string;
+  description: string;
+  evidence_kind: string;
+  check_kind: string;
+};
+
+export type RequirementSummary = {
+  stable_id: string;
+  statement: string;
+  source_kind: string;
+  review_status: string;
+  criteria: AcceptanceCriterionSummary[];
+};
+
+export type SuiteRequirementsResult = {
+  agent_id: string;
+  suite_version: number;
+  requirements: RequirementSummary[];
+};
+
+export type CriterionVerdictSummary = {
+  criterion_id: string;
+  requirement_stable_id: string;
+  criterion_stable_id: string;
+  test_id: string;
+  verdict: "PASS" | "FAIL" | "UNVERIFIABLE" | string;
+  verdict_tier: string;
+  rationale: string;
+  evidence_item_ids: string[];
+};
+
 export type SuiteRunReport = {
   agent_id: string;
   run_id: string;
@@ -190,6 +223,7 @@ export type SuiteRunReport = {
   unverifiable: number;
   coverage_report?: CoverageReport | null;
   run_diff?: SuiteRunDiff | null;
+  criterion_verdicts?: CriterionVerdictSummary[];
 };
 
 export type SuiteDetailResult = {
@@ -205,6 +239,7 @@ export type SuiteDetailResult = {
   requirements_text?: string;
   coverage?: CoverageReport | null;
   latest_run?: SuiteRunReport | null;
+  requirements?: SuiteRequirementsResult | null;
 };
 
 export type Workspace = {

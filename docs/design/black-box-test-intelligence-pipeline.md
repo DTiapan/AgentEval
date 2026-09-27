@@ -3,6 +3,11 @@
 > **Status:** Accepted product architecture ([ADR-003](../decisions/ADR-003-black-box-test-intelligence-pipeline.md))  
 > **Audience:** Engineering, product, agents implementing Plane 0+  
 > **Principle:** Evaluate through **observable endpoint behavior** unless the customer opts into the **harness** profile.
+>
+> **Entity names:** This doc describes the **pipeline**. Canonical entities and ER
+> diagram live in [domain-model.md](domain-model.md). Vocabulary mapping:
+> [DESIGN_INDEX.md](DESIGN_INDEX.md) § vocabulary bridge. Requirement status:
+> [requirements-traceability.md](requirements-traceability.md).
 
 ---
 

@@ -277,7 +277,11 @@ Phases are **shippable slices**, not “foundation only” releases ([ROADMAP](d
 
 | Doc | Purpose |
 |-----|---------|
+| **[DESIGN_INDEX.md](docs/design/DESIGN_INDEX.md)** | **Start here** — entities, schema, traceability, build order |
 | [ROADMAP.md](docs/ROADMAP.md) | Version plan and execution guide |
+| [requirements-traceability.md](docs/design/requirements-traceability.md) | FR-B / FR-P → schema → code → tests |
+| [criterion-lifecycle.md](docs/design/criterion-lifecycle.md) | Acceptance criteria propose → score |
+| [pack-interface.md](docs/design/pack-interface.md) | Domain packs + connectors contract |
 | [MVP.md](docs/MVP.md) | Current product slice and verify steps |
 | [domain-model.md](docs/design/domain-model.md) | Entities, relationships, invariants |
 | [persistence-schema.md](docs/design/persistence-schema.md) | SQLite v2 tables and migration phases |

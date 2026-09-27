@@ -189,6 +189,55 @@ class TestCaseResult(BaseModel):
     )
 
 
+class AcceptanceCriterionSummary(BaseModel):
+    """Frozen acceptance criterion exposed via API (FR-B-03)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    stable_id: str
+    description: str
+    evidence_kind: str
+    check_kind: str
+
+
+class RequirementSummary(BaseModel):
+    """Requirement with nested criteria for sign-off views."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    stable_id: str
+    statement: str
+    source_kind: str
+    review_status: str
+    criteria: list[AcceptanceCriterionSummary] = Field(default_factory=list)
+
+
+class SuiteRequirementsResult(BaseModel):
+    """Normalized requirements for a frozen suite version."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: str
+    suite_version: int
+    requirements: list[RequirementSummary] = Field(default_factory=list)
+
+
+class CriterionVerdictSummary(BaseModel):
+    """Per-criterion verdict for one test execution (FR-B-14)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    criterion_id: str
+    requirement_stable_id: str
+    criterion_stable_id: str
+    test_id: str
+    verdict: str
+    verdict_tier: str
+    rationale: str
+    evidence_item_ids: list[str] = Field(default_factory=list)
+
+
 class SuiteRunReport(BaseModel):
     """Aggregated suite execution report."""
 
@@ -205,6 +254,10 @@ class SuiteRunReport(BaseModel):
     run_diff: dict[str, Any] | None = Field(
         default=None,
         description="Serialized SuiteRunDiff vs previous run on same suite version",
+    )
+    criterion_verdicts: list[CriterionVerdictSummary] = Field(
+        default_factory=list,
+        description="Populated when SQLite v2 verdict rows exist for this run",
     )
 
 

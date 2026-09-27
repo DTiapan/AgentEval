@@ -14,6 +14,17 @@ from agenteval.db.config import (
     database_path,
 )
 from agenteval.db.connection import connect, init_schema
+from agenteval.db.normalized_suite import (
+    count_criterion_verdicts_for_run,
+    enrich_run_report,
+    load_requirements_for_suite,
+    load_suite_requirements_result,
+    load_test_cases_for_suite,
+    persist_normalized_suite,
+    persist_run_evidence_and_verdicts,
+)
+from agenteval.domain.models import FrozenTestCaseRecord, RequirementRecord
+from agenteval.planning.models import SuiteRequirementsResult, SuiteRunReport
 from agenteval.planning.models import (
     CandidateTest,
     ExecutionStep,
@@ -113,6 +124,38 @@ class SuiteRepository:
                     manifest.created_at or now,
                 ),
             )
+            persist_normalized_suite(
+                self._conn,
+                suite_version_id,
+                pack,
+                agent_card_json=agent_card_json,
+            )
+
+    def load_normalized_requirements(self, agent_id: str) -> list[RequirementRecord]:
+        row = self._latest_suite_row(agent_id)
+        if row is None:
+            raise FileNotFoundError(f"No suite in database for agent '{agent_id}'")
+        return load_requirements_for_suite(self._conn, str(row["id"]))
+
+    def load_normalized_test_cases(self, agent_id: str) -> list[FrozenTestCaseRecord]:
+        row = self._latest_suite_row(agent_id)
+        if row is None:
+            raise FileNotFoundError(f"No suite in database for agent '{agent_id}'")
+        return load_test_cases_for_suite(self._conn, str(row["id"]))
+
+    def load_requirements_result(self, agent_id: str) -> SuiteRequirementsResult | None:
+        row = self._latest_suite_row(agent_id)
+        if row is None:
+            raise FileNotFoundError(f"No suite in database for agent '{agent_id}'")
+        return load_suite_requirements_result(
+            self._conn,
+            agent_id,
+            str(row["id"]),
+            int(row["version"]),
+        )
+
+    def enrich_run_report(self, report: SuiteRunReport) -> SuiteRunReport:
+        return enrich_run_report(self._conn, report)
 
     def load_agent_card_json(self, agent_id: str) -> str | None:
         row = self._latest_suite_row(agent_id)
@@ -200,6 +243,12 @@ class SuiteRepository:
                     agent_card_json,
                     now,
                 ),
+            )
+            persist_normalized_suite(
+                self._conn,
+                suite_version_id,
+                pack,
+                agent_card_json=agent_card_json,
             )
 
     def ensure_default_target(self, agent_id: str, endpoint_url: str) -> str | None:
@@ -356,6 +405,16 @@ class SuiteRepository:
                     ),
                 )
                 self._insert_trajectory(result_id, result.trajectory)
+            persist_run_evidence_and_verdicts(
+                self._conn,
+                report.run_id,
+                suite_version_id,
+                report.results,
+                captured_at=now,
+            )
+
+    def count_criterion_verdicts(self, run_id: str) -> int:
+        return count_criterion_verdicts_for_run(self._conn, run_id)
 
     def load_latest_run(self, agent_id: str) -> SuiteRunReport | None:
         row = self._conn.execute(
@@ -412,7 +471,7 @@ class SuiteRepository:
         if run_row["run_diff_json"]:
             run_diff = json.loads(str(run_row["run_diff_json"]))
 
-        return SuiteRunReport(
+        report = SuiteRunReport(
             agent_id=agent_id,
             run_id=run_id,
             suite_version=int(run_row["suite_version"]),
@@ -422,6 +481,7 @@ class SuiteRepository:
             unverifiable=int(run_row["unverifiable"]),
             run_diff=run_diff,
         )
+        return enrich_run_report(self._conn, report)
 
     def _ensure_default_workspace(self) -> None:
         now = datetime.now(UTC).isoformat()

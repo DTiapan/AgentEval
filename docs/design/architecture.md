@@ -5,6 +5,44 @@
 
 ---
 
+## 0. Alignment with canonical design (read first)
+
+**Source of truth for entities and relationships:**
+[domain-model.md](domain-model.md) and [DESIGN_INDEX.md](DESIGN_INDEX.md).
+
+This document describes **two execution profiles** and **aspirational subsystems**.
+Not every box below is implemented. For **shipped vs planned**, see
+[requirements-traceability.md](requirements-traceability.md).
+
+```mermaid
+flowchart LR
+  subgraph backbone["Backbone (domain-agnostic)"]
+    SPEC[Specification]
+    SUITE[SuiteVersion]
+    RUN[Run]
+    VERDICT[CriterionVerdict]
+  end
+  subgraph packs["Domain packs (plugin)"]
+    PACK[Fintech / Insurance / …]
+  end
+  subgraph conn["Connectors"]
+    HTTP[http_transport]
+    EV[evidence sources]
+  end
+  SPEC --> SUITE
+  PACK -.-> SUITE
+  SUITE --> RUN
+  HTTP --> RUN
+  EV --> RUN
+  RUN --> VERDICT
+```
+
+**Product default today:** black-box profile (PRD + HTTP endpoint + SQLite + Web
+Console). Harness profile (sandbox ΔS, chaos, full trajectory mesh) remains valid
+but secondary until backbone sign-off path is complete.
+
+---
+
 ## 1. System Overview & Core Philosophy
 
 AgentEval is a production-grade AI Agent Assurance & Evaluation platform. The platform is architected around **"Bring Your Own Agent" (BYOA)**, decoupling agent orchestration from assurance, telemetry, side-effect verification, and golden dataset curation.
