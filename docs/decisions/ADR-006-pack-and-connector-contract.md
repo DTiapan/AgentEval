@@ -1,6 +1,6 @@
 # ADR-006: Domain pack and connector contract
 
-**Status:** Accepted (design); implementation not started  
+**Status:** Accepted; protocol + fintech v0 pack shipped (checks/connectors pending)  
 **Date:** 2026-09-27  
 **Context:** [ADR-005](ADR-005-backbone-domain-packs-source-of-truth.md), [pack-interface.md](../design/pack-interface.md), FR-P-01..06
 

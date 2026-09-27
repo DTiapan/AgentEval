@@ -9,6 +9,9 @@ from agenteval.domain.models import (
     FrozenTestCaseRecord,
     RequirementRecord,
 )
+from agenteval.packs.enabled import enabled_domain_pack_ids
+from agenteval.packs.protocol import RequirementDraft
+from agenteval.packs.registry import load_domain_pack
 from agenteval.planning.models import (
     AcceptanceCriterionSummary,
     CandidateTest,
@@ -113,6 +116,60 @@ def build_requirements_and_criteria(
     return requirements, criteria, cap_to_criterion
 
 
+def collect_pack_requirement_drafts(
+    pack_ids: list[str] | None = None,
+) -> list[RequirementDraft]:
+    """Merge mandatory requirements from enabled domain packs."""
+    ids = pack_ids if pack_ids is not None else enabled_domain_pack_ids()
+    drafts: list[RequirementDraft] = []
+    seen: set[str] = set()
+    for pack_id in ids:
+        pack = load_domain_pack(pack_id)
+        if pack is None:
+            continue
+        options = pack.contribute_options()
+        for draft in pack.mandatory_requirements(options):
+            if draft.stable_id in seen:
+                continue
+            seen.add(draft.stable_id)
+            drafts.append(draft)
+    return drafts
+
+
+def append_pack_requirements_and_criteria(
+    suite_version_id: str,
+    drafts: list[RequirementDraft],
+    *,
+    requirements: list[RequirementRecord],
+    criteria: list[AcceptanceCriterionRecord],
+) -> None:
+    """Extend in-memory requirement/criterion lists with pack-sourced rows."""
+    for draft in drafts:
+        req_id = f"{suite_version_id}:req:{draft.stable_id}"
+        requirements.append(
+            RequirementRecord(
+                id=req_id,
+                suite_version_id=suite_version_id,
+                stable_id=draft.stable_id,
+                statement=draft.statement,
+                source_kind="pack",
+                review_status="approved",
+            )
+        )
+        crit_id = f"{req_id}:crit:{DEFAULT_CRITERION_STABLE_ID}"
+        criteria.append(
+            AcceptanceCriterionRecord(
+                id=crit_id,
+                requirement_id=req_id,
+                stable_id=DEFAULT_CRITERION_STABLE_ID,
+                description=f"Pack criterion (observable): {draft.statement}",
+                evidence_kind=EVIDENCE_KIND_HTTP,
+                check_kind=CHECK_KIND_BLACKBOX,
+                source_kind="pack",
+            )
+        )
+
+
 def build_frozen_test_cases(
     suite_version_id: str,
     tests: list[CandidateTest],
@@ -191,6 +248,13 @@ def persist_normalized_suite(
 
     requirements, criteria, cap_to_criterion = build_requirements_and_criteria(
         suite_version_id, capabilities
+    )
+    pack_drafts = collect_pack_requirement_drafts()
+    append_pack_requirements_and_criteria(
+        suite_version_id,
+        pack_drafts,
+        requirements=requirements,
+        criteria=criteria,
     )
     test_cases = build_frozen_test_cases(suite_version_id, pack.tests, cap_to_criterion)
 

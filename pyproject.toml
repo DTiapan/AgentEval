@@ -57,8 +57,11 @@ dev = [
 [project.scripts]
 agenteval = "agenteval.cli.main:app"
 
+[project.entry-points."agenteval.domain_packs"]
+fintech = "agenteval_packs.fintech.pack:FintechPack"
+
 [tool.hatch.build.targets.wheel]
-packages = ["agenteval"]
+packages = ["agenteval", "agenteval_packs"]
 
 [tool.ruff]
 line-length = 100

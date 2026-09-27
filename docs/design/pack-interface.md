@@ -1,6 +1,6 @@
 # Domain pack and connector interface
 
-> **Status:** Design contract (2026-09-27). Implementation not started.
+> **Status:** Contract + fintech v0 mandatory requirements (2026-09-27). Checks/connectors not wired.
 > **ADR:** [ADR-006](../decisions/ADR-006-pack-and-connector-contract.md)
 > **Traces to:** FR-P-01..06, FR-B-21..23; [domain-model.md](domain-model.md).
 
