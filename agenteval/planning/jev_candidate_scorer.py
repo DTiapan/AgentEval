@@ -19,10 +19,13 @@ from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agenteval.planning._utils import load_env
 from agenteval.planning.models import (
     CandidateTest,
     PriorityTier,
 )
+
+load_env()
 
 try:
     from typesafe_sdk import Choice, Noul, TypeSafeClient
