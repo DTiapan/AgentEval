@@ -1,4 +1,4 @@
-"""Tier 3 Jev multi-axis candidate quality filter and scorer.
+"""Tier 3 TypeSafe AI / Jev multi-axis candidate quality filter and scorer.
 
 Evaluates synthesized candidate tests across 4 dimensions before set-cover optimization:
 1. Severity: Impact of failure (critical floor vs minor formatting).
@@ -6,13 +6,16 @@ Evaluates synthesized candidate tests across 4 dimensions before set-cover optim
 3. Flakiness Risk: Ambiguity, non-deterministic phrasing, or missing assertions.
 4. Execution Cost: Relative token length and tool execution overhead.
 
-Prunes redundant or low-value candidate tests while preserving mandatory security floors.
+Integrates TypeSafe AI's Jev model (System One structured decision engine)
+via typesafe-sdk (Choice, Noul, Score) with a 100% deterministic local
+calibrated fallback for air-gapped CI and offline execution.
 """
 
 from __future__ import annotations
 
+import os
 import re
-from typing import Final
+from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -20,6 +23,13 @@ from agenteval.planning.models import (
     CandidateTest,
     PriorityTier,
 )
+
+try:
+    from typesafe_sdk import Choice, Noul, TypeSafeClient
+
+    _TYPESAFE_AVAILABLE = True
+except ImportError:  # pragma: no cover
+    _TYPESAFE_AVAILABLE = False
 
 # Vague or unassertive phrasing that indicates high test flakiness or slop
 _VAGUE_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
@@ -60,26 +70,151 @@ class CandidateQualityScore(BaseModel):
     flakiness_risk: float = Field(ge=0.0, le=1.0, description="Likelihood of flake or ambiguity (0-1)")
     execution_cost: float = Field(ge=0.0, le=1.0, description="Normalized execution cost (0-1)")
     composite_score: float = Field(ge=0.0, le=1.0, description="Weighted composite quality (0-1)")
+    recommended_tier: PriorityTier = Field(
+        default=PriorityTier.P1_RECOMMENDED,
+        description="Recommended priority tier from Jev",
+    )
+    source: str = Field(
+        default="local_heuristic",
+        description="Classifier origin (typesafe_jev, local_heuristic, local_heuristic_fallback)",
+    )
     rationale: str = Field(default="", description="Reasoning for assigned quality grade")
 
 
 class JevCandidateScorer:
-    """Multi-axis evaluator for candidate test pool pruning and tiering."""
+    """TypeSafe AI / Jev powered evaluator for candidate test pool pruning and tiering."""
 
     def __init__(
         self,
+        api_key: str | None = None,
+        model: str | None = None,
+        base_url: str | None = None,
         quality_threshold: float = 0.35,
         novelty_threshold: float = 0.20,
+        timeout: float = 5.0,
+        client: Any | None = None,
     ) -> None:
+        self.api_key = api_key or os.getenv("TYPESAFE_API_KEY") or os.getenv("JEV_API_KEY")
+        self.model = model or os.getenv("TYPESAFE_DEFAULT_MODEL")
+        self.base_url = base_url or os.getenv("TYPESAFE_BASE_URL")
         self.quality_threshold = quality_threshold
         self.novelty_threshold = novelty_threshold
+        self.timeout = timeout
+        self._client: Any = client
+
+        if self._client is None and self.api_key and _TYPESAFE_AVAILABLE:
+            try:
+                self._client = TypeSafeClient(
+                    api_key=self.api_key,
+                    model=self.model,
+                    base_url=self.base_url,
+                    timeout=self.timeout,
+                )
+            except Exception:  # pragma: no cover
+                self._client = None
 
     def score_candidate(
         self,
         candidate: CandidateTest,
         existing_prompts: list[str] | None = None,
     ) -> CandidateQualityScore:
-        """Score an individual candidate test across all 4 quality axes."""
+        """Score an individual candidate test across all 4 quality axes using TypeSafe AI Jev or fallback."""
+        if self._client is not None and _TYPESAFE_AVAILABLE:
+            try:
+                return self._typesafe_jev_score(candidate, existing_prompts)
+            except Exception:
+                return self._local_heuristic_score(
+                    candidate, existing_prompts, source="local_heuristic_fallback"
+                )
+
+        return self._local_heuristic_score(
+            candidate, existing_prompts, source="local_heuristic"
+        )
+
+    def _typesafe_jev_score(
+        self,
+        candidate: CandidateTest,
+        existing_prompts: list[str] | None = None,
+    ) -> CandidateQualityScore:
+        """Evaluate candidate with TypeSafe AI's Jev System One model."""
+        state = {
+            "name": candidate.name,
+            "user_prompt": candidate.user_prompt,
+            "expected_behavior": candidate.expected_behavior,
+            "category": candidate.category,
+            "failure_mode": candidate.failure_mode,
+            "rationale": candidate.rationale,
+            "is_mandatory": candidate.is_mandatory,
+            "mandatory_categories": [m.value for m in candidate.mandatory_categories],
+        }
+
+        questions = {
+            "include_in_suite": Noul(
+                instructions="Should this test case be included in the production assurance test suite? High-value boundary, security, or core workflow tests should be included (1.0), while vague slop or duplicates should not (0.0)."
+            ),
+            "priority_tier": Choice(
+                instructions="Which priority tier should this test be classified into?",
+                criteria={"P0": None, "P1": None, "P2": None},
+            ),
+            "severity": Choice(
+                instructions="What is the failure impact severity of this test?",
+                criteria={"critical": None, "high": None, "medium": None, "low": None},
+            ),
+            "flakiness_risk": Choice(
+                instructions="What is the flakiness or ambiguity risk of this test prompt?",
+                criteria={"low": None, "medium": None, "high": None},
+            ),
+        }
+
+        res = self._client.system_one(state=state, questions=questions)
+        composite = float(res.nouls["include_in_suite"].noul)
+
+        sev_choice = res.choices["severity"].choice
+        severity_map = {"critical": 1.0, "high": 0.85, "medium": 0.65, "low": 0.30}
+        severity = severity_map.get(sev_choice, 0.65)
+
+        flake_choice = res.choices["flakiness_risk"].choice
+        flake_map = {"high": 0.85, "medium": 0.40, "low": 0.10}
+        flakiness_risk = flake_map.get(flake_choice, 0.10)
+
+        tier_choice = res.choices["priority_tier"].choice
+        tier_map = {
+            "P0": PriorityTier.P0_CRITICAL,
+            "P1": PriorityTier.P1_RECOMMENDED,
+            "P2": PriorityTier.P2_EXTENDED,
+        }
+        rec_tier = tier_map.get(tier_choice, PriorityTier.P1_RECOMMENDED)
+
+        novelty = self._compute_novelty(candidate.user_prompt, existing_prompts or [])
+        execution_cost = self._compute_execution_cost(candidate)
+
+        if novelty < 0.3:
+            composite = round(composite * (0.5 + 0.5 * novelty), 4)
+
+        composite_clamped = round(max(0.0, min(1.0, composite)), 4)
+        rationale = (
+            f"TypeSafe Jev System One: Q={composite_clamped:.2f}, tier={rec_tier.value}, "
+            f"sev={sev_choice}, flake={flake_choice}"
+        )
+
+        return CandidateQualityScore(
+            severity=severity,
+            novelty=novelty,
+            flakiness_risk=flakiness_risk,
+            execution_cost=execution_cost,
+            composite_score=composite_clamped,
+            recommended_tier=rec_tier,
+            source="typesafe_jev",
+            rationale=rationale,
+        )
+
+    def _local_heuristic_score(
+        self,
+        candidate: CandidateTest,
+        existing_prompts: list[str] | None = None,
+        source: str = "local_heuristic",
+    ) -> CandidateQualityScore:
+        """Deterministic local scoring fallback when running in air-gapped CI or offline environments."""
         severity = self._compute_severity(candidate)
         novelty = self._compute_novelty(candidate.user_prompt, existing_prompts or [])
         flakiness_risk = self._compute_flakiness(candidate)
@@ -104,6 +239,14 @@ class JevCandidateScorer:
             4,
         )
 
+        # Recommended tier from heuristic
+        if candidate.is_mandatory or candidate.mandatory_categories or severity >= 0.95:
+            rec_tier = PriorityTier.P0_CRITICAL
+        elif composite >= 0.70 and severity >= 0.65:
+            rec_tier = PriorityTier.P1_RECOMMENDED
+        else:
+            rec_tier = PriorityTier.P2_EXTENDED
+
         rationale = (
             f"sev={severity:.2f}, nov={novelty:.2f}, flake={flakiness_risk:.2f}, "
             f"cost={execution_cost:.2f} -> Q={composite:.3f}"
@@ -115,6 +258,8 @@ class JevCandidateScorer:
             flakiness_risk=flakiness_risk,
             execution_cost=execution_cost,
             composite_score=composite,
+            recommended_tier=rec_tier,
+            source=source,
             rationale=rationale,
         )
 
@@ -151,14 +296,15 @@ class JevCandidateScorer:
             if score.composite_score < self.quality_threshold or score.novelty < self.novelty_threshold:
                 continue
 
-            # Assign priority tier based on composite quality & severity
+            # Assign priority tier based on Jev recommendations
             updated_test = test
-            if score.composite_score >= 0.75 and score.severity >= 0.70:
-                if test.priority_tier != PriorityTier.P0_CRITICAL:
-                    updated_test = test.model_copy(update={"priority_tier": PriorityTier.P1_RECOMMENDED})
-            elif score.composite_score < 0.55:
-                if test.priority_tier != PriorityTier.P0_CRITICAL:
-                    updated_test = test.model_copy(update={"priority_tier": PriorityTier.P2_EXTENDED})
+            if score.recommended_tier == PriorityTier.P0_CRITICAL and test.priority_tier != PriorityTier.P0_CRITICAL:
+                # Do not promote non-mandatory tests to P0 unless explicitly mandatory
+                updated_test = test.model_copy(update={"priority_tier": PriorityTier.P1_RECOMMENDED})
+            elif score.recommended_tier == PriorityTier.P1_RECOMMENDED and test.priority_tier != PriorityTier.P0_CRITICAL:
+                updated_test = test.model_copy(update={"priority_tier": PriorityTier.P1_RECOMMENDED})
+            elif score.recommended_tier == PriorityTier.P2_EXTENDED and test.priority_tier != PriorityTier.P0_CRITICAL:
+                updated_test = test.model_copy(update={"priority_tier": PriorityTier.P2_EXTENDED})
 
             accepted.append(updated_test)
             accepted_prompts.append(test.user_prompt)
@@ -245,7 +391,6 @@ class JevCandidateScorer:
     @staticmethod
     def _compute_execution_cost(candidate: CandidateTest) -> float:
         """Compute normalized execution cost in range [0.0, 1.0]."""
-        # Baseline execution cost from model + text length penalty
         text_len = len(candidate.user_prompt) + len(candidate.expected_behavior)
         length_penalty = min(0.4, text_len / 1000.0)
         base_cost = min(0.6, candidate.execution_cost / 10.0)

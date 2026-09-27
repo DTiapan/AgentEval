@@ -32,6 +32,7 @@ dependencies = [
     "pyyaml>=6.0.1",
     "opentelemetry-api>=1.22.0",
     "litellm>=1.40.0",
+    "typesafe-sdk>=0.7.0",
 ]
 
 [project.optional-dependencies]

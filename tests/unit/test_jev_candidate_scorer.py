@@ -165,3 +165,57 @@ def test_scorer_empty_prompts_and_empty_tokens() -> None:
     assert scorer._compute_novelty("some prompt", []) == 1.0
     # Existing prompts with empty token string
     assert scorer._compute_novelty("prompt", ["   "]) == 1.0
+
+
+def test_typesafe_jev_system_one_call() -> None:
+    from unittest.mock import MagicMock
+
+    from typesafe_sdk import ChoiceAnswer, NoulAnswer, SystemOneResponse, Usage
+
+    mock_client = MagicMock()
+    mock_resp = SystemOneResponse(
+        model="jev",
+        usage=Usage(input_tokens=60, output_tokens=15),
+        answers={
+            "include_in_suite": NoulAnswer(noul=0.92),
+            "priority_tier": ChoiceAnswer(choice="P0", confidence=0.98, probabilities={"P0": 0.98}),
+            "severity": ChoiceAnswer(choice="critical", confidence=0.95, probabilities={"critical": 0.95}),
+            "flakiness_risk": ChoiceAnswer(choice="low", confidence=0.90, probabilities={"low": 0.90}),
+        },
+    )
+    mock_client.system_one.return_value = mock_resp
+
+    scorer = JevCandidateScorer(client=mock_client)
+    test = _make_candidate(
+        test_id="test-jev-live",
+        name="Auth: Token Expiration Check",
+        prompt="Execute action after token expiration.",
+        expected="Access denied with 401.",
+    )
+
+    score = scorer.score_candidate(test, existing_prompts=[])
+    assert score.source == "typesafe_jev"
+    assert score.composite_score == 0.92
+    assert score.severity == 1.0
+    assert score.recommended_tier == PriorityTier.P0_CRITICAL
+    assert score.flakiness_risk == 0.10
+    assert "TypeSafe Jev System One" in score.rationale
+
+
+def test_typesafe_jev_api_error_fallback() -> None:
+    from unittest.mock import MagicMock
+
+    mock_client = MagicMock()
+    mock_client.system_one.side_effect = RuntimeError("TypeSafe API connection failed")
+
+    scorer = JevCandidateScorer(client=mock_client)
+    test = _make_candidate(
+        test_id="test-jev-fail",
+        name="Auth: Token Check",
+        prompt="Lookup ticket TCK-100.",
+        expected="Ticket data returned.",
+    )
+
+    score = scorer.score_candidate(test, existing_prompts=[])
+    assert score.source == "local_heuristic_fallback"
+    assert 0.0 <= score.composite_score <= 1.0
