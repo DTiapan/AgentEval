@@ -266,7 +266,7 @@ flowchart TD
 | **LLM hypothesis expansion** | v0.3+ | Optional LiteLLM-generated failure modes beyond rule templates |
 | **HYPOTHESIZED** provenance layer | v0.3+ | Explicit hypothesis objects in Agent Test Model (MVP can tag via candidate metadata) |
 | **Non-HTTP protocols** (MCP, CLI adapters) | v0.3+ | Black-box MVP is **HTTP-only**; harness + other adapters stay separate |
-| **Agent Deletion & Cascade** | v0.3 | Remove agent from workspace header dropdown with confirmation modal, cascading deletion of frozen suites, run records, and sealed execution evidence from SQLite |
+| **Agent Deletion & Cascade** | v0.3 (Deferred) | Hold on to deletion for later per user direction: remove agent from workspace header dropdown with confirmation modal, cascading deletion of frozen suites, run records, and sealed execution evidence from SQLite |
 | **Harness reliability** (crash recovery, context pressure, advanced faults, $pass^k$, replay export) | v0.3+ | Valuable for **harness** profile; not required to prove black-box pack value |
 
 **Harness profile (v0.1, opt-in):** `LocalSandbox`, `ToolFaultInjector`, `StateDiffEvaluator`—for in-process BYOA; not part of Black-Box MVP.

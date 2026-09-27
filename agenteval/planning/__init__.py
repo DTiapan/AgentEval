@@ -3,6 +3,10 @@
 from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.generator import CandidatePoolGenerator, PersonaRef
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
+from agenteval.planning.jev_candidate_scorer import (
+    CandidateQualityScore,
+    JevCandidateScorer,
+)
 from agenteval.planning.models import (
     CandidateTest,
     CoverageReport,
@@ -17,11 +21,13 @@ from agenteval.planning.optimizer import TestPackOptimizer
 
 __all__ = [
     "CandidatePoolGenerator",
+    "CandidateQualityScore",
     "CandidateTest",
     "CoverageMapper",
     "CoverageReport",
     "FailureHypothesis",
     "FailureHypothesisGenerator",
+    "JevCandidateScorer",
     "MandatoryCategory",
     "OptimizationResult",
     "OptimizerConfig",

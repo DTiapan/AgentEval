@@ -270,7 +270,7 @@ def run_litellm_turn(user_text: str) -> dict[str, Any]:
 
 
 def extract_prompt(data: dict[str, Any]) -> str:
-    prompt = data.get("prompt") or ""
+    prompt = data.get("prompt") or data.get("message") or ""
     if not prompt and data.get("messages"):
         prompt = data["messages"][-1].get("content", "")
     return str(prompt)

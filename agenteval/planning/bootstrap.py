@@ -7,6 +7,7 @@ from agenteval.core.manifest import AgentCard
 from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.generator import CandidatePoolGenerator, PersonaRef
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
+from agenteval.planning.jev_candidate_scorer import JevCandidateScorer
 from agenteval.planning.models import (
     CandidateTest,
     CoverageReport,
@@ -34,9 +35,11 @@ class SuiteBootstrap:
         self,
         max_tests: int = 12,
         personas: list[PersonaRef] | None = None,
+        scorer: JevCandidateScorer | None = None,
     ) -> None:
         self.max_tests = max_tests
         self.personas = personas or DEFAULT_PERSONAS
+        self.scorer = scorer or JevCandidateScorer()
 
     @staticmethod
     def fingerprint_manifest(card: AgentCard, extra_text: str = "") -> str:
@@ -76,6 +79,18 @@ class SuiteBootstrap:
         for adv in adversarial_tests:
             if adv.id not in existing_ids:
                 pool.append(adv)
+                existing_ids.add(adv.id)
+
+        from agenteval.planning.llm_candidate_synthesizer import LLMCandidateSynthesizer
+
+        synthesized_tests = LLMCandidateSynthesizer(personas=self.personas).synthesize_candidates(card)
+        for syn in synthesized_tests:
+            if syn.id not in existing_ids:
+                pool.append(syn)
+                existing_ids.add(syn.id)
+
+        # Tier 3: Quality filter and rank the candidate pool (prune duplicates and slop)
+        pool, _score_map = self.scorer.filter_and_rank_pool(pool)
 
         hyp_gen = FailureHypothesisGenerator()
         applicable = set(hyp_gen.infer_applicable_mandatory(capabilities))

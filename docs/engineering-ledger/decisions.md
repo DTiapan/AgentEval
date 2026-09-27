@@ -33,9 +33,30 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-023 | **LangWatch OSS architecture lessons — assurance appliance, integrate don’t rebuild:** Category validation from [langwatch/langwatch](https://github.com/langwatch/langwatch) (control plane PG + data plane ClickHouse, event-sourced workers, LangEvals sidecar, connected-agent relay). AgentEval stays **library + FastAPI + SQLite**, **verdict-first** (`PASS`/`FAIL`/`UNVERIFIABLE`), **PRD → frozen set-cover pack**; **emit** OTel from runs, **do not** ingest at LangWatch scale. Selective pattern adoption only (run isolation, optional outbound connect, trace→gap with provenance). See full entry below. | Accepted | 2026-09-21 |
 | DR-024 | **Rule-Based Failure Hypothesis Catalog Expansion (Floor Layer) & ObservableScorer Tier-0 Hardening:** Expanded hypothesis templates from 9 → 25 across Functional, Edge, Security, Reliability, and Abuse categories, achieving 100% coverage of all 8 `MandatoryCategory` floors (`DATA_ISOLATION`, `PRIVILEGE_ESCALATION`, `TOOL_OUTPUT_INJECTION`, `CRITICAL_INVARIANTS`, `AUTHORIZATION`, `PROMPT_INJECTION`, `SENSITIVE_DATA_LEAKAGE`, `IRREVERSIBLE_ACTIONS`). Added `CapabilitySignals` flags (`has_external_dependency`, `has_multi_step`, `has_rate_limit`, `has_concurrency`, `is_read_only`). Hardened `ObservableScorer` heuristic evaluation and fixed transport failure status detection. | Accepted | 2026-09-27 |
 | DR-025 | **Production-Grade Assurance Appliance Architecture (Priority Tiering, PromptFoo Bridge, DeepEval Bridge, Inspect AI Sandbox & Deterministic State-Diff Hardening):** Formalized the 3-tier assurance hierarchy (`P0 Critical Floors`, `P1 Recommended Workflows`, `P2 Adversarial & Fuzzing`) backed by marginal coverage curves and interactive execution budget controls. Integrated PromptFoo red-team bridge synthesizing 7 OWASP attack vectors; DeepEval trajectory semantic metrics (`ToolCorrectness`, `PlanAdherence`, `TaskCompletion`, `Hallucination`) with offline deterministic fallbacks; Inspect AI Docker sandbox task builder & JSONL dataset exporter; and hardened deterministic multi-table state-diff ($\Delta S$) assertions emitting `UNVERIFIABLE` when mutation evidence is missing. | Accepted | 2026-09-27 |
+| DR-026 | **3-Tier Test Generation & Selection Backbone (LLM Synthesizer + Jev Quality Scorer + Real Ops Agent Target):** Implemented Tier 2 LLMCandidateSynthesizer (LiteLLM/DeepSeek with deterministic fallback) and Tier 3 JevCandidateScorer (multi-axis evaluation across severity, novelty, flakiness risk, and execution cost with P0 floor enforcement). Wired live reference IT Ops agent with real SQLite tools and state mutations on `http://127.0.0.1:8770/chat`. Agent deletion and cascading cleanup preserved as deferred. | Accepted | 2026-09-27 |
 
 
 ---
+
+### DR-026 — 3-Tier Test Generation & Selection Backbone: LLM Candidate Synthesizer, Jev Quality Filter, and Real-Agent Verification Target
+
+- **Date:** 2026-09-27
+- **Status:** accepted
+- **Context:** While rule-based templates provide a solid security floor, generating comprehensive assurance packs for arbitrary agent specifications requires synthesizing contextual edge cases without producing unvalidated AI slop or running hundreds of redundant, low-value tests. Furthermore, evaluations must be verified against genuine, tool-calling agents rather than keyword mocks.
+- **Options:**
+  1. **Run All Raw Generated Tests:** Send 200–500 unvalidated LLM prompts directly to the agent without quality filtering or set-cover optimization.
+  2. **Rule-Only Floor:** Restrict testing strictly to static rule templates, omitting contextual reasoning edge cases.
+  3. **3-Tier Generation & Selection Pipeline with Jev Quality Scorer:** (Tier 1) Rule-based hypothesis templates for mandatory floors; (Tier 2) LLM candidate synthesis powered by LiteLLM / DeepSeek; (Tier 3) Jev multi-axis quality filter (grading severity, novelty, flakiness, and cost) pruning slop before set-cover optimization. Tested against a live LiteLLM IT Ops agent mutating SQLite.
+- **Decision:** **Option 3.**
+  1. **Tier 2 LLM Candidate Synthesizer (`agenteval/planning/llm_candidate_synthesizer.py`):** Integrates LiteLLM to synthesize boundary, contradiction, whitespace/casing, and edge-case tests with DeepSeek reasoning content, backed by a deterministic heuristic generator for $0-cost airgapped CI.
+  2. **Tier 3 Jev Candidate Scorer (`agenteval/planning/jev_candidate_scorer.py`):** Filters candidate pools using multi-axis scoring: Severity ($\ge 0.7$ for security/safety/critical), Novelty (token-level Jaccard uniqueness against existing pool), Flakiness Risk (vague words, underspecified expectations), and Execution Cost. Discards slop and duplicates ($Q < 0.35$ or Novelty $< 0.20$), while strictly preserving P0 mandatory security floors.
+  3. **Real Agent Target (`examples/real-agent/ops_agent_server.py`):** Deployed a live IT Ops agent on `http://127.0.0.1:8770/chat` running LiteLLM with DeepSeek reasoning and 4 real SQLite tools mutating `.agenteval/real-agent-ops.db`.
+  4. **Agent Deletion Scope Alignment:** Per user instruction, agent deletion and cascading database removal (`E-AGENT-05`) are kept on the roadmap and specification as deferred for future implementation.
+- **Consequences:** Provides a complete, production-grade test intelligence backbone generating high-signal, slop-free test packs with verified real-agent tool execution. 206 tests passing at 86.71% coverage with clean typing and linting.
+
+---
+
+<!-- New entries above ## Archive -->
 
 ### DR-023 — LangWatch OSS architecture lessons (assurance appliance vs LLMOps platform)
 
