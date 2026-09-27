@@ -13,15 +13,20 @@ from agenteval.planning.blackbox_runner import BlackboxRunner
 from agenteval.planning.bootstrap import SuiteBootstrap
 from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.gap_loop import SuiteGapExtender
+from agenteval.packs.enabled import set_run_audit_log_db_path
+from agenteval.packs.registry import discover_domain_packs
 from agenteval.planning.models import (
     CandidateTest,
     CoverageReport,
+    DomainPackListResult,
+    DomainPackSummary,
     SuiteGapLoopResult,
     SuiteManifest,
     SuiteRequirementsResult,
     SuiteRunReport,
     TestPack,
 )
+from agenteval.services.requirement_run_status import AssuranceSignoffContext
 from agenteval.planning.run_diff import diff_suite_runs
 from agenteval.planning.suite_store import SuiteExistsError, SuiteStore
 from agenteval.planning.suite_sync import SuiteSynchronizer, SuiteSyncResult
@@ -187,6 +192,22 @@ class SuiteWorkflow:
             return
         store.save_run(agent_id, report)
 
+    def list_domain_packs(self) -> DomainPackListResult:
+        summaries: list[DomainPackSummary] = []
+        for pack_id, pack in sorted(discover_domain_packs().items()):
+            manifest = pack.manifest
+            summaries.append(
+                DomainPackSummary(
+                    id=pack_id,
+                    name=manifest.name,
+                    version=manifest.version,
+                    display_name=manifest.display_name,
+                    description=manifest.description,
+                    slots_filled=manifest.slots_filled,
+                )
+            )
+        return DomainPackListResult(packs=summaries)
+
     def write_init_to_sqlite(
         self,
         manifest: SuiteManifest,
@@ -196,6 +217,7 @@ class SuiteWorkflow:
         force: bool = False,
         agent_card_json: str | None = None,
         requirements_text: str = "",
+        enabled_domain_packs: list[str] | None = None,
     ) -> None:
         """Persist frozen suite to SQLite when persistence is enabled."""
         repo = self._repository()
@@ -207,6 +229,7 @@ class SuiteWorkflow:
                 force=force,
                 agent_card_json=agent_card_json,
                 requirements_text=requirements_text,
+                enabled_domain_packs=enabled_domain_packs,
             )
 
     def preview_from_prd_text(
@@ -241,6 +264,7 @@ class SuiteWorkflow:
         endpoint_url: str | None = None,
         probe_endpoint: bool = True,
         force_new_version: bool = False,
+        enabled_domain_packs: list[str] | None = None,
     ) -> SuiteInitResult:
         card, fingerprint, probe = AgentBootstrap.from_text(
             prd_text,
@@ -262,6 +286,7 @@ class SuiteWorkflow:
                     force=force_new_version,
                     agent_card_json=card.model_dump_json(),
                     requirements_text=prd_text,
+                    enabled_domain_packs=enabled_domain_packs,
                 )
             except SuiteExistsError:
                 raise
@@ -297,11 +322,13 @@ class SuiteWorkflow:
         agent_id: str,
         *,
         endpoint_url: str | None = None,
+        audit_log_db_path: str | None = None,
     ) -> SuiteRunReport:
         store = self._store()
         manifest = self._load_manifest(store, agent_id)
         pack = self._load_pack(store, agent_id)
 
+        set_run_audit_log_db_path(audit_log_db_path)
         url = endpoint_url or manifest.endpoint_profile
         if not url:
             raise ValueError("endpoint_url required when suite has no stored endpoint")
@@ -417,6 +444,7 @@ class SuiteWorkflow:
         *,
         endpoint_url: str | None = None,
         probe_endpoint: bool = False,
+        enabled_domain_packs: list[str] | None = None,
     ) -> SuiteSyncResult:
         store = self._store()
         old_manifest = self._load_manifest(store, agent_id)
@@ -455,6 +483,7 @@ class SuiteWorkflow:
                 outcome.pack,
                 requirements_text=prd_text,
                 agent_card_json=card.model_dump_json(),
+                enabled_domain_packs=enabled_domain_packs,
             )
         else:
             store.apply_sync(
@@ -506,10 +535,16 @@ class SuiteWorkflow:
             raise FileNotFoundError(f"No execution {target} found for agent '{agent_id}'")
         from agenteval.reporting.html_report import HTMLReportGenerator
 
+        signoff: AssuranceSignoffContext | None = None
+        repo = self._repository()
+        if repo is not None:
+            signoff = repo.load_signoff_context(agent_id, report.suite_version, report.run_id)
+
         return HTMLReportGenerator.generate(
             report,
             pack,
             manifest=manifest,
             embed=embed,
             theme=theme,
+            signoff=signoff,
         )

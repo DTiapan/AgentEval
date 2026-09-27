@@ -10,12 +10,11 @@ from agenteval.domain.models import (
     RequirementRecord,
 )
 from agenteval.packs.audit_evidence import build_audit_evidence_payload, should_capture_audit_evidence
-from agenteval.packs.enabled import enabled_domain_pack_ids
+from agenteval.packs.enabled import resolve_enabled_pack_ids
 from agenteval.packs.scoring import score_criterion
 from agenteval.packs.freeze_metadata import (
     persist_criterion_compliance_maps,
     persist_pack_freeze_metadata,
-    resolve_enabled_pack_ids,
 )
 from agenteval.packs.protocol import RequirementDraft
 from agenteval.packs.registry import load_domain_pack
@@ -146,7 +145,7 @@ def collect_pack_requirement_drafts(
     pack_ids: list[str] | None = None,
 ) -> list[RequirementDraft]:
     """Merge mandatory requirements from enabled domain packs."""
-    ids = pack_ids if pack_ids is not None else enabled_domain_pack_ids()
+    ids = resolve_enabled_pack_ids(pack_ids)
     drafts: list[RequirementDraft] = []
     seen: set[str] = set()
     for pack_id in ids:
@@ -270,6 +269,7 @@ def persist_normalized_suite(
     pack: TestPack,
     *,
     agent_card_json: str | None = None,
+    enabled_domain_packs: list[str] | None = None,
 ) -> None:
     """Write requirements, acceptance criteria, test cases, and links for one freeze."""
     if not v2_suite_tables_present(conn):
@@ -284,7 +284,7 @@ def persist_normalized_suite(
     requirements, criteria, cap_to_criterion = build_requirements_and_criteria(
         suite_version_id, capabilities
     )
-    enabled_ids = resolve_enabled_pack_ids()
+    enabled_ids = resolve_enabled_pack_ids(enabled_domain_packs)
     pack_name_to_id = persist_pack_freeze_metadata(conn, suite_version_id, enabled_ids)
 
     pack_drafts = collect_pack_requirement_drafts(enabled_ids)
@@ -523,7 +523,7 @@ def persist_run_evidence_and_verdicts(
             }
         ]
 
-        if should_capture_audit_evidence():
+        if should_capture_audit_evidence(conn, suite_version_id):
             test_data = json.loads(str(tc_row["test_data_json"] or "{}"))
             audit_payload = build_audit_evidence_payload(test_data)
             if audit_payload is not None:

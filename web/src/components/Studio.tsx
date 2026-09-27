@@ -16,6 +16,7 @@ import {
   extendSuiteGaps,
   getSuiteDetail,
   initSuite,
+  listDomainPacks,
   previewSuite,
   probeAgentEndpoint,
   syncSuite,
@@ -59,6 +60,20 @@ export const Studio: React.FC = () => {
   const [terminalViewMode, setTerminalViewMode] = useState<"cards" | "monaco">("cards");
   const prdFileInputRef = useRef<HTMLInputElement>(null);
   const [justCreatedPack, setJustCreatedPack] = useState(false);
+  const [availablePacks, setAvailablePacks] = useState<{ id: string; display_name: string }[]>(
+    [],
+  );
+  const [enabledDomainPacks, setEnabledDomainPacks] = useState<string[]>([]);
+
+  useEffect(() => {
+    listDomainPacks()
+      .then((body) => {
+        setAvailablePacks(
+          body.packs.map((p) => ({ id: p.id, display_name: p.display_name || p.name })),
+        );
+      })
+      .catch(() => setAvailablePacks([]));
+  }, []);
 
   const loadFrozenSuite = useCallback(async (id: string) => {
     if (!id.trim()) {
@@ -234,6 +249,7 @@ export const Studio: React.FC = () => {
           requirements_text: requirementsText,
           endpoint_url: endpoint,
           max_tests: maxTests,
+          enabled_domain_packs: enabledDomainPacks,
         });
         if (sync.noop) {
           addToast({
@@ -263,6 +279,7 @@ export const Studio: React.FC = () => {
           endpoint_url: endpoint,
           max_tests: maxTests,
           force_new_version: false,
+          enabled_domain_packs: enabledDomainPacks,
         });
         createdNewSuite = true;
         addToast({
@@ -491,6 +508,35 @@ export const Studio: React.FC = () => {
                   placeholder="# Paste Agent PRD or Capability Manifest..."
                 />
               </div>
+
+              {availablePacks.length > 0 && (
+                <div className="space-y-2 pt-1 border-t border-border pt-3">
+                  <span className="text-xs font-medium text-foreground">Domain packs</span>
+                  <div className="flex flex-col gap-2">
+                    {availablePacks.map((pack) => (
+                      <label
+                        key={pack.id}
+                        className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer"
+                      >
+                        <input
+                          type="checkbox"
+                          className="rounded border-border"
+                          checked={enabledDomainPacks.includes(pack.id)}
+                          onChange={(e) => {
+                            setEnabledDomainPacks((prev) =>
+                              e.target.checked
+                                ? [...prev, pack.id]
+                                : prev.filter((id) => id !== pack.id),
+                            );
+                          }}
+                        />
+                        <span>{pack.display_name}</span>
+                        <span className="font-mono text-[10px] opacity-70">({pack.id})</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Optimizer Slider */}
               <div className="space-y-2 pt-1">

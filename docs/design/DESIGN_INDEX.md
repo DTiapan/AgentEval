@@ -36,7 +36,7 @@
 | Freeze → full criteria UX | Yes (lifecycle doc) | Placeholder criterion only |
 | Run → criterion_verdicts + evidence | Yes | **Partial** (`save_run` + normalized suite) |
 | Packs | Interface doc | **v0** (mandatory reqs, compliance rows, synthetic data, audit check) |
-| Inspect integration | ADR-001/005 | **No** |
+| Inspect integration | ADR-001/005 | **Partial** (5a sidecar when `inspect-ai` extra installed) |
 
 ## Build order (enforced)
 
@@ -45,8 +45,8 @@
 ② Runner writes evidence + per-criterion verdicts (slice 2 ✓)
 ③ API/UI reads criterion verdicts (slice 3 ✓)
 ④ Fintech pack v0 ✓ (`AGENTEVAL_ENABLED_DOMAIN_PACKS=fintech`; audit DB via `AGENTEVAL_AUDIT_LOG_DB_PATH`)
-⑤ Inspect eval() wiring
-⑥ CI backbone boundary (NFR-B-07)
+⑤ Inspect eval() wiring (5a sidecar ✓; full Task/Solver migration deferred)
+⑥ CI backbone boundary (NFR-B-07) — `scripts/check_backbone_domain_strings.py` ◐
 ```
 
 ## Vocabulary bridge (pipeline ↔ domain model)

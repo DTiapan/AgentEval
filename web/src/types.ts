@@ -109,6 +109,19 @@ export type SuiteSyncResult = {
   noop: boolean;
 };
 
+export type DomainPackSummary = {
+  id: string;
+  name: string;
+  version: string;
+  display_name: string;
+  description?: string;
+  slots_filled: string[];
+};
+
+export type DomainPackListResult = {
+  packs: DomainPackSummary[];
+};
+
 export type SuiteInitResult = {
   suite_path: string;
   agent_id: string;

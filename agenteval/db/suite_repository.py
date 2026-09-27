@@ -65,6 +65,7 @@ class SuiteRepository:
         force: bool = False,
         agent_card_json: str | None = None,
         requirements_text: str = "",
+        enabled_domain_packs: list[str] | None = None,
     ) -> None:
         agent_id = manifest.agent_id
         exists = self._conn.execute(
@@ -129,6 +130,7 @@ class SuiteRepository:
                 suite_version_id,
                 pack,
                 agent_card_json=agent_card_json,
+                enabled_domain_packs=enabled_domain_packs,
             )
 
     def load_normalized_requirements(self, agent_id: str) -> list[RequirementRecord]:
@@ -156,6 +158,20 @@ class SuiteRepository:
 
     def enrich_run_report(self, report: SuiteRunReport) -> SuiteRunReport:
         return enrich_run_report(self._conn, report)
+
+    def load_signoff_context(self, agent_id: str, suite_version: int, run_id: str):
+        from agenteval.services.requirement_run_status import build_assurance_signoff_context
+
+        row = self._conn.execute(
+            """
+            SELECT id FROM suite_versions
+            WHERE agent_id = ? AND version = ?
+            """,
+            (agent_id, suite_version),
+        ).fetchone()
+        if row is None:
+            return None
+        return build_assurance_signoff_context(self._conn, str(row["id"]), run_id)
 
     def load_agent_card_json(self, agent_id: str) -> str | None:
         row = self._latest_suite_row(agent_id)
@@ -206,6 +222,7 @@ class SuiteRepository:
         *,
         requirements_text: str = "",
         agent_card_json: str | None = None,
+        enabled_domain_packs: list[str] | None = None,
     ) -> None:
         """Append a new frozen suite version after explicit spec drift sync (DR-011)."""
         agent_id = manifest.agent_id
@@ -249,6 +266,7 @@ class SuiteRepository:
                 suite_version_id,
                 pack,
                 agent_card_json=agent_card_json,
+                enabled_domain_packs=enabled_domain_packs,
             )
 
     def ensure_default_target(self, agent_id: str, endpoint_url: str) -> str | None:
@@ -412,6 +430,35 @@ class SuiteRepository:
                 report.results,
                 captured_at=now,
             )
+            self._persist_inspect_sidecar(suite_version_id, report)
+
+    def _persist_inspect_sidecar(self, suite_version_id: str, report: SuiteRunReport) -> None:
+        from agenteval.inspect_bridge.log_archive import inspect_extra_available, write_run_archive
+
+        if not inspect_extra_available():
+            return
+        has_cols = self._conn.execute(
+            "SELECT 1 FROM pragma_table_info('assurance_runs') WHERE name = 'inspect_log_path'"
+        ).fetchone()
+        if has_cols is None:
+            return
+        pack_row = self._conn.execute(
+            "SELECT pack_json FROM suite_versions WHERE id = ?",
+            (suite_version_id,),
+        ).fetchone()
+        if pack_row is None:
+            return
+        pack = TestPack.model_validate_json(str(pack_row["pack_json"]))
+        out_dir = self.db_path.parent / "inspect_logs" / report.run_id
+        log_path, digest = write_run_archive(report, pack, output_dir=out_dir)
+        self._conn.execute(
+            """
+            UPDATE assurance_runs
+            SET inspect_log_path = ?, inspect_log_sha256 = ?
+            WHERE run_id = ?
+            """,
+            (log_path, digest, report.run_id),
+        )
 
     def count_criterion_verdicts(self, run_id: str) -> int:
         return count_criterion_verdicts_for_run(self._conn, run_id)

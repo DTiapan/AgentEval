@@ -54,4 +54,4 @@ Legend: **—** = not applicable yet | **⬜** not started | **◐** partial | *
 | NFR-B-04 | Deterministic re-score | Partial |
 | NFR-B-05 | Durability | SQLite WAL ✓ |
 | NFR-B-06 | Offline | Partial (LLM optional) |
-| NFR-B-07 | CI boundary | ⬜ |
+| NFR-B-07 | CI boundary | `scripts/check_backbone_domain_strings.py` ◐ |

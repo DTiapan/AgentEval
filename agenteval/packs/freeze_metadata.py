@@ -5,7 +5,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 from agenteval.domain.models import AcceptanceCriterionRecord, RequirementRecord
-from agenteval.packs.enabled import enabled_domain_pack_ids
+from agenteval.packs.enabled import resolve_enabled_pack_ids
 from agenteval.packs.protocol import PackManifest
 from agenteval.packs.registry import load_domain_pack
 
@@ -18,8 +18,6 @@ def control_row_id(pack_id: str, control_key: str) -> str:
     return f"{pack_id}:ctrl:{control_key}"
 
 
-def resolve_enabled_pack_ids(pack_ids: list[str] | None = None) -> list[str]:
-    return pack_ids if pack_ids is not None else enabled_domain_pack_ids()
 
 
 def persist_pack_freeze_metadata(

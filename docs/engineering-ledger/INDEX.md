@@ -17,6 +17,7 @@
 
 ## Recent sessions
 
+- **2026-09-27 (session 32)**: **MVP+ wedge** — `GET /v1/packs`, `enabled_domain_packs` on init/sync + Studio checkboxes; FR-B-17/23 HTML sign-off sections; Inspect 5a sidecar + `inspect_log_*` columns; NFR-B-07 check script.
 - **2026-09-27 (session 31)**: **Fintech pack v0 complete** — freeze metadata (`packs`, `suite_pack_selections`, `compliance_controls`, maps), synthetic test data, `audit_log` connector + `AGENTEVAL_AUDIT_LOG_DB_PATH`, `agenteval.pack_checks` + `fintech.audit.refund_logged`. **Next:** ⑤ Inspect eval(); pack UX API; FR-B-17/23 HTML report.
 - **2026-09-27 (session 30)**: **Fintech pack v0** — `agenteval/packs/protocol.py`, registry, `agenteval_packs.fintech`; freeze merges pack mandatory reqs when `AGENTEVAL_ENABLED_DOMAIN_PACKS=fintech`.
 - **2026-09-27 (session 29)**: **Design gate** — [DESIGN_INDEX.md](../design/DESIGN_INDEX.md), [criterion-lifecycle.md](../design/criterion-lifecycle.md), [pack-interface.md](../design/pack-interface.md), [requirements-traceability.md](../design/requirements-traceability.md), [ADR-006](../decisions/ADR-006-pack-and-connector-contract.md); reconciled architecture.md §0, persistence phase status, PRD §9A statuses. **Slice 3:** `GET /v1/suites/{id}/requirements`, `criterion_verdicts` on runs, Assurance sign-off table. **Next:** fintech pack v0 or HTML report by requirement (FR-B-17/23).

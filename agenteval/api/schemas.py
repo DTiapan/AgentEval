@@ -18,6 +18,7 @@ class SuiteInitRequest(PrdBootstrapRequest):
     model_config = ConfigDict(extra="forbid")
 
     force_new_version: bool = False
+    enabled_domain_packs: list[str] = Field(default_factory=list)
 
 
 class EndpointProbeRequest(BaseModel):
@@ -30,6 +31,7 @@ class SuiteRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     endpoint_url: str | None = None
+    audit_log_db_path: str | None = None
     suite_root: str = ".agenteval/suites"
 
 
@@ -49,3 +51,4 @@ class SuiteSyncRequest(BaseModel):
     probe_endpoint: bool = False
     max_tests: int = Field(default=10, ge=1, le=50)
     suite_root: str = ".agenteval/suites"
+    enabled_domain_packs: list[str] = Field(default_factory=list)

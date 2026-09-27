@@ -47,6 +47,12 @@ def create_app() -> FastAPI:
             "persistence": persistence_status(),
         }
 
+    @app.get("/v1/packs")
+    def list_domain_packs(suite_root: str = ".agenteval/suites") -> JSONResponse:
+        workflow = create_suite_workflow(suite_root=suite_root)
+        result = workflow.list_domain_packs()
+        return JSONResponse(content=result.model_dump(mode="json"))
+
     @app.get("/v1/suites")
     def list_suites(suite_root: str = ".agenteval/suites") -> JSONResponse:
         workflow = create_suite_workflow(suite_root=suite_root)
@@ -109,6 +115,7 @@ def create_app() -> FastAPI:
                 endpoint_url=body.endpoint_url,
                 probe_endpoint=body.probe_endpoint,
                 force_new_version=body.force_new_version,
+                enabled_domain_packs=body.enabled_domain_packs or None,
             )
         except SuiteExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
@@ -143,6 +150,7 @@ def create_app() -> FastAPI:
                 body.requirements_text,
                 endpoint_url=body.endpoint_url,
                 probe_endpoint=body.probe_endpoint,
+                enabled_domain_packs=body.enabled_domain_packs or None,
             )
         except FileNotFoundError:
             raise HTTPException(
@@ -157,7 +165,11 @@ def create_app() -> FastAPI:
     def run_suite(agent_id: str, body: SuiteRunRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root)
         try:
-            report = workflow.run_suite(agent_id, endpoint_url=body.endpoint_url)
+            report = workflow.run_suite(
+                agent_id,
+                endpoint_url=body.endpoint_url,
+                audit_log_db_path=body.audit_log_db_path,
+            )
         except FileNotFoundError:
             raise HTTPException(
                 status_code=404,

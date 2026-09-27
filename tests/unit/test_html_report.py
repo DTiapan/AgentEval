@@ -17,6 +17,11 @@ from agenteval.planning.models import (
 )
 from agenteval.planning.suite_store import SuiteStore
 from agenteval.reporting.html_report import HTMLReportGenerator
+from agenteval.services.requirement_run_status import (
+    AssuranceSignoffContext,
+    ComplianceControlRunRow,
+    RequirementRunStatusRow,
+)
 from agenteval.services.suite_workflow import SuiteWorkflow
 
 
@@ -139,6 +144,35 @@ def test_html_report_generation(sample_report: SuiteRunReport, sample_pack: Test
     assert 'data-embed="1"' in embedded
     assert 'class="dark"' in embedded
     assert "security_boundary" in html_output
+
+
+def test_html_report_includes_signoff_sections(
+    sample_pack: TestPack, sample_report: SuiteRunReport
+) -> None:
+    signoff = AssuranceSignoffContext(
+        requirements=[
+            RequirementRunStatusRow(
+                stable_id="req-abc",
+                statement="Must do X",
+                status="proven",
+                source_kind="spec",
+            )
+        ],
+        controls=[
+            ComplianceControlRunRow(
+                control_key="FIN-REFUND-DISCLOSURE",
+                title="Refund disclosure",
+                status="proven",
+                requirement_stable_ids=["req-abc"],
+            )
+        ],
+    )
+    html_output = HTMLReportGenerator.generate(
+        sample_report, sample_pack, signoff=signoff
+    )
+    assert "Requirements sign-off (engine)" in html_output
+    assert "Compliance controls (packs)" in html_output
+    assert "FIN-REFUND-DISCLOSURE" in html_output
 
 
 def test_suite_workflow_generate_html_report(

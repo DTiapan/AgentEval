@@ -36,6 +36,11 @@ export async function fetchHealth(): Promise<EngineHealth> {
   return parseJson(res);
 }
 
+export async function listDomainPacks() {
+  const res = await fetch(`${API_BASE}/v1/packs`);
+  return parseJson<import("./types").DomainPackListResult>(res);
+}
+
 export async function listSuites(): Promise<SuiteListItem[]> {
   const res = await fetch(`${API_BASE}/v1/suites`);
   const body = await parseJson<{ suites: SuiteListItem[] }>(res);
@@ -98,6 +103,7 @@ export async function initSuite(payload: {
   endpoint_url?: string;
   max_tests?: number;
   force_new_version?: boolean;
+  enabled_domain_packs?: string[];
 }): Promise<SuiteInitResult> {
   const res = await fetch(`${API_BASE}/v1/suites`, {
     method: "POST",
@@ -136,6 +142,7 @@ export async function syncSuite(
     requirements_text: string;
     endpoint_url?: string;
     max_tests?: number;
+    enabled_domain_packs?: string[];
   },
 ): Promise<SuiteSyncResult> {
   const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/sync`, {
@@ -153,11 +160,15 @@ export async function syncSuite(
 export async function runSuite(
   agentId: string,
   endpointUrl?: string,
+  auditLogDbPath?: string,
 ): Promise<SuiteRunReport> {
   const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint_url: endpointUrl || null }),
+    body: JSON.stringify({
+      endpoint_url: endpointUrl || null,
+      audit_log_db_path: auditLogDbPath || null,
+    }),
   });
   return parseJson(res);
 }

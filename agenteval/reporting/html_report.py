@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from agenteval.planning.models import CandidateTest, SuiteManifest, SuiteRunReport, TestPack
+from agenteval.services.requirement_run_status import AssuranceSignoffContext
 
 
 class HTMLReportGenerator:
@@ -59,6 +60,7 @@ class HTMLReportGenerator:
         *,
         embed: bool = False,
         theme: str = "auto",
+        signoff: AssuranceSignoffContext | None = None,
     ) -> str:
         report_title = title or f"AgentEval Report — {report.agent_id} (v{report.suite_version})"
         now_utc = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
@@ -142,6 +144,7 @@ class HTMLReportGenerator:
             "diff": diff,
             "coverage": report.coverage_report.model_dump() if report.coverage_report else None,
             "tests": merged_tests,
+            "signoff": signoff.model_dump() if signoff is not None else None,
         }
 
         embedded_json = json.dumps(embedded_data, ensure_ascii=False).replace("<", "\\u003c")
@@ -195,6 +198,31 @@ class HTMLReportGenerator:
         critical_uncovered = cov.get("critical_uncovered") or []
         metadata = cov.get("metadata") or {}
         limitations = metadata.get("limitations") or []
+
+        signoff = data.get("signoff") or {}
+        signoff_reqs = signoff.get("requirements") or []
+        signoff_controls = signoff.get("controls") or []
+        signoff_html = ""
+        if signoff_reqs or signoff_controls:
+            req_rows = "".join(
+                f"<tr><td><code>{html.escape(str(r.get('stable_id', '')))}</code></td>"
+                f"<td>{html.escape(str(r.get('statement', '')))}</td>"
+                f"<td><span class='tag-pill'>{html.escape(str(r.get('status', '')))}</span></td></tr>"
+                for r in signoff_reqs
+            )
+            ctrl_rows = "".join(
+                f"<tr><td><code>{html.escape(str(c.get('control_key', '')))}</code></td>"
+                f"<td>{html.escape(str(c.get('title', '')))}</td>"
+                f"<td><span class='tag-pill'>{html.escape(str(c.get('status', '')))}</span></td></tr>"
+                for c in signoff_controls
+            )
+            signoff_html = f"""
+    <div class="surface-card" style="margin-bottom: 1.25rem;">
+      <h3 style="margin: 0 0 0.75rem 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;">Requirements sign-off (engine)</h3>
+      <table class="detail-table"><thead><tr><th>ID</th><th>Requirement</th><th>Status</th></tr></thead><tbody>{req_rows}</tbody></table>
+      <h3 style="margin: 1.25rem 0 0.75rem 0; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em;">Compliance controls (packs)</h3>
+      <table class="detail-table"><thead><tr><th>Control</th><th>Title</th><th>Status</th></tr></thead><tbody>{ctrl_rows}</tbody></table>
+    </div>"""
 
         # Precompute sub-blocks
         diff_banner_html = ""
@@ -825,6 +853,8 @@ class HTMLReportGenerator:
         <div class="kpi-sub">ms · p95 {p95_latency} ms</div>
       </div>
     </div>
+
+    {signoff_html}
 
     <!-- Regression Diff Spotlight -->
     {diff_banner_html}

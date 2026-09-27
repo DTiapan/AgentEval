@@ -213,6 +213,25 @@ class RequirementSummary(BaseModel):
     criteria: list[AcceptanceCriterionSummary] = Field(default_factory=list)
 
 
+class DomainPackSummary(BaseModel):
+    """Installed domain pack entry point (FR-P-06)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    name: str
+    version: str
+    display_name: str
+    description: str = ""
+    slots_filled: list[str] = Field(default_factory=list)
+
+
+class DomainPackListResult(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    packs: list[DomainPackSummary] = Field(default_factory=list)
+
+
 class SuiteRequirementsResult(BaseModel):
     """Normalized requirements for a frozen suite version."""
 
