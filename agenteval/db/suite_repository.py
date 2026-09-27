@@ -4,8 +4,11 @@ import json
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse
+
+if TYPE_CHECKING:
+    from agenteval.services.requirement_run_status import AssuranceSignoffContext
 
 from agenteval.db.config import (
     DEFAULT_WORKSPACE_ID,
@@ -24,12 +27,12 @@ from agenteval.db.normalized_suite import (
     persist_run_evidence_and_verdicts,
 )
 from agenteval.domain.models import FrozenTestCaseRecord, RequirementRecord
-from agenteval.planning.models import SuiteRequirementsResult, SuiteRunReport
 from agenteval.planning.models import (
     CandidateTest,
     ExecutionStep,
     ObservationBundle,
     SuiteManifest,
+    SuiteRequirementsResult,
     SuiteRunReport,
     TestCaseResult,
     TestPack,
@@ -159,7 +162,9 @@ class SuiteRepository:
     def enrich_run_report(self, report: SuiteRunReport) -> SuiteRunReport:
         return enrich_run_report(self._conn, report)
 
-    def load_signoff_context(self, agent_id: str, suite_version: int, run_id: str):
+    def load_signoff_context(
+        self, agent_id: str, suite_version: int, run_id: str
+    ) -> "AssuranceSignoffContext | None":
         from agenteval.services.requirement_run_status import build_assurance_signoff_context
 
         row = self._conn.execute(

@@ -10,7 +10,11 @@ class PrdBootstrapRequest(BaseModel):
     agent_id: str = Field(min_length=1, max_length=128)
     endpoint_url: str | None = None
     probe_endpoint: bool = True
-    max_tests: int = Field(default=10, ge=1, le=50)
+    max_tests: int = Field(default=10, ge=1, le=500)
+    target_tier: str | None = Field(default=None, description="P0, P1, P2, or None for all")
+    selected_test_ids: list[str] | None = Field(
+        default=None, description="Explicit test IDs selected by user"
+    )
     suite_root: str = ".agenteval/suites"
 
 
@@ -49,6 +53,10 @@ class SuiteSyncRequest(BaseModel):
     requirements_text: str = Field(min_length=1, description="Updated functional requirements")
     endpoint_url: str | None = None
     probe_endpoint: bool = False
-    max_tests: int = Field(default=10, ge=1, le=50)
+    max_tests: int = Field(default=10, ge=1, le=500)
+    target_tier: str | None = Field(default=None, description="P0, P1, P2, or None for all")
+    selected_test_ids: list[str] | None = Field(
+        default=None, description="Explicit test IDs selected by user"
+    )
     suite_root: str = ".agenteval/suites"
     enabled_domain_packs: list[str] = Field(default_factory=list)

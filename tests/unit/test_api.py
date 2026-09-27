@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agenteval.api.app import create_app
+from agenteval.ingest.requirements import RequirementsIngestor
 from agenteval.planning.models import ObservationBundle, SuiteRunReport, TestCaseResult
 
 SAMPLE_PRD = """# Refund Bot — Requirements
@@ -140,7 +141,8 @@ def test_sync_suite_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert sync.status_code == 200
     body = sync.json()
     assert body["new_version"] == 2
-    assert any("lookup" in cap for cap in body["removed_capabilities"])
+    lookup_cap_id = RequirementsIngestor.from_text(PRD_TWO_CAPS, agent_id="sync-api").capabilities[1].requirement_id()
+    assert lookup_cap_id in body["removed_capabilities"]
 
     detail = client.get("/v1/suites/sync-api", params={"suite_root": suite_root})
     assert detail.json()["manifest"]["version"] == 2

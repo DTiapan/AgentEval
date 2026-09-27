@@ -10,10 +10,11 @@ export function formatTestTabLabel(test: CandidateTest, index: number): string {
       ? test.failure_mode.replace(/_/g, " ")
       : null;
 
+  const tierPrefix = test.priority_tier ? `[${test.priority_tier}] ` : "";
   if (test.name && test.name.length <= 32 && !test.name.startsWith("core-agent")) {
-    return `[${ord}] ${test.name}`;
+    return `${tierPrefix}[${ord}] ${test.name}`;
   }
 
   const tail = mode ? `${category} · ${mode}` : category;
-  return `[${ord}] ${persona} · ${tail}`;
+  return `${tierPrefix}[${ord}] ${persona} · ${tail}`;
 }

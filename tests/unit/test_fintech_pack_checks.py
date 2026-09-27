@@ -1,6 +1,5 @@
 """Fintech pack check + audit_log evidence on run persist."""
 
-import json
 import sqlite3
 from pathlib import Path
 

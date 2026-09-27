@@ -18,6 +18,7 @@ from agenteval.api.schemas import (
     SuiteSyncRequest,
 )
 from agenteval.ingest.endpoint_probe import EndpointProber
+from agenteval.planning.models import PriorityTier
 from agenteval.planning.suite_store import SuiteExistsError
 from agenteval.services.workflow_factory import create_suite_workflow, persistence_status
 
@@ -94,12 +95,15 @@ def create_app() -> FastAPI:
     @app.post("/v1/suites/preview")
     def preview_suite(body: PrdBootstrapRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root, max_tests=body.max_tests)
+        tier = PriorityTier(body.target_tier) if body.target_tier else None
         try:
             result = workflow.preview_from_prd_text(
                 body.requirements_text,
                 agent_id=body.agent_id,
                 endpoint_url=body.endpoint_url,
                 probe_endpoint=body.probe_endpoint,
+                max_tier=tier,
+                selected_test_ids=body.selected_test_ids,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
@@ -108,6 +112,7 @@ def create_app() -> FastAPI:
     @app.post("/v1/suites")
     def init_suite(body: SuiteInitRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root, max_tests=body.max_tests)
+        tier = PriorityTier(body.target_tier) if body.target_tier else None
         try:
             result = workflow.init_from_prd_text(
                 body.requirements_text,
@@ -116,6 +121,8 @@ def create_app() -> FastAPI:
                 probe_endpoint=body.probe_endpoint,
                 force_new_version=body.force_new_version,
                 enabled_domain_packs=body.enabled_domain_packs or None,
+                max_tier=tier,
+                selected_test_ids=body.selected_test_ids,
             )
         except SuiteExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None

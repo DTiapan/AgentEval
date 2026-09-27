@@ -21,6 +21,7 @@ build/
 .idea/
 .vscode/
 .cursor/mcp.json
+.cursor/plans/
 *.swp
 
 # Testing & Coverage

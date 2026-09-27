@@ -2,34 +2,38 @@
 
 from pathlib import Path
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from agenteval.core.manifest import AgentCard
 from agenteval.db.config import database_path, use_sqlite_persistence
 from agenteval.db.suite_repository import SuiteRepository
 from agenteval.ingest.bootstrap import AgentBootstrap
 from agenteval.ingest.endpoint_probe import EndpointProbeResult
+from agenteval.packs.enabled import set_run_audit_log_db_path
+from agenteval.packs.registry import discover_domain_packs
 from agenteval.planning.blackbox_runner import BlackboxRunner
 from agenteval.planning.bootstrap import SuiteBootstrap
 from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.gap_loop import SuiteGapExtender
-from agenteval.packs.enabled import set_run_audit_log_db_path
-from agenteval.packs.registry import discover_domain_packs
+from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
 from agenteval.planning.models import (
+    BudgetProjection,
     CandidateTest,
     CoverageReport,
     DomainPackListResult,
     DomainPackSummary,
+    PriorityTier,
     SuiteGapLoopResult,
     SuiteManifest,
     SuiteRequirementsResult,
     SuiteRunReport,
     TestPack,
 )
-from agenteval.services.requirement_run_status import AssuranceSignoffContext
+from agenteval.planning.optimizer import TestPackOptimizer
 from agenteval.planning.run_diff import diff_suite_runs
 from agenteval.planning.suite_store import SuiteExistsError, SuiteStore
 from agenteval.planning.suite_sync import SuiteSynchronizer, SuiteSyncResult
+from agenteval.services.requirement_run_status import AssuranceSignoffContext
 
 
 class SuitePreviewResult(BaseModel):
@@ -41,6 +45,7 @@ class SuitePreviewResult(BaseModel):
     optimized_pack: TestPack
     coverage: CoverageReport
     endpoint_probe: EndpointProbeResult | None = None
+    marginal_curve: list[BudgetProjection] = Field(default_factory=list)
 
 
 class SuiteListItem(BaseModel):
@@ -239,6 +244,8 @@ class SuiteWorkflow:
         agent_id: str,
         endpoint_url: str | None = None,
         probe_endpoint: bool = True,
+        max_tier: PriorityTier | None = None,
+        selected_test_ids: list[str] | None = None,
     ) -> SuitePreviewResult:
         card, fingerprint, probe = AgentBootstrap.from_text(
             prd_text,
@@ -246,7 +253,15 @@ class SuiteWorkflow:
             endpoint_url=endpoint_url,
             probe_endpoint=probe_endpoint and endpoint_url is not None,
         )
-        pool, pack, coverage = SuiteBootstrap(max_tests=self.max_tests).build(card, fingerprint)
+        pool, pack, coverage = SuiteBootstrap(max_tests=self.max_tests).build(
+            card,
+            fingerprint,
+            max_tier=max_tier,
+            selected_test_ids=selected_test_ids,
+        )
+        hyp_gen = FailureHypothesisGenerator()
+        applicable = hyp_gen.infer_applicable_mandatory(card.capabilities)
+        marginal_curve = TestPackOptimizer.compute_marginal_coverage_curve(pool, applicable)
         return SuitePreviewResult(
             agent_card=card,
             requirements_fingerprint=fingerprint,
@@ -254,6 +269,7 @@ class SuiteWorkflow:
             optimized_pack=pack,
             coverage=coverage,
             endpoint_probe=probe,
+            marginal_curve=marginal_curve,
         )
 
     def init_from_prd_text(
@@ -265,6 +281,8 @@ class SuiteWorkflow:
         probe_endpoint: bool = True,
         force_new_version: bool = False,
         enabled_domain_packs: list[str] | None = None,
+        max_tier: PriorityTier | None = None,
+        selected_test_ids: list[str] | None = None,
     ) -> SuiteInitResult:
         card, fingerprint, probe = AgentBootstrap.from_text(
             prd_text,
@@ -272,7 +290,12 @@ class SuiteWorkflow:
             endpoint_url=endpoint_url,
             probe_endpoint=probe_endpoint and endpoint_url is not None,
         )
-        pool, pack, coverage = SuiteBootstrap(max_tests=self.max_tests).build(card, fingerprint)
+        pool, pack, coverage = SuiteBootstrap(max_tests=self.max_tests).build(
+            card,
+            fingerprint,
+            max_tier=max_tier,
+            selected_test_ids=selected_test_ids,
+        )
 
         store = self._store()
         manifest = SuiteStore.new_manifest(card.id, fingerprint, endpoint_url or "")

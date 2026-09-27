@@ -9,6 +9,8 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 | LL-001 | Rich Terminal Bracket Escaping and Pydantic Model Reordering | logged | project | architecture / tooling |
 | LL-002 | Disk-Cached Persona Synthesis for Sub-50ms CLI Startup and Zero-Token Re-runs | logged | project | performance / architecture |
 | LL-003 | Operational Tier Stack-Ranking & Multi-Vendor LLM Gateway via LiteLLM | logged | project | architecture / llm |
+| LL-004 | Python Reserved Keywords in Tool Schema Bridges (Pydantic Aliasing) and Dynamic OSS Extra Loading | logged | project | architecture / typing |
+| LL-005 | Strict Suite Sync Prefixing and Capability Association for Red-Team/Adversarial Inferred Tests | logged | project | architecture / sync |
 
 ---
 
@@ -39,6 +41,27 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 - **Context**: During CLI live streaming and TraceReplayer unit test implementation, bracketed tokens like `[key=xyz]` or `[ΔS mutated]` were being interpreted by Rich as markup/style tags and silently stripped when rendering to plain or unstyled consoles. Furthermore, in Pydantic v2 domain models, cross-referencing types (`ReliabilityScorecard` inside `ExecutionTrace`) requires either forward reference updates or strict topological definition ordering.
 - **Root Cause**: Rich treats all single square brackets `[...]` as markup instructions unless escaped as `\[...]`. Pydantic models referencing each other fail static type evaluation if dependent models are defined after the parent without postponed annotations.
 - **Lesson / Rule**: Always escape literal brackets in Rich console render strings (`\[key=...]`). Structure Pydantic domain models in bottom-up topological dependency order.
+
+
+---
+
+## LL-005: Strict Suite Sync Prefixing and Capability Association for Red-Team/Adversarial Inferred Tests
+
+- **Date**: 2026-09-27
+- **Scope**: project
+- **Context**: When synthetic adversarial tests or red-team candidate tests are generated from external bridges (e.g. PromptFoo bridge or LLM red-teaming), test names often take the form `RedTeam [prompt-injection] ...`. During suite re-synchronization (`SuiteSynchronizer.compute_sync`), `_normalize_pool_capability_ids` parses capability names by splitting on colon (`test.name.split(":", 1)[0].strip()`). If the test name does not prefix the associated capability, the sync engine re-links all red-team tests to an arbitrary first capability or drops them as orphan capabilities.
+- **Root Cause**: The suite synchronization engine relies on the convention that candidate test names begin with `{primary_capability.name}: ...` to preserve capability associations across PRD edits and version upgrades.
+- **Lesson / Rule**: Always prefix generated candidate test names with `{primary_capability.name}: <Descriptor>` (e.g. `{cap.name}: RedTeam [{plugin}] {hypothesis}`). This ensures deterministic capability matching during suite synchronization and capability-targeted gap closing.
+
+---
+
+## LL-004: Python Reserved Keywords in Tool Schema Bridges (Pydantic Aliasing) and Dynamic OSS Extra Loading
+
+- **Date**: 2026-09-27
+- **Scope**: project
+- **Context**: Interfacing with external tool formats such as PromptFoo YAML specifications requires generating keys named `assert`, which is a reserved keyword in Python. In Pydantic v2, defining fields like `assert_list: list[PromptFooAssertion] = Field(default_factory=list, alias="assert")` handles serialization, but direct keyword initialization `PromptFooTestCase(assert=...)` triggers a Python `SyntaxError`. Furthermore, importing optional third-party packages like `deepeval` must not fail in environments where those extras are not installed.
+- **Root Cause**: Python's AST prohibits using reserved keywords as keyword arguments. Static type checkers (`mypy --strict`) reject direct imports of uninstalled optional packages unless handled dynamically or typed with stubs.
+- **Lesson / Rule**: For models with reserved keyword aliases, instantiate via `Model.model_validate({"assert": ..., ...})` to ensure both runtime validity and static typing without `# type: ignore` comments. For optional OSS packages, use `importlib.import_module()` with fallback handling to preserve zero-dependency lightweight operation while remaining 100% compliant with strict linting and typing constraints.
 
 <!-- New entries above ## Archive -->
 

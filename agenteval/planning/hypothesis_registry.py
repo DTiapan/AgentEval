@@ -47,6 +47,88 @@ _INTEGRATION_KEYWORDS = (
     "sync",
 )
 _IRREVERSIBLE_KEYWORDS = ("refund", "delete", "transfer", "charge", "cancel", "purge")
+_EXTERNAL_DEP_KEYWORDS = (
+    "external",
+    "webhook",
+    "third-party",
+    "vendor",
+    "partner",
+    "downstream",
+    "gateway",
+    "integration",
+    "http",
+    "rest",
+    "remote",
+)
+_MULTI_STEP_KEYWORDS = (
+    "workflow",
+    "multi-step",
+    "pipeline",
+    "process",
+    "sequence",
+    "order",
+    "chain",
+    "flow",
+    "stage",
+    "step",
+    "lifecycle",
+)
+_RATE_LIMIT_KEYWORDS = (
+    "batch",
+    "stream",
+    "bulk",
+    "sync",
+    "poll",
+    "scrape",
+    "rate",
+    "limit",
+    "burst",
+    "throttle",
+)
+_CONCURRENCY_KEYWORDS = (
+    "concurrent",
+    "parallel",
+    "lock",
+    "transaction",
+    "shared",
+    "inventory",
+    "seat",
+    "balance",
+    "transfer",
+    "refund",
+    "counter",
+)
+_READ_ONLY_KEYWORDS = (
+    "read",
+    "view",
+    "get",
+    "fetch",
+    "search",
+    "list",
+    "query",
+    "lookup",
+    "find",
+    "status",
+    "check",
+)
+
+
+_STRONG_MUTATION_KEYWORDS = (
+    "refund",
+    "delete",
+    "remove",
+    "transfer",
+    "write",
+    "update",
+    "create",
+    "charge",
+    "pay",
+    "mutate",
+    "cancel",
+    "issue",
+    "submit",
+    "purge",
+)
 
 
 @dataclass(frozen=True)
@@ -58,16 +140,31 @@ class CapabilitySignals:
     is_sensitive: bool
     has_integration: bool
     is_irreversible: bool
+    has_external_dependency: bool = False
+    has_multi_step: bool = False
+    has_rate_limit: bool = False
+    has_concurrency: bool = False
+    is_read_only: bool = False
 
 
 def capability_signals(capability: AgentCapability) -> CapabilitySignals:
     text = f"{capability.name} {capability.description}".lower()
+    has_read_intent = any(k in text for k in _READ_ONLY_KEYWORDS)
+    has_strong_mutation = any(k in text for k in _STRONG_MUTATION_KEYWORDS)
+    is_read_only = has_read_intent and not has_strong_mutation
+    is_mutating = not is_read_only and any(k in text for k in _MUTATION_KEYWORDS)
+
     return CapabilitySignals(
         text=text,
-        is_mutating=any(k in text for k in _MUTATION_KEYWORDS),
+        is_mutating=is_mutating,
         is_sensitive=any(k in text for k in _SENSITIVE_KEYWORDS),
         has_integration=any(k in text for k in _INTEGRATION_KEYWORDS),
         is_irreversible=any(k in text for k in _IRREVERSIBLE_KEYWORDS),
+        has_external_dependency=any(k in text for k in _EXTERNAL_DEP_KEYWORDS),
+        has_multi_step=any(k in text for k in _MULTI_STEP_KEYWORDS),
+        has_rate_limit=any(k in text for k in _RATE_LIMIT_KEYWORDS),
+        has_concurrency=any(k in text for k in _CONCURRENCY_KEYWORDS),
+        is_read_only=is_read_only,
     )
 
 

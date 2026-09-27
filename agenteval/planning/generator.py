@@ -4,7 +4,25 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agenteval.core.manifest import AgentCapability
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
-from agenteval.planning.models import CandidateTest
+from agenteval.planning.models import CandidateTest, MandatoryCategory, PriorityTier
+
+
+def classify_priority_tier(
+    mandatory_categories: list[MandatoryCategory],
+    category: str,
+    persona_slug: str,
+) -> PriorityTier:
+    """Classify a candidate test into P0 (Critical), P1 (Recommended), or P2 (Extended)."""
+    if mandatory_categories:
+        return PriorityTier.P0_CRITICAL
+    cat_lower = category.lower()
+    if cat_lower in ("security", "auth", "authorization", "data_isolation", "critical_invariants"):
+        return PriorityTier.P0_CRITICAL
+    if persona_slug.lower() in ("adversary", "chaos", "fuzzer", "redteam", "stress"):
+        return PriorityTier.P2_EXTENDED
+    if cat_lower in ("fuzzing", "adversarial", "stress"):
+        return PriorityTier.P2_EXTENDED
+    return PriorityTier.P1_RECOMMENDED
 
 
 class PersonaRef(BaseModel):
@@ -63,6 +81,9 @@ class CandidatePoolGenerator:
                             ),
                             template_id=hyp.template_id,
                             execution_cost=1.0,
+                            priority_tier=classify_priority_tier(
+                                hyp.mandatory_categories, hyp.category, persona.slug
+                            ),
                         )
                     )
         return pool

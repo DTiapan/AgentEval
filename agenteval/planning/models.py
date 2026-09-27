@@ -27,6 +27,29 @@ class MandatoryCategory(StrEnum):
     CRITICAL_INVARIANTS = "critical_invariants"
 
 
+class PriorityTier(StrEnum):
+    """Execution priority tier for test candidates and packs (human-in-the-loop curation)."""
+
+    P0_CRITICAL = "P0"
+    P1_RECOMMENDED = "P1"
+    P2_EXTENDED = "P2"
+
+
+class BudgetProjection(BaseModel):
+    """Projected coverage and cost for a given priority tier or test count."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tier: PriorityTier
+    label: str = Field(description="Short human label: Smoke (P0), Standard (P0+P1), Full Audit (All)")
+    target_test_count: int = Field(ge=0, description="Recommended number of tests")
+    projected_coverage_pct: float = Field(ge=0.0, le=100.0, description="Projected requirement coverage %")
+    estimated_latency_ms: float = Field(ge=0.0, description="Estimated total execution latency in ms")
+    estimated_cost_usd: float = Field(ge=0.0, description="Estimated LLM/token cost in USD")
+    mandatory_floors_covered: int = Field(ge=0)
+    mandatory_floors_total: int = Field(ge=0)
+
+
 class FailureHypothesis(BaseModel):
     """Rule-generated failure mode for a single capability (B1 output)."""
 
@@ -77,6 +100,10 @@ class CandidateTest(BaseModel):
         default=False,
         description="Always include in pack when present in pool",
     )
+    priority_tier: PriorityTier = Field(
+        default=PriorityTier.P1_RECOMMENDED,
+        description="P0 (Critical floors), P1 (Core workflows), P2 (Adversarial fuzzing)",
+    )
 
 
 class TestPack(BaseModel):
@@ -107,6 +134,14 @@ class OptimizerConfig(BaseModel):
     tag_weights: dict[str, float] = Field(
         default_factory=dict,
         description="Optional per-tag weight; default 1.0",
+    )
+    max_tier: PriorityTier | None = Field(
+        default=None,
+        description="If set, only consider candidates up to this tier (P0, P1, P2)",
+    )
+    selected_test_ids: list[str] | None = Field(
+        default=None,
+        description="Explicit candidate IDs chosen by user (overrides or seeds selection)",
     )
 
 

@@ -31,6 +31,8 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-021 | **Web UI-first product delivery (supersedes DR-012 ordering):** Primary onboarding = **`agenteval serve`** + **Web Console** (Studio → freeze → Assurance → Replay) backed by **`SuiteWorkflow`** and **`/v1/suites/*`** with **SQLite-primary** persistence ([ADR-004](../decisions/ADR-004-sqlite-local-persistence.md)). New product slices ship API + UI first; **Typer** remains for `serve`, engineering `suite *`, harness `run`, and `db import-suites` — no new customer-facing flows CLI-only. Spec drift / sync targets **API + Studio**, not `agenteval suite sync` as the default path. | Accepted | 2026-09-21 |
 | DR-022 | **Real-agent reference target (not keyword mocks):** Default sample for product learning is `examples/real-agent/` — LangChain/LangGraph ReAct + SQLite tools (`lookup_ticket`, `list_customer_tickets`, `update_ticket_status`, `delete_ticket`) on `POST /chat`. Rule-based `examples/blackbox/` mocks remain **fixtures** for CI without an API key, not the evaluation north star. Next slices: post-run ΔS on `.agenteval/real-agent-ops.db`, then **Jev as Tier-1 typed judge** (DR-001) on traces — not more mock agents. | Accepted | 2026-09-21 |
 | DR-023 | **LangWatch OSS architecture lessons — assurance appliance, integrate don’t rebuild:** Category validation from [langwatch/langwatch](https://github.com/langwatch/langwatch) (control plane PG + data plane ClickHouse, event-sourced workers, LangEvals sidecar, connected-agent relay). AgentEval stays **library + FastAPI + SQLite**, **verdict-first** (`PASS`/`FAIL`/`UNVERIFIABLE`), **PRD → frozen set-cover pack**; **emit** OTel from runs, **do not** ingest at LangWatch scale. Selective pattern adoption only (run isolation, optional outbound connect, trace→gap with provenance). See full entry below. | Accepted | 2026-09-21 |
+| DR-024 | **Rule-Based Failure Hypothesis Catalog Expansion (Floor Layer) & ObservableScorer Tier-0 Hardening:** Expanded hypothesis templates from 9 → 25 across Functional, Edge, Security, Reliability, and Abuse categories, achieving 100% coverage of all 8 `MandatoryCategory` floors (`DATA_ISOLATION`, `PRIVILEGE_ESCALATION`, `TOOL_OUTPUT_INJECTION`, `CRITICAL_INVARIANTS`, `AUTHORIZATION`, `PROMPT_INJECTION`, `SENSITIVE_DATA_LEAKAGE`, `IRREVERSIBLE_ACTIONS`). Added `CapabilitySignals` flags (`has_external_dependency`, `has_multi_step`, `has_rate_limit`, `has_concurrency`, `is_read_only`). Hardened `ObservableScorer` heuristic evaluation and fixed transport failure status detection. | Accepted | 2026-09-27 |
+| DR-025 | **Production-Grade Assurance Appliance Architecture (Priority Tiering, PromptFoo Bridge, DeepEval Bridge, Inspect AI Sandbox & Deterministic State-Diff Hardening):** Formalized the 3-tier assurance hierarchy (`P0 Critical Floors`, `P1 Recommended Workflows`, `P2 Adversarial & Fuzzing`) backed by marginal coverage curves and interactive execution budget controls. Integrated PromptFoo red-team bridge synthesizing 7 OWASP attack vectors; DeepEval trajectory semantic metrics (`ToolCorrectness`, `PlanAdherence`, `TaskCompletion`, `Hallucination`) with offline deterministic fallbacks; Inspect AI Docker sandbox task builder & JSONL dataset exporter; and hardened deterministic multi-table state-diff ($\Delta S$) assertions emitting `UNVERIFIABLE` when mutation evidence is missing. | Accepted | 2026-09-27 |
 
 
 ---
@@ -65,6 +67,38 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
   | LLM judge | Tier-2 overlay ([DR-001](decisions.md#active-index)) | Never invent side-effects; never downgrade `UNVERIFIABLE` |
 - **Tradeoffs accepted:** No real-time trace explorer, instant evals at 10k rows/min, or enterprise SSO in core OSS v1 — by design.
 - **Links:** [ROADMAP — Competitive Landscape](../ROADMAP.md#competitive-landscape--positioning), [LangWatch self-host architecture](https://langwatch.ai/docs/self-hosting/infrastructure/architecture.md), upstream [FEATURE_MAP.md](https://github.com/langwatch/langwatch/blob/main/FEATURE_MAP.md).
+
+### DR-024 — Rule-Based Failure Hypothesis Catalog Expansion & ObservableScorer Tier-0 Hardening
+
+- **Date:** 2026-09-27
+- **Status:** accepted
+- **Context:** AgentEval's black-box test generation previously generated candidates using only 9 hardcoded hypothesis templates in `hypothesis_catalog.py`, leaving 4 out of 8 `MandatoryCategory` safety floors completely unpopulated (`DATA_ISOLATION`, `PRIVILEGE_ESCALATION`, `TOOL_OUTPUT_INJECTION`, `CRITICAL_INVARIANTS`). Additionally, `CapabilitySignals` only evaluated 4 coarse flags, and `ObservableScorer` had heuristic rules for only 6 templates, misclassifying transport failures on HTTP 200 responses mentioning "timed out".
+- **Decision:**
+  1. Expand hypothesis template catalog from 9 → 25 templates across Functional, Edge, Security, Reliability, and Abuse categories.
+  2. Achieve 100% population for all 8 `MandatoryCategory` safety floors.
+  3. Expand `CapabilitySignals` with 5 new flags (`has_external_dependency`, `has_multi_step`, `has_rate_limit`, `has_concurrency`, `is_read_only`) with refined mutation-vs-read-only signal resolution.
+  4. Expand `ObservableScorer` with deterministic heuristic rules for all 25 templates, checking false success claim tokens before keyword matching and fixing `_is_transport_failure` to require HTTP >= 500.
+  5. Fix Session 28 `requirement_id` hash transition test expectations across test files.
+- **Consequences:** Provides a rock-solid, deterministic rule-based floor (Layer 1 of 3-layer pipeline) before LLM-based generation (Layer 2) and Jev multi-axis scoring (Layer 3). Full suite passes with 166 tests and 86.19% coverage.
+
+
+### DR-025 — Production-Grade Assurance Appliance Architecture: Priority Tiering and Pragmatic OSS Bridges
+
+- **Date:** 2026-09-27
+- **Status:** accepted
+- **Context:** Enterprise users deploying agents against PRD specifications face two core dilemmas: (1) "Which metrics and test cases should I run without wasting budget running 500 tests?", and (2) "How do we leverage standard evaluation tools without locking into heavyweight external cloud dependencies or compromising deterministic evidence?"
+- **Options:**
+  1. **Monolithic custom evaluator expansion:** Build every evaluator, red-team fuzzer, and sandbox runner from scratch in-house.
+  2. **External SaaS dependency:** Mandate cloud PromptFoo / DeepEval / Inspect SaaS accounts and API keys.
+  3. **Zero-bloat OSS bridges with offline deterministic fallback + Priority Tiering:** Integrate PromptFoo (adversarial attacks), DeepEval (trajectory semantics), and Inspect AI (Docker container sandbox specifications) as pluggable bridges with 100% offline deterministic heuristic fallbacks and an interactive 3-tier marginal coverage optimizer.
+- **Decision:** **Option 3.**
+  1. **No Hardcoded Test Counts / No Blame:** Replace arbitrary cutoffs with a 3-tier hierarchy (`P0 Critical Floors`, `P1 Recommended Workflows`, `P2 Adversarial & Fuzzing`) backed by a greedy marginal coverage curve ($R(C)/N$) and dynamic budget projections.
+  2. **Interactive Budget Controls in Studio UI:** Expose a budget ceiling slider dynamically bound to candidate pool size, allowing users to tune execution budget and inspect test tiers before freezing suites.
+  3. **PromptFoo Adversarial Bridge:** Synthesize OWASP Top 10, jailbreak, BOLA, and PII leakage probes into candidate tests, exporting PromptFoo YAML configurations and providing deterministic offline generation.
+  4. **DeepEval Trajectory Metric Bridge:** Support semantic metric evaluation (`ToolCorrectness`, `PlanAdherence`, `TaskCompletion`, `Hallucination`) with zero-dependency offline deterministic heuristic fallbacks for CI and airgapped environments.
+  5. **Inspect AI Sandbox Bridge:** Provide Docker container sandbox specifications and Inspect AI Task / dataset JSONL exports for code/shell agents per ADR-001 & ADR-005.
+  6. **Deterministic Evidence vs Self-Report:** Hardened multi-table state diffs ($\Delta S$); explicitly emits `UNVERIFIABLE` whenever environmental mutation proof is missing or unsealed.
+- **Consequences:** Eliminates vendor lock-in and high cloud eval bills while giving users enterprise-grade test generation, transparent priority tiering, and sealed evidence sign-off reports.
 
 ---
 

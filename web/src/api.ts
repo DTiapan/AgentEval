@@ -84,6 +84,8 @@ export async function previewSuite(payload: {
   agent_id: string;
   endpoint_url?: string;
   max_tests?: number;
+  target_tier?: string;
+  selected_test_ids?: string[];
 }): Promise<PreviewResponse> {
   const res = await fetch(`${API_BASE}/v1/suites/preview`, {
     method: "POST",
@@ -104,6 +106,8 @@ export async function initSuite(payload: {
   max_tests?: number;
   force_new_version?: boolean;
   enabled_domain_packs?: string[];
+  target_tier?: string;
+  selected_test_ids?: string[];
 }): Promise<SuiteInitResult> {
   const res = await fetch(`${API_BASE}/v1/suites`, {
     method: "POST",
@@ -129,7 +133,7 @@ export async function extendSuiteGaps(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         max_add: payload?.max_add ?? 5,
-        run_id: payload?.run_id ?? null,
+        run_id: payload?.run_id || null,
       }),
     },
   );
@@ -143,6 +147,8 @@ export async function syncSuite(
     endpoint_url?: string;
     max_tests?: number;
     enabled_domain_packs?: string[];
+    target_tier?: string;
+    selected_test_ids?: string[];
   },
 ): Promise<SuiteSyncResult> {
   const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/sync`, {

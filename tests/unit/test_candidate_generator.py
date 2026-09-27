@@ -17,7 +17,8 @@ def test_pool_is_persona_times_hypotheses_bounded() -> None:
     gen = CandidatePoolGenerator()
     pool = gen.build_pool("agent-refund", caps, personas)
     assert len(pool) == len(hyps) * len(personas)
-    assert all(t.capability_id == "issue-refund" for t in pool)
+    expected_cap_id = caps[0].requirement_id()
+    assert all(t.capability_id == expected_cap_id for t in pool)
     assert all(t.persona_id in {"frequent-user", "adversary"} for t in pool)
     assert all(t.template_id is not None for t in pool)
 

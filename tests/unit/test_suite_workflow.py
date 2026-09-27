@@ -4,6 +4,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from agenteval.db.suite_repository import SuiteRepository
+from agenteval.ingest.requirements import RequirementsIngestor
 from agenteval.planning.models import ObservationBundle, SuiteRunReport, TestCaseResult
 from agenteval.services.suite_workflow import SuiteWorkflow
 
@@ -149,8 +150,10 @@ def test_sqlite_sync_prunes_removed_capability(tmp_path: Path) -> None:
     )
     before = workflow.get_suite("sync-agent")
     assert before.manifest.version == 1
+    card_two = RequirementsIngestor.from_text(PRD_TWO_CAPS, agent_id="sync-agent")
+    lookup_cap_id = card_two.capabilities[1].requirement_id()
     lookup_caps = [
-        t.capability_id for t in before.optimized_pack.tests if "lookup" in t.capability_id
+        t.capability_id for t in before.optimized_pack.tests if t.capability_id == lookup_cap_id
     ]
     assert lookup_caps
 
@@ -160,12 +163,12 @@ def test_sqlite_sync_prunes_removed_capability(tmp_path: Path) -> None:
         endpoint_url="http://127.0.0.1:9/chat",
     )
     assert not result.noop
-    assert any("lookup" in cap for cap in result.removed_capabilities)
+    assert lookup_cap_id in result.removed_capabilities
     assert result.new_version == 2
 
     after = workflow.get_suite("sync-agent")
     assert after.manifest.version == 2
-    assert not any("lookup" in t.capability_id for t in after.optimized_pack.tests)
+    assert not any(t.capability_id == lookup_cap_id for t in after.optimized_pack.tests)
     assert after.requirements_text == PRD_ONE_CAP
 
 

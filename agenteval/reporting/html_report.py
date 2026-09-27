@@ -23,6 +23,7 @@ class HTMLReportGenerator:
     def _format_test_label(test_def: CandidateTest | None, test_id: str, index: int) -> str:
         """Match ``web/src/lib/format-test-label.ts`` for console parity."""
         ordinal = f"{index + 1:02d}"
+        tier_pfx = f"[{test_def.priority_tier.value}] " if (test_def and test_def.priority_tier) else ""
         if test_def is None:
             return f"[{ordinal}] {test_id}"
         persona = (test_def.persona_id or "persona").replace("-", " ")
@@ -38,9 +39,9 @@ class HTMLReportGenerator:
             and len(test_def.name) <= 32
             and not test_def.name.startswith("core-agent")
         ):
-            return f"[{ordinal}] {test_def.name}"
+            return f"{tier_pfx}[{ordinal}] {test_def.name}"
         tail = f"{category} · {mode}" if mode else category
-        return f"[{ordinal}] {persona} · {tail}"
+        return f"{tier_pfx}[{ordinal}] {persona} · {tail}"
 
     @staticmethod
     def _p95_latency(latencies: list[float]) -> float:
@@ -97,11 +98,17 @@ class HTMLReportGenerator:
                     else str(test_def.category)
                 )
 
+            tier_val = (
+                test_def.priority_tier.value
+                if (test_def and test_def.priority_tier)
+                else "P1"
+            )
             merged_tests.append(
                 {
                     "test_id": res.test_id,
                     "tab_label": cls._format_test_label(test_def, res.test_id, index),
                     "title": test_def.name if test_def else res.test_id,
+                    "priority_tier": tier_val,
                     "category": cat_val,
                     "capability_id": test_def.capability_id if test_def else "unknown",
                     "persona_slug": test_def.persona_id if test_def else "default",
@@ -127,6 +134,25 @@ class HTMLReportGenerator:
         pass_rate = round((report.passed / total_tests) * 100, 1) if total_tests > 0 else 0.0
         pack_test_count = len(pack.tests)
 
+        tier_counts = {"P0": 0, "P1": 0, "P2": 0}
+        tier_passes = {"P0": 0, "P1": 0, "P2": 0}
+        for item in merged_tests:
+            pt = str(item.get("priority_tier") or "P1")
+            tier_counts[pt] = tier_counts.get(pt, 0) + 1
+            if item.get("verdict") == "PASS":
+                tier_passes[pt] = tier_passes.get(pt, 0) + 1
+
+        tier_summary = {
+            t: {
+                "total": tier_counts.get(t, 0),
+                "passed": tier_passes.get(t, 0),
+                "pass_rate": round((tier_passes.get(t, 0) / tier_counts[t]) * 100, 1)
+                if tier_counts.get(t, 0) > 0
+                else 0.0,
+            }
+            for t in ("P0", "P1", "P2")
+        }
+
         # JSON data payload for embedded viewer script
         embedded_data = {
             "agent_id": report.agent_id,
@@ -144,6 +170,7 @@ class HTMLReportGenerator:
             "diff": diff,
             "coverage": report.coverage_report.model_dump() if report.coverage_report else None,
             "tests": merged_tests,
+            "tier_summary": tier_summary,
             "signoff": signoff.model_dump() if signoff is not None else None,
         }
 
@@ -198,6 +225,11 @@ class HTMLReportGenerator:
         critical_uncovered = cov.get("critical_uncovered") or []
         metadata = cov.get("metadata") or {}
         limitations = metadata.get("limitations") or []
+
+        tier_summary = data.get("tier_summary") or {}
+        p0_info = tier_summary.get("P0", {"total": 0, "passed": 0, "pass_rate": 0.0})
+        p1_info = tier_summary.get("P1", {"total": 0, "passed": 0, "pass_rate": 0.0})
+        p2_info = tier_summary.get("P2", {"total": 0, "passed": 0, "pass_rate": 0.0})
 
         signoff = data.get("signoff") or {}
         signoff_reqs = signoff.get("requirements") or []
@@ -854,6 +886,22 @@ class HTMLReportGenerator:
       </div>
     </div>
 
+    <!-- Priority Tier Assurance Summary Strip -->
+    <div class="surface-card" style="margin-bottom: 1.25rem; padding: 0.85rem 1.15rem; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem;">
+      <div style="font-size: 13px; font-weight: 600; color: var(--foreground);">Assurance Priority Tiers</div>
+      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <span class="diff-chip" style="background: color-mix(in oklch, var(--destructive) 10%, var(--card)); border: 1px solid color-mix(in oklch, var(--destructive) 35%, transparent); color: var(--destructive);">
+          P0 Critical: {p0_info['passed']}/{p0_info['total']} ({p0_info['pass_rate']}%)
+        </span>
+        <span class="diff-chip" style="background: color-mix(in oklch, var(--primary) 10%, var(--card)); border: 1px solid color-mix(in oklch, var(--primary) 35%, transparent); color: var(--primary);">
+          P1 Core: {p1_info['passed']}/{p1_info['total']} ({p1_info['pass_rate']}%)
+        </span>
+        <span class="diff-chip" style="background: color-mix(in oklch, var(--warn) 10%, var(--card)); border: 1px solid color-mix(in oklch, var(--warn) 35%, transparent); color: var(--warn);">
+          P2 Extended: {p2_info['passed']}/{p2_info['total']} ({p2_info['pass_rate']}%)
+        </span>
+      </div>
+    </div>
+
     {signoff_html}
 
     <!-- Regression Diff Spotlight -->
@@ -893,6 +941,9 @@ class HTMLReportGenerator:
         {reg_filter_btn}
         <button class="filter-btn" onclick="setFilter('pass', this)">Passed ({passed})</button>
         <button class="filter-btn" onclick="setFilter('unverifiable', this)">Unverifiable ({unverifiable})</button>
+        <button class="filter-btn" onclick="setFilter('p0', this)">P0 ({p0_info['total']})</button>
+        <button class="filter-btn" onclick="setFilter('p1', this)">P1 ({p1_info['total']})</button>
+        <button class="filter-btn" onclick="setFilter('p2', this)">P2 ({p2_info['total']})</button>
       </div>
       <div>
         <input type="text" id="searchInput" class="search-input" placeholder="Search tests, prompt, tags..." oninput="handleSearch()" />
@@ -935,6 +986,9 @@ class HTMLReportGenerator:
         if (currentFilter === 'fail' && t.verdict !== 'FAIL') return false;
         if (currentFilter === 'unverifiable' && t.verdict !== 'UNVERIFIABLE') return false;
         if (currentFilter === 'regression' && !t.is_regression) return false;
+        if (currentFilter === 'p0' && (t.priority_tier || 'P1') !== 'P0') return false;
+        if (currentFilter === 'p1' && (t.priority_tier || 'P1') !== 'P1') return false;
+        if (currentFilter === 'p2' && (t.priority_tier || 'P1') !== 'P2') return false;
 
         if (searchQuery) {{
           const q = searchQuery.toLowerCase();
@@ -967,6 +1021,7 @@ class HTMLReportGenerator:
           <div class="test-card-header" onclick="toggleCard(this.parentElement)">
             <div class="test-left">
               <span class="status-badge ${{badgeClass}}">${{t.verdict}}</span>
+              <span class="tag-pill" style="font-weight: 700; font-size: 10px;">${{t.priority_tier || 'P1'}}</span>
               ${{regBadge}}
               <span class="test-title">${{escapeHtml(t.tab_label || t.title)}}</span>
               <span class="test-id">#${{escapeHtml(t.test_id)}}</span>

@@ -2,8 +2,8 @@
 
 > Read this file before non-trivial work. Update at end of each substantive session.
 
-**Active phase:** Build → Verify  
-**Last updated:** 2026-09-21 ([DR-023](decisions.md#dr-023--langwatch-oss-architecture-lessons-assurance-appliance-vs-llmops-platform) LangWatch architecture guardrails)
+**Active phase:** Build → Verify → Ready for Review  
+**Last updated:** 2026-09-27 ([DR-025](decisions.md#dr-025--production-grade-assurance-appliance-architecture-priority-tiering-and-pragmatic-oss-bridges) Assurance Appliance & OSS Bridges)
 
 ## Current focus
 
@@ -17,6 +17,8 @@
 
 ## Recent sessions
 
+- **2026-09-27 (session 34)**: **Production-Grade Assurance Appliance Architecture & Pragmatic OSS Bridges ([DR-025](decisions.md#active-index))** — Delivered complete 6-phase assurance engine solving "what tests/metrics to run": (1) 3-tier hierarchy (`P0 Critical Floors`, `P1 Recommended Workflows`, `P2 Adversarial & Fuzzing`) + marginal coverage curve budget projections ($R(C)/N$); (2) Web Studio UI assurance budget slider and interactive tier exploration; (3) PromptFoo red-team bridge synthesizing 7 OWASP attack vectors; (4) DeepEval trajectory evaluators bridge with offline heuristics; (5) Pluggable Inspect AI Docker sandbox task builder & dataset JSONL exporter; (6) Deterministic multi-table state-diff ($\Delta S$) assertions and Allure-class HTML report tier filtering. 198 tests green, 86.26% coverage, 0 mypy/ruff/build errors.
+- **2026-09-27 (session 33)**: **Phase A (Rule-Based Hypothesis Expansion & Scorer Upgrade)** — Expanded failure hypothesis catalog from 9 → 25 templates covering all 8 `MandatoryCategory` safety floors (DATA_ISOLATION, PRIVILEGE_ESCALATION, TOOL_OUTPUT_INJECTION, CRITICAL_INVARIANTS). Added 5 new `CapabilitySignals` flags (`has_external_dependency`, `has_multi_step`, `has_rate_limit`, `has_concurrency`, `is_read_only`). Upgraded `ObservableScorer` with deterministic scoring for all 25 templates + fixed transport failure bug (requiring HTTP >= 500). Resolved Session 28 `requirement_id` hash transition test breakages. 166 tests passing at 86.19% coverage. **Next:** Phase C (Jev Multi-Axis Candidate Quality Scorer).
 - **2026-09-27 (session 32)**: **MVP+ wedge** — `GET /v1/packs`, `enabled_domain_packs` on init/sync + Studio checkboxes; FR-B-17/23 HTML sign-off sections; Inspect 5a sidecar + `inspect_log_*` columns; NFR-B-07 check script.
 - **2026-09-27 (session 31)**: **Fintech pack v0 complete** — freeze metadata (`packs`, `suite_pack_selections`, `compliance_controls`, maps), synthetic test data, `audit_log` connector + `AGENTEVAL_AUDIT_LOG_DB_PATH`, `agenteval.pack_checks` + `fintech.audit.refund_logged`. **Next:** ⑤ Inspect eval(); pack UX API; FR-B-17/23 HTML report.
 - **2026-09-27 (session 30)**: **Fintech pack v0** — `agenteval/packs/protocol.py`, registry, `agenteval_packs.fintech`; freeze merges pack mandatory reqs when `AGENTEVAL_ENABLED_DOMAIN_PACKS=fintech`.

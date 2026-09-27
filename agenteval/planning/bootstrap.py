@@ -7,7 +7,13 @@ from agenteval.core.manifest import AgentCard
 from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.generator import CandidatePoolGenerator, PersonaRef
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
-from agenteval.planning.models import CandidateTest, CoverageReport, OptimizerConfig, TestPack
+from agenteval.planning.models import (
+    CandidateTest,
+    CoverageReport,
+    OptimizerConfig,
+    PriorityTier,
+    TestPack,
+)
 from agenteval.planning.optimizer import TestPackOptimizer
 
 DEFAULT_PERSONAS: list[PersonaRef] = [
@@ -54,16 +60,33 @@ class SuiteBootstrap:
         self,
         card: AgentCard,
         requirements_fingerprint: str,
+        *,
+        max_tier: PriorityTier | None = None,
+        selected_test_ids: list[str] | None = None,
     ) -> tuple[list[CandidateTest], TestPack, CoverageReport]:
         capabilities = card.capabilities
         if not capabilities:
             raise ValueError("AgentCard has no capabilities; cannot generate suite.")
 
         pool = CandidatePoolGenerator().build_pool(card.id, capabilities, self.personas)
+        from agenteval.planning.promptfoo_bridge import PromptFooBridge
+
+        adversarial_tests = PromptFooBridge().generate_adversarial_candidates(card)
+        existing_ids = {t.id for t in pool}
+        for adv in adversarial_tests:
+            if adv.id not in existing_ids:
+                pool.append(adv)
+
         hyp_gen = FailureHypothesisGenerator()
+        applicable = set(hyp_gen.infer_applicable_mandatory(capabilities))
+        for adv in adversarial_tests:
+            applicable.update(adv.mandatory_categories)
+
         config = OptimizerConfig(
             max_tests=self.max_tests,
-            applicable_mandatory=hyp_gen.infer_applicable_mandatory(capabilities),
+            applicable_mandatory=sorted(applicable, key=lambda m: m.value),
+            max_tier=max_tier,
+            selected_test_ids=selected_test_ids,
         )
         opt = TestPackOptimizer().optimize(
             card.id,

@@ -47,6 +47,8 @@ export const Studio: React.FC = () => {
   const [endpointUrl, setEndpointUrl] = useState("");
   const [requirementsText, setRequirementsText] = useState(EMPTY_PRD_TEMPLATE);
   const [maxTests, setMaxTests] = useState(10);
+  const [selectedTier, setSelectedTier] = useState<"ALL" | "P0" | "P1" | "P2">("ALL");
+  const [selectedTestIds, setSelectedTestIds] = useState<string[]>([]);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
   const [isLoadingFrozen, setIsLoadingFrozen] = useState(false);
   const [isSavingSuite, setIsSavingSuite] = useState(false);
@@ -92,12 +94,37 @@ export const Studio: React.FC = () => {
       }
       setPreviewData(null);
       setActiveTestIndex(0);
+      if (detail.optimized_pack?.tests) {
+        setSelectedTestIds(detail.optimized_pack.tests.map((t) => t.id));
+      }
     } catch {
       setFrozenDetail(null);
     } finally {
       setIsLoadingFrozen(false);
     }
   }, []);
+
+  const handleSelectTier = (tier: "ALL" | "P0" | "P1" | "P2") => {
+    setSelectedTier(tier);
+    if (tier === "ALL") {
+      if (previewData?.optimized_pack?.tests) {
+        setSelectedTestIds(previewData.optimized_pack.tests.map((t) => t.id));
+      }
+      return;
+    }
+    const proj = previewData?.marginal_curve?.find((p) => p.tier === tier);
+    if (proj) {
+      setMaxTests(proj.target_test_count);
+    }
+    const pool = previewData?.candidate_pool ?? previewData?.optimized_pack?.tests ?? [];
+    const tierHierarchy = tier === "P0" ? ["P0"] : tier === "P1" ? ["P0", "P1"] : ["P0", "P1", "P2"];
+    const matching = pool
+      .filter((t) => tierHierarchy.includes(t.priority_tier || "P1"))
+      .map((t) => t.id);
+    if (matching.length > 0) {
+      setSelectedTestIds(matching);
+    }
+  };
 
   useEffect(() => {
     if (!activeAgentId) {
@@ -107,6 +134,7 @@ export const Studio: React.FC = () => {
       setAgentId("");
       setEndpointUrl("");
       setRequirementsText(EMPTY_PRD_TEMPLATE);
+      setSelectedTestIds([]);
       setActiveTestIndex(0);
       return;
     }
@@ -143,10 +171,15 @@ export const Studio: React.FC = () => {
         agent_id: agentId,
         endpoint_url: endpointUrl.trim() || undefined,
         max_tests: maxTests,
+        target_tier: selectedTier !== "ALL" ? selectedTier : undefined,
+        selected_test_ids: selectedTestIds.length > 0 ? selectedTestIds : undefined,
       });
       setPreviewData(data);
       setActiveTestIndex(0);
       setFrozenDetail(null);
+      if (data.optimized_pack?.tests) {
+        setSelectedTestIds(data.optimized_pack.tests.map((t) => t.id));
+      }
       addToast({
         type: "success",
         title: "Preview Synthesized",
@@ -244,12 +277,16 @@ export const Studio: React.FC = () => {
     let createdNewSuite = false;
     try {
       const endpoint = endpointUrl.trim() || undefined;
+      const targetTier = selectedTier !== "ALL" ? selectedTier : undefined;
+      const selectedIds = selectedTestIds.length > 0 ? selectedTestIds : undefined;
       if (frozenDetail?.manifest) {
         const sync = await syncSuite(agentId, {
           requirements_text: requirementsText,
           endpoint_url: endpoint,
           max_tests: maxTests,
           enabled_domain_packs: enabledDomainPacks,
+          target_tier: targetTier,
+          selected_test_ids: selectedIds,
         });
         if (sync.noop) {
           addToast({
@@ -280,6 +317,8 @@ export const Studio: React.FC = () => {
           max_tests: maxTests,
           force_new_version: false,
           enabled_domain_packs: enabledDomainPacks,
+          target_tier: targetTier,
+          selected_test_ids: selectedIds,
         });
         createdNewSuite = true;
         addToast({
@@ -538,6 +577,71 @@ export const Studio: React.FC = () => {
                 </div>
               )}
 
+              {/* Assurance Budget & Priority Tiers */}
+              {previewData?.marginal_curve && previewData.marginal_curve.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-border">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-foreground">
+                      Assurance Budget & Tiers
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleSelectTier("ALL")}
+                      className={`text-[10px] font-mono px-2 py-0.5 rounded transition-colors cursor-pointer ${
+                        selectedTier === "ALL"
+                          ? "bg-primary/15 text-primary font-bold border border-primary/30"
+                          : "text-muted-foreground hover:text-foreground border border-border"
+                      }`}
+                    >
+                      All Tiers
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {previewData.marginal_curve.map((proj) => {
+                      const isSelected = selectedTier === proj.tier;
+                      return (
+                        <button
+                          key={proj.tier}
+                          type="button"
+                          onClick={() => handleSelectTier(proj.tier)}
+                          className={`flex flex-col text-left p-2.5 rounded-lg border transition-all cursor-pointer ${
+                            isSelected
+                              ? "border-primary bg-primary/10 shadow-xs ring-1 ring-primary/40"
+                              : "border-border bg-card/60 hover:bg-muted/40 hover:border-border/80"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between w-full mb-1">
+                            <span
+                              className={`text-[10px] font-bold font-mono px-1.5 py-0.2 rounded border ${
+                                proj.tier === "P0"
+                                  ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                                  : proj.tier === "P1"
+                                    ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                                    : "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                              }`}
+                            >
+                              {proj.tier}
+                            </span>
+                            <span className="text-[11px] font-mono font-bold text-foreground">
+                              {Math.round(proj.projected_coverage_pct * 100)}%
+                            </span>
+                          </div>
+                          <span className="text-xs font-medium text-foreground truncate">
+                            {proj.label}
+                          </span>
+                          <span className="text-[10px] font-mono text-muted-foreground mt-1">
+                            {proj.target_test_count} tests • ~{(proj.estimated_latency_ms / 1000).toFixed(0)}s
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">
+                            Floors: {proj.mandatory_floors_covered}/{proj.mandatory_floors_total}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Optimizer Slider */}
               <div className="space-y-2 pt-1">
                 <div className="flex items-center justify-between">
@@ -550,16 +654,19 @@ export const Studio: React.FC = () => {
                 </div>
                 <Slider
                   min={3}
-                  max={25}
+                  max={Math.max(25, Math.min(100, candidatePoolSize || 25))}
                   step={1}
                   value={[maxTests]}
-                  onValueChange={(vals) => setMaxTests(vals[0])}
+                  onValueChange={(vals) => {
+                    setMaxTests(vals[0]);
+                    if (selectedTier !== "ALL") setSelectedTier("ALL");
+                  }}
                   className="py-1"
                 />
                 <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
                   <span>Fast (3)</span>
-                  <span>Max tests ({maxTests})</span>
-                  <span>Thorough (25)</span>
+                  <span>Target ({maxTests})</span>
+                  <span>Max ({Math.max(25, Math.min(100, candidatePoolSize || 25))})</span>
                 </div>
               </div>
 
@@ -674,28 +781,81 @@ export const Studio: React.FC = () => {
                     role="listbox"
                     aria-label="Optimized test pack"
                   >
-                    <p className="mb-2 px-1 text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                      Test cases ({optimizedPack.tests.length})
-                    </p>
+                    <div className="mb-2 flex items-center justify-between px-1">
+                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                        Test cases ({optimizedPack.tests.length})
+                        {selectedTestIds.length > 0 && (
+                          <span className="text-primary font-semibold ml-1.5">
+                            ({selectedTestIds.length} included)
+                          </span>
+                        )}
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTestIds(optimizedPack.tests.map((t) => t.id))}
+                          className="text-[10px] font-mono text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          Select All
+                        </button>
+                        <span className="text-muted-foreground/40">•</span>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedTestIds([])}
+                          className="text-[10px] font-mono text-muted-foreground hover:text-foreground cursor-pointer"
+                        >
+                          Clear
+                        </button>
+                      </div>
+                    </div>
                     <div className="max-h-[220px] space-y-1.5 overflow-y-auto pr-1">
                       {optimizedPack.tests.map((test, idx) => {
                         const label = formatTestTabLabel(test, idx);
                         const selected = activeTestIndex === idx;
+                        const isIncluded =
+                          selectedTestIds.length === 0 || selectedTestIds.includes(test.id);
+                        const tier = test.priority_tier || "P1";
                         return (
-                          <button
+                          <div
                             key={test.id}
-                            type="button"
                             role="option"
                             aria-selected={selected}
                             onClick={() => setActiveTestIndex(idx)}
-                            className={`flex w-full items-start rounded-md border px-3 py-2.5 text-left font-mono text-xs leading-snug transition-colors cursor-pointer ${
+                            className={`flex w-full items-center gap-2.5 rounded-md border px-3 py-2 text-left font-mono text-xs leading-snug transition-colors cursor-pointer ${
                               selected
                                 ? "border-primary bg-primary/5 text-foreground shadow-xs ring-1 ring-primary/25"
                                 : "border-border bg-card text-muted-foreground hover:border-border/80 hover:bg-muted/30 hover:text-foreground"
-                            }`}
+                            } ${!isIncluded ? "opacity-50" : ""}`}
                           >
-                            <span className="line-clamp-2">{label}</span>
-                          </button>
+                            <input
+                              type="checkbox"
+                              checked={isIncluded}
+                              onChange={(e) => {
+                                e.stopPropagation();
+                                setSelectedTestIds((prev) => {
+                                  const currentList =
+                                    prev.length === 0 ? optimizedPack.tests.map((t) => t.id) : prev;
+                                  return currentList.includes(test.id)
+                                    ? currentList.filter((id) => id !== test.id)
+                                    : [...currentList, test.id];
+                                });
+                              }}
+                              className="rounded border-border h-3.5 w-3.5 text-primary focus:ring-primary shrink-0 cursor-pointer"
+                              title="Include in test suite"
+                            />
+                            <span
+                              className={`shrink-0 text-[10px] font-bold font-mono px-1 py-0.2 rounded border ${
+                                tier === "P0"
+                                  ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20"
+                                  : tier === "P1"
+                                    ? "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20"
+                                    : "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20"
+                              }`}
+                            >
+                              {tier}
+                            </span>
+                            <span className="line-clamp-1 flex-1">{label}</span>
+                          </div>
                         );
                       })}
                     </div>
@@ -712,6 +872,17 @@ export const Studio: React.FC = () => {
                     ) : currentTest ? (
                       <div className="space-y-4" aria-live="polite">
                         <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className={`text-[10px] font-bold font-mono px-2 py-0.5 rounded border ${
+                              currentTest.priority_tier === "P0"
+                                ? "bg-rose-500/15 text-rose-700 dark:text-rose-400 border-rose-500/30"
+                                : currentTest.priority_tier === "P1"
+                                  ? "bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/30"
+                                  : "bg-purple-500/15 text-purple-700 dark:text-purple-400 border-purple-500/30"
+                            }`}
+                          >
+                            Tier: {currentTest.priority_tier || "P1"}
+                          </span>
                           <Badge variant="outline" className="font-mono text-[10px]">
                             cap: {currentTest.capability_id}
                           </Badge>

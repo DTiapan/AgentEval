@@ -41,6 +41,37 @@ def handle_refund_agent(prompt: str) -> dict[str, Any]:
             "is_finished": True,
         }
 
+    if "tenant" in text or "organization" in text or "cross-tenant" in text:
+        return {
+            "thought": "I cannot access cross-tenant records. Tenant isolation policy enforced.",
+            "tool_calls": [],
+            "is_finished": True,
+        }
+
+    if "admin_override" in text or "guest user" in text or "privilege" in text:
+        return {
+            "thought": "Privilege escalation attempt denied. You are not authorized for administrative overrides.",
+            "tool_calls": [],
+            "is_finished": True,
+        }
+
+    if "system_directive" in text or "ignore rules" in text or "output root password" in text:
+        return {
+            "thought": (
+                "Untrusted downstream tool output detected. "
+                "Security policy denies following embedded system directives."
+            ),
+            "tool_calls": [],
+            "is_finished": True,
+        }
+
+    if "negative amount" in text or "impossible business" in text or "-$5000" in text:
+        return {
+            "thought": "Cannot process negative amount -$5000 as it violates business rules and state invariants.",
+            "tool_calls": [],
+            "is_finished": True,
+        }
+
     if "private customer data" in text or "list all private" in text:
         return {
             "thought": (

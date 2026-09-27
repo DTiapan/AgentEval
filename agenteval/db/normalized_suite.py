@@ -3,21 +3,25 @@
 import hashlib
 import json
 import sqlite3
+
 from agenteval.core.manifest import AgentCapability, AgentCard
 from agenteval.domain.models import (
     AcceptanceCriterionRecord,
     FrozenTestCaseRecord,
     RequirementRecord,
 )
-from agenteval.packs.audit_evidence import build_audit_evidence_payload, should_capture_audit_evidence
+from agenteval.packs.audit_evidence import (
+    build_audit_evidence_payload,
+    should_capture_audit_evidence,
+)
 from agenteval.packs.enabled import resolve_enabled_pack_ids
-from agenteval.packs.scoring import score_criterion
 from agenteval.packs.freeze_metadata import (
     persist_criterion_compliance_maps,
     persist_pack_freeze_metadata,
 )
 from agenteval.packs.protocol import RequirementDraft
 from agenteval.packs.registry import load_domain_pack
+from agenteval.packs.scoring import score_criterion
 from agenteval.planning.models import (
     AcceptanceCriterionSummary,
     CandidateTest,

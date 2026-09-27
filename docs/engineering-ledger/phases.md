@@ -25,3 +25,6 @@
   - Completed **Plan** phase deliverables: formulated AP-001 in [attack-plans.md](attack-plans.md).
   - Completed **Build** phase deliverables: implemented all 8 vertical slices with strict test-driven development, achieving 92.22% coverage across 37 automated tests.
   - Entered **Verify** phase: validated interactive execution, chaos fault injection recovery, and offline replay with root-cause jumping.
+- **2026-09-27**:
+  - Completed **Assurance Appliance & OSS Bridges** (Phases 1–6, [DR-025](decisions.md#active-index)): implemented Priority Tiering (`P0`, `P1`, `P2`), dynamic budget projections, PromptFoo red-team bridge, DeepEval trajectory metrics bridge, Inspect AI Docker sandbox task builder, and deterministic state-diff ($\Delta S$) hardening. All 198 tests passing at 86.26% coverage, clean `mypy --strict`, clean `ruff`, and verified Vite web console build.
+

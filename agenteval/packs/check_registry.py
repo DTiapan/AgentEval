@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from importlib.metadata import entry_points
+from typing import Any
 
 from agenteval.packs.protocol import CriterionVerdictDraft
 
@@ -24,7 +25,7 @@ def resolve_check_by_kind(check_kind: str, pack_checks: dict[str, PackCheckFn]) 
     from agenteval.packs.registry import discover_domain_packs
 
     for pack in discover_domain_packs().values():
-        registrations = getattr(pack, "register_checks", lambda: [])()
+        registrations: list[Any] = getattr(pack, "register_checks", lambda: [])()
         for reg in registrations:
             if reg.check_kind == check_kind:
                 return pack_checks.get(reg.entry_point_name)

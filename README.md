@@ -138,6 +138,75 @@ Domain pack (fintech, …) adds requirements, controls, checks
 
 We document **why**, not only **what** — so reviewers can follow the engineering story.
 
+### End-to-End System Architecture
+
+```mermaid
+graph TB
+    subgraph S1["1. INGESTION & AUTO-RECOMMENDATION"]
+        PRD["PRD / Spec (Markdown / OpenAPI / AgentCard)"] --> Ingestor["Requirements Ingestor & Parser"]
+        Ingestor --> ArchetypeClassifier["Archetype Classifier\n(Financial, Support, Code, Retrieval)"]
+        ArchetypeClassifier --> Router["Recommendation Brain (MetricRouter)\n- Selects DeepEval Metrics\n- Selects PromptFoo Attack Plugins\n- Selects Invariant Floors (25 Templates)"]
+    end
+
+    subgraph S2["2. CANDIDATE TEST GENERATION"]
+        Router --> GenPool["Candidate Generation Layer"]
+        GenPool --> RuleGen["Invariant Floor Generator\n(BOLA, Data Isolation, Idempotency)"]
+        GenPool --> PromptFooBridge["PromptFoo Adversarial Bridge\n(Jailbreaks, Injections, PII Leaks)"]
+        GenPool --> DomainPacks["Domain Pack Synthesizer\n(e.g., Fintech Refund Audit)"]
+        GenPool --> LLMSynth["PRD Requirements Synthesizer\n(Edge-case generator)"]
+        RuleGen --> RawPool["Raw Candidate Test Pool\n(100 - 500 Tests)"]
+        PromptFooBridge --> RawPool
+        DomainPacks --> RawPool
+        LLMSynth --> RawPool
+    end
+
+    subgraph S3["3. HUMAN-IN-THE-LOOP TIERED CURATION"]
+        RawPool --> JevScorer["Jev Multi-Axis Scorer\n(Severity, Novelty, Cost, Flakiness)"]
+        JevScorer --> Bucketer["Priority Tier Bucketer\n- P0: Critical Invariant Floors\n- P1: Core Business Workflows\n- P2: Extended Adversarial Fuzzing"]
+        Bucketer --> BudgetCurve["Marginal Coverage Calculator\n(e.g., 30 tests=60%, 75 tests=85%, 150 tests=98%)"]
+        BudgetCurve --> WebStudio["Web Studio UI (agenteval serve)\n- Interactive Budget / Coverage Slider\n- Per-test Inspector & Toggles\n- User 'Freeze Suite' Sign-Off"]
+        WebStudio --> FrozenSuite["Frozen Test Suite (v1.0)\n(Immutable JSON + SHA-256)"]
+    end
+
+    subgraph S4["4. HYBRID EXECUTION & EVIDENCE ENGINE"]
+        FrozenSuite --> Dispatcher{"Execution Dispatcher\n(Inspect Sandbox Required?)"}
+        
+        Dispatcher -- "No (API / Microservice)" --> NativeRunner["Lean Native Blackbox Runner\n- Direct HTTP / REST / MCP\n- Sub-second invocation\n- Zero heavy dependencies"]
+        Dispatcher -- "Yes (Code / Shell / UK AISI)" --> InspectBridge["Pluggable Inspect AI Bridge\n- Docker / microVM Sandboxes\n- UK AISI Benchmarks (GAIA, SWE)\n- EvalLog Transcripts"]
+        
+        TargetAgent["Target Agent Under Test\n(Live Service, Container, or Model)"]
+        NativeRunner <--> TargetAgent
+        InspectBridge <--> TargetAgent
+
+        TargetAgent --> StateDiffCapture["Environmental State-Diff Engine (ΔS)\n- PostgreSQL / SQLite queries\n- File system diffs\n- Kafka / Event log probes"]
+    end
+
+    subgraph S5["5. EVALUATION MESH & VERDICTS"]
+        NativeRunner --> EvalMesh["Multi-Axis Evaluation Mesh"]
+        InspectBridge --> EvalMesh
+        StateDiffCapture --> EvalMesh
+
+        EvalMesh --> ObservableScorer["Observable Scorer (HTTP, Contract, Token)"]
+        EvalMesh --> StateDiffScorer["StateDiffScorer (Sealed Proof Assertions)"]
+        EvalMesh --> DeepEvalScorers["DeepEval Bridge\n(ToolCorrectness, PlanAdherence)"]
+
+        ObservableScorer --> Aggregator["Verdict Aggregator"]
+        StateDiffScorer --> Aggregator
+        DeepEvalScorers --> Aggregator
+
+        Aggregator --> Verdicts["Deterministic Verdicts\n- PASS (Verified Proof)\n- FAIL (Invariant Violated)\n- UNVERIFIABLE (Proof Missing)"]
+    end
+
+    subgraph S6["6. AUDIT STORAGE & REPORTING"]
+        Verdicts --> SQLiteStore[("Local SQLite Database\n(Suite Versions, Runs, Executions, Proofs)")]
+        InspectBridge -.-> InspectLogs[("Inspect .eval Logs\n(Raw trajectory sidecar)")]
+        SQLiteStore --> Dashboard["Web Assurance Dashboard & Diff View"]
+        SQLiteStore --> AllureReport["Compliance Sign-Off Report (HTML / PDF)"]
+        SQLiteStore --> CIGate["CI/CD Quality Gate (agenteval gate)"]
+    end
+```
+
+
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
 | **Product surface** | Web UI + API first, thin CLI | Same services for UI and CI; no duplicate business logic |

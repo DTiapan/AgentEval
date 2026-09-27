@@ -5,7 +5,6 @@ import sqlite3
 from datetime import UTC, datetime
 
 from agenteval.domain.models import AcceptanceCriterionRecord, RequirementRecord
-from agenteval.packs.enabled import resolve_enabled_pack_ids
 from agenteval.packs.protocol import PackManifest
 from agenteval.packs.registry import load_domain_pack
 

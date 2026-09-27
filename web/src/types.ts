@@ -28,6 +28,19 @@ export type AgentCard = {
   invariants?: AgentInvariants;
 };
 
+export type PriorityTier = "P0" | "P1" | "P2";
+
+export type BudgetProjection = {
+  tier: PriorityTier;
+  label: string;
+  target_test_count: number;
+  projected_coverage_pct: number;
+  estimated_latency_ms: number;
+  estimated_cost_usd: number;
+  mandatory_floors_covered: number;
+  mandatory_floors_total: number;
+};
+
 export type CandidateTest = {
   id: string;
   capability_id: string;
@@ -43,6 +56,7 @@ export type CandidateTest = {
   template_id?: string | null;
   execution_cost?: number;
   is_mandatory?: boolean;
+  priority_tier?: PriorityTier;
 };
 
 export type TestPack = {
@@ -77,6 +91,7 @@ export type SuitePreviewResult = {
   optimized_pack: TestPack;
   coverage: CoverageReport;
   endpoint_probe?: EndpointProbeResult | null;
+  marginal_curve?: BudgetProjection[];
 };
 
 export type PreviewResponse = SuitePreviewResult;
