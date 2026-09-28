@@ -4,9 +4,11 @@ import json
 import time
 import urllib.error
 import urllib.request
+from enum import StrEnum
 from typing import Any
 from uuid import uuid4
 
+from agenteval.evaluators.llm_judge import LLMJudgeScorer
 from agenteval.planning.execution_trace import build_blackbox_trajectory
 from agenteval.planning.models import (
     CandidateTest,
@@ -18,26 +20,56 @@ from agenteval.planning.models import (
 from agenteval.planning.observable_scorer import ObservableScorer
 
 
+class JudgeMode(StrEnum):
+    """Evaluation strategy for black-box test runs."""
+
+    HYBRID = (
+        "hybrid"  # Tier 0 heuristics first; escalate to LLM judge when template rule is missing
+    )
+    DETERMINISTIC_ONLY = (
+        "deterministic_only"  # Tier 0 only (no LLM calls; UNVERIFIABLE if no heuristic match)
+    )
+    LLM_JUDGE = "llm_judge"  # LLM judge evaluates all tests directly
+
+
 class BlackboxRunner:
-    """POST each test prompt to the agent endpoint; score with ObservableScorer."""
+    """POST each test prompt to the agent endpoint; score with ObservableScorer and pluggable LLM judge."""
 
     def __init__(
         self,
         endpoint_url: str,
         headers: dict[str, str] | None = None,
         timeout_seconds: float = 30.0,
+        judge_mode: JudgeMode | str = JudgeMode.HYBRID,
+        judge_scorer: LLMJudgeScorer | None = None,
+        force_offline_judge: bool | None = None,
     ) -> None:
         self.endpoint_url = endpoint_url
         self.headers = headers or {"Content-Type": "application/json"}
         self.timeout_seconds = timeout_seconds
+        self.judge_mode = JudgeMode(judge_mode)
         self._scorer = ObservableScorer()
+        self._judge_scorer = judge_scorer or LLMJudgeScorer(force_offline=force_offline_judge)
 
     def run_pack(self, pack: TestPack) -> SuiteRunReport:
         run_id = uuid4().hex[:12]
         results: list[TestCaseResult] = []
         for test in pack.tests:
             obs = self._invoke(test)
-            scored = self._scorer.score(test, obs)
+            scored: TestCaseResult
+            if self.judge_mode == JudgeMode.LLM_JUDGE:
+                scored = self._judge_scorer.score(test, obs)
+            elif self.judge_mode == JudgeMode.DETERMINISTIC_ONLY:
+                scored = self._scorer.score(test, obs)
+            else:  # JudgeMode.HYBRID
+                scored = self._scorer.score(test, obs)
+                # Escalate to LLM judge if heuristic has no rule match
+                if (
+                    scored.verdict == "UNVERIFIABLE"
+                    and "external evaluator or llm judge required" in scored.rationale.lower()
+                ):
+                    scored = self._judge_scorer.score(test, obs)
+
             trajectory = build_blackbox_trajectory(obs, scored.verdict, scored.rationale)
             results.append(scored.model_copy(update={"trajectory": trajectory}))
 
@@ -104,13 +136,18 @@ class BlackboxRunner:
 
     @staticmethod
     def _extract_text(data: dict[str, Any]) -> str:
-        if "thought" in data:
-            parts = [str(data.get("thought", ""))]
-            tools = data.get("tool_calls") or []
-            for t in tools:
-                parts.append(f"[tool:{t.get('tool_name', t.get('name', '?'))}]")
-            return " ".join(p for p in parts if p).strip()
+        parts: list[str] = []
         for key in ("reply", "output", "response", "message"):
             if key in data and str(data[key]).strip():
-                return str(data[key])
+                parts.append(str(data[key]).strip())
+                break
+        if "thought" in data and str(data["thought"]).strip():
+            parts.append(f"[thought: {data['thought']}]")
+        tools = data.get("tool_calls") or []
+        for t in tools:
+            parts.append(f"[tool:{t.get('tool_name', t.get('name', '?'))}]")
+
+        if parts:
+            return " ".join(parts).strip()
         return json.dumps(data)
+

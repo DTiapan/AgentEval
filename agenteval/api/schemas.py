@@ -28,7 +28,9 @@ class SuiteInitRequest(PrdBootstrapRequest):
 class EndpointProbeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    endpoint_url: str = Field(min_length=1, description="Agent HTTP URL to POST (server-side probe)")
+    endpoint_url: str = Field(
+        min_length=1, description="Agent HTTP URL to POST (server-side probe)"
+    )
 
 
 class SuiteRunRequest(BaseModel):
@@ -37,6 +39,10 @@ class SuiteRunRequest(BaseModel):
     endpoint_url: str | None = None
     audit_log_db_path: str | None = None
     suite_root: str = ".agenteval/suites"
+    judge_mode: str = Field(
+        default="hybrid",
+        description="Evaluation strategy: 'hybrid' (deterministic + LLM judge fallback), 'deterministic_only', or 'llm_judge'",
+    )
 
 
 class SuiteGapExtendRequest(BaseModel):

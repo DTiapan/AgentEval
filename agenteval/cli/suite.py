@@ -147,11 +147,15 @@ def suite_run(
         typer.Option("--endpoint", "-e", help="Override endpoint URL from init"),
     ] = None,
     suite_root: Annotated[Path, typer.Option("--suite-root")] = Path(".agenteval/suites"),
+    judge_mode: Annotated[
+        str,
+        typer.Option("--judge-mode", "-j", help="Evaluation mode: hybrid | deterministic_only | llm_judge"),
+    ] = "hybrid",
 ) -> None:
     """Execute frozen test pack only (no generation)."""
     workflow = create_suite_workflow(suite_root)
     try:
-        report = workflow.run_suite(agent_id, endpoint_url=endpoint)
+        report = workflow.run_suite(agent_id, endpoint_url=endpoint, judge_mode=judge_mode)
     except FileNotFoundError:
         console.print(
             f"[bold red]No suite for '{agent_id}'. Run `agenteval suite init` first.[/bold red]"
@@ -173,7 +177,7 @@ def suite_run(
     console.print(table)
     console.print(
         f"\nSummary: {report.passed} passed, {report.failed} failed, "
-        f"{report.unverifiable} unverifiable (rule-based, no LLM judge)"
+        f"{report.unverifiable} unverifiable (judge mode: {judge_mode})"
     )
     if coverage is not None and coverage.critical_uncovered:
         console.print(f"[yellow]Coverage gaps:[/yellow] {coverage.critical_uncovered}")

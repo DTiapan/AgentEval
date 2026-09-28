@@ -346,6 +346,8 @@ class SuiteWorkflow:
         *,
         endpoint_url: str | None = None,
         audit_log_db_path: str | None = None,
+        judge_mode: str = "hybrid",
+        force_offline_judge: bool | None = None,
     ) -> SuiteRunReport:
         store = self._store()
         manifest = self._load_manifest(store, agent_id)
@@ -357,7 +359,11 @@ class SuiteWorkflow:
             raise ValueError("endpoint_url required when suite has no stored endpoint")
 
         previous_run = self._load_latest_run(store, agent_id)
-        runner = BlackboxRunner(endpoint_url=url)
+        runner = BlackboxRunner(
+            endpoint_url=url,
+            judge_mode=judge_mode,
+            force_offline_judge=force_offline_judge,
+        )
         report = runner.run_pack(pack)
         pool = self._load_pool(store, agent_id)
         coverage = CoverageMapper().report(pool, pack.tests)
