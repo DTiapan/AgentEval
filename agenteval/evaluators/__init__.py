@@ -13,6 +13,7 @@ from agenteval.evaluators.deepeval_bridge import (
     TrajectoryMetricKind,
 )
 from agenteval.evaluators.idempotency import IdempotencyEvaluationResult, IdempotencyScorer
+from agenteval.evaluators.llm_judge import LLMJudgeResult, LLMJudgeScorer
 from agenteval.evaluators.state_diff import (
     StateDiffAssertion,
     StateDiffEvaluationResult,
@@ -24,6 +25,8 @@ __all__ = [
     "DeepEvalBridge",
     "IdempotencyEvaluationResult",
     "IdempotencyScorer",
+    "LLMJudgeResult",
+    "LLMJudgeScorer",
     "MetricEvaluationResult",
     "ParameterSpec",
     "StateDiffAssertion",
