@@ -7,6 +7,13 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _set_test_offline_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ensure unit tests run deterministically offline without slow external API calls."""
+    monkeypatch.setenv("AGENTEVAL_FORCE_LOCAL", "1")
+    monkeypatch.setenv("AGENTEVAL_FORCE_OFFLINE", "1")
+
+
 @pytest.fixture
 def temp_sandbox_dir() -> Generator[Path, None, None]:
     """Provides a clean temporary directory for sandbox testing."""

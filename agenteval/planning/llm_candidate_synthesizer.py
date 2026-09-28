@@ -37,12 +37,15 @@ class LLMCandidateSynthesizer:
         api_key: str | None = None,
         model: str | None = None,
         personas: list[PersonaRef] | None = None,
-        force_offline: bool = False,
+        force_offline: bool | None = None,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.personas = personas or DEFAULT_SYNTHESIS_PERSONAS
-        self.force_offline = force_offline
+        if force_offline is not None:
+            self.force_offline = force_offline
+        else:
+            self.force_offline = os.getenv("AGENTEVAL_FORCE_OFFLINE") == "1"
 
     def _resolve_api_key(self) -> str | None:
         if self.api_key is not None:

@@ -96,7 +96,7 @@ class JevCandidateScorer:
         novelty_threshold: float = 0.20,
         timeout: float = 5.0,
         client: Any | None = None,
-        force_local: bool = False,
+        force_local: bool | None = None,
     ) -> None:
         self.api_key = api_key or os.getenv("TYPESAFE_API_KEY") or os.getenv("JEV_API_KEY")
         self.model = model or os.getenv("TYPESAFE_DEFAULT_MODEL")
@@ -104,7 +104,10 @@ class JevCandidateScorer:
         self.quality_threshold = quality_threshold
         self.novelty_threshold = novelty_threshold
         self.timeout = timeout
-        self.force_local = force_local
+        if force_local is not None:
+            self.force_local = force_local
+        else:
+            self.force_local = os.getenv("AGENTEVAL_FORCE_LOCAL") == "1"
         self._client: Any = client
 
         if not self.force_local and self._client is None and self.api_key and _TYPESAFE_AVAILABLE:

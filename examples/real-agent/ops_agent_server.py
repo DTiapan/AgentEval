@@ -209,7 +209,7 @@ def run_litellm_turn(user_text: str) -> dict[str, Any]:
             tool_choice="auto",
             api_key=api_key,
             temperature=0.0,
-            max_tokens=600,
+            max_tokens=2048,
         )
 
         choice = resp.choices[0]

@@ -63,7 +63,11 @@ def test_offline_fallback_candidate_synthesis() -> None:
 
 def test_mocked_litellm_synthesis() -> None:
     card = _sample_agent_card()
-    synthesizer = LLMCandidateSynthesizer(api_key="mock-key", model="openrouter/deepseek/deepseek-v4-flash-0731")
+    synthesizer = LLMCandidateSynthesizer(
+        api_key="mock-key",
+        model="openrouter/deepseek/deepseek-v4-flash-0731",
+        force_offline=False,
+    )
 
     mock_llm_json = """{
         "candidates": [

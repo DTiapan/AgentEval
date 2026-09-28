@@ -34,6 +34,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-024 | **Rule-Based Failure Hypothesis Catalog Expansion (Floor Layer) & ObservableScorer Tier-0 Hardening:** Expanded hypothesis templates from 9 → 25 across Functional, Edge, Security, Reliability, and Abuse categories, achieving 100% coverage of all 8 `MandatoryCategory` floors (`DATA_ISOLATION`, `PRIVILEGE_ESCALATION`, `TOOL_OUTPUT_INJECTION`, `CRITICAL_INVARIANTS`, `AUTHORIZATION`, `PROMPT_INJECTION`, `SENSITIVE_DATA_LEAKAGE`, `IRREVERSIBLE_ACTIONS`). Added `CapabilitySignals` flags (`has_external_dependency`, `has_multi_step`, `has_rate_limit`, `has_concurrency`, `is_read_only`). Hardened `ObservableScorer` heuristic evaluation and fixed transport failure status detection. | Accepted | 2026-09-27 |
 | DR-025 | **Production-Grade Assurance Appliance Architecture (Priority Tiering, PromptFoo Bridge, DeepEval Bridge, Inspect AI Sandbox & Deterministic State-Diff Hardening):** Formalized the 3-tier assurance hierarchy (`P0 Critical Floors`, `P1 Recommended Workflows`, `P2 Adversarial & Fuzzing`) backed by marginal coverage curves and interactive execution budget controls. Integrated PromptFoo red-team bridge synthesizing 7 OWASP attack vectors; DeepEval trajectory semantic metrics (`ToolCorrectness`, `PlanAdherence`, `TaskCompletion`, `Hallucination`) with offline deterministic fallbacks; Inspect AI Docker sandbox task builder & JSONL dataset exporter; and hardened deterministic multi-table state-diff ($\Delta S$) assertions emitting `UNVERIFIABLE` when mutation evidence is missing. | Accepted | 2026-09-27 |
 | DR-026 | **3-Tier Test Generation & Selection Backbone (LLM Synthesizer + Jev Quality Scorer + Real Ops Agent Target):** Implemented Tier 2 LLMCandidateSynthesizer (LiteLLM/DeepSeek with deterministic fallback) and Tier 3 JevCandidateScorer (multi-axis evaluation across severity, novelty, flakiness risk, and execution cost with P0 floor enforcement). Wired live reference IT Ops agent with real SQLite tools and state mutations on `http://127.0.0.1:8770/chat`. Agent deletion and cascading cleanup preserved as deferred. | Accepted | 2026-09-27 |
+| DR-027 | **Switchable Tier-2 LLM-as-a-Judge Evaluation Backbone & BlackboxRunner Escalation:** Implemented `LLMJudgeScorer` using LiteLLM (DeepSeek / OpenRouter / OpenAI) with deterministic offline fallback. Introduced `JudgeMode` (`HYBRID`, `DETERMINISTIC_ONLY`, `LLM_JUDGE`). In `HYBRID` mode (default), deterministic heuristics run first; if an open-ended candidate has no rule match, `BlackboxRunner` automatically escalates to `LLMJudgeScorer` instead of stalling at `UNVERIFIABLE`. Upgraded `DeepEvalBridge` to support LiteLLM/OpenRouter keys. Verified live against the real IT Ops Agent (`:8770/chat`). | Accepted | 2026-09-28 |
 
 
 ---
@@ -120,6 +121,24 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
   5. **Inspect AI Sandbox Bridge:** Provide Docker container sandbox specifications and Inspect AI Task / dataset JSONL exports for code/shell agents per ADR-001 & ADR-005.
   6. **Deterministic Evidence vs Self-Report:** Hardened multi-table state diffs ($\Delta S$); explicitly emits `UNVERIFIABLE` whenever environmental mutation proof is missing or unsealed.
 - **Consequences:** Eliminates vendor lock-in and high cloud eval bills while giving users enterprise-grade test generation, transparent priority tiering, and sealed evidence sign-off reports.
+
+---
+
+### DR-027 — Switchable Tier-2 LLM-as-a-Judge Evaluation Backbone & BlackboxRunner Escalation
+
+- **Date:** 2026-09-28
+- **Status:** accepted
+- **Context:** `BlackboxRunner` previously evaluated responses using only Tier-0 `ObservableScorer`, which checked 25 static heuristic templates. Synthesized open-ended or LLM-generated tests without static regex rules defaulted to `UNVERIFIABLE: No heuristic rule match for template; external evaluator or LLM judge required.`. Additionally, `DeepEvalBridge` was not wired into the blackbox runner and strictly checked for OpenAI/Anthropic keys instead of LiteLLM/OpenRouter.
+- **Alternatives considered:**
+  1. **Add regex rules for all prompts:** Impossible for open-ended LLM-synthesized scenarios.
+  2. **Force all tests through an LLM judge:** High token cost and unnecessary latency for simple deterministic safety checks.
+  3. **Tiered confidence gating with a configurable mode switch (Option 3):** Run fast Tier-0 deterministic heuristics first; if an open-ended candidate has no rule match, escalate to `LLMJudgeScorer` (LiteLLM / DeepSeek) with rich rubric evaluation. Support configurable modes: `HYBRID` (default), `DETERMINISTIC_ONLY`, and `LLM_JUDGE`.
+- **Decision:** **Option 3.**
+  1. Implemented `LLMJudgeScorer` (`agenteval/evaluators/llm_judge.py`) using LiteLLM with robust JSON extraction and offline deterministic fallbacks.
+  2. Added `JudgeMode` (`HYBRID`, `DETERMINISTIC_ONLY`, `LLM_JUDGE`) to `BlackboxRunner`, `SuiteWorkflow.run_suite`, and API schemas (`SuiteRunRequest.judge_mode`).
+  3. Upgraded `DeepEvalBridge` to recognize `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY`.
+  4. Verified live against the real IT Ops Agent at `:8770/chat`: functional and adversarial probes evaluated with rich semantic rationales.
+- **Consequences:** Eliminates premature `UNVERIFIABLE` verdicts on dynamic tests while preserving zero-cost deterministic fast-paths and full offline CI reproducibility.
 
 ---
 
