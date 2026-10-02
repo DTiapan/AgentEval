@@ -17,10 +17,9 @@ import os
 import re
 from typing import Any, Final
 
-from pydantic import BaseModel, ConfigDict, Field
-
 from agenteval.planning._utils import load_env
 from agenteval.planning.models import (
+    CandidateQualityScore,
     CandidateTest,
     PriorityTier,
 )
@@ -62,26 +61,7 @@ _HIGH_SEVERITY_TAGS: Final[set[str]] = {
     "leakage",
 }
 
-
-class CandidateQualityScore(BaseModel):
-    """Multi-axis quality grading for a candidate test."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    severity: float = Field(ge=0.0, le=1.0, description="Failure severity weight (0-1)")
-    novelty: float = Field(ge=0.0, le=1.0, description="Uniqueness vs accepted pool (0-1)")
-    flakiness_risk: float = Field(ge=0.0, le=1.0, description="Likelihood of flake or ambiguity (0-1)")
-    execution_cost: float = Field(ge=0.0, le=1.0, description="Normalized execution cost (0-1)")
-    composite_score: float = Field(ge=0.0, le=1.0, description="Weighted composite quality (0-1)")
-    recommended_tier: PriorityTier = Field(
-        default=PriorityTier.P1_RECOMMENDED,
-        description="Recommended priority tier from Jev",
-    )
-    source: str = Field(
-        default="local_heuristic",
-        description="Classifier origin (typesafe_jev, local_heuristic, local_heuristic_fallback)",
-    )
-    rationale: str = Field(default="", description="Reasoning for assigned quality grade")
+__all__ = ["CandidateQualityScore", "JevCandidateScorer"]
 
 
 class JevCandidateScorer:
@@ -274,20 +254,44 @@ class JevCandidateScorer:
     def filter_and_rank_pool(
         self,
         pool: list[CandidateTest],
+        max_jev_evals: int = 15,
     ) -> tuple[list[CandidateTest], dict[str, CandidateQualityScore]]:
         """Filter out low-quality/duplicate tests and promote/demote priority tiers."""
         accepted: list[CandidateTest] = []
         accepted_prompts: list[str] = []
         score_map: dict[str, CandidateQualityScore] = {}
+        jev_eval_count = 0
+
+        def score_one(cand: CandidateTest) -> CandidateQualityScore:
+            nonlocal jev_eval_count
+            if (
+                self._client is not None
+                and _TYPESAFE_AVAILABLE
+                and not self.force_local
+                and jev_eval_count < max_jev_evals
+            ):
+                jev_eval_count += 1
+                try:
+                    return self._typesafe_jev_score(cand, accepted_prompts)
+                except Exception:
+                    return self._local_heuristic_score(
+                        cand, accepted_prompts, source="local_heuristic_fallback"
+                    )
+            return self._local_heuristic_score(
+                cand, accepted_prompts, source="local_heuristic"
+            )
 
         # 1. Mandatory tests are always accepted unconditionally into P0
         for test in pool:
             if test.is_mandatory or test.mandatory_categories:
-                score = self.score_candidate(test, accepted_prompts)
+                score = score_one(test)
                 score_map[test.id] = score
-                # Ensure priority tier is P0_CRITICAL for all mandatory tests
-                p0_test = test if test.priority_tier == PriorityTier.P0_CRITICAL else test.model_copy(
-                    update={"priority_tier": PriorityTier.P0_CRITICAL}
+                # Ensure priority tier is P0_CRITICAL for all mandatory tests and attach quality_score
+                p0_test = test.model_copy(
+                    update={
+                        "priority_tier": PriorityTier.P0_CRITICAL,
+                        "quality_score": score,
+                    }
                 )
                 accepted.append(p0_test)
                 accepted_prompts.append(test.user_prompt)
@@ -297,7 +301,7 @@ class JevCandidateScorer:
             if test.id in score_map:
                 continue
 
-            score = self.score_candidate(test, accepted_prompts)
+            score = score_one(test)
             score_map[test.id] = score
 
             # Prune tests that fall below quality threshold or are near-duplicates
@@ -305,15 +309,18 @@ class JevCandidateScorer:
                 continue
 
             # Assign priority tier based on Jev recommendations
-            updated_test = test
+            tier = test.priority_tier
             if score.recommended_tier == PriorityTier.P0_CRITICAL and test.priority_tier != PriorityTier.P0_CRITICAL:
                 # Do not promote non-mandatory tests to P0 unless explicitly mandatory
-                updated_test = test.model_copy(update={"priority_tier": PriorityTier.P1_RECOMMENDED})
+                tier = PriorityTier.P1_RECOMMENDED
             elif score.recommended_tier == PriorityTier.P1_RECOMMENDED and test.priority_tier != PriorityTier.P0_CRITICAL:
-                updated_test = test.model_copy(update={"priority_tier": PriorityTier.P1_RECOMMENDED})
+                tier = PriorityTier.P1_RECOMMENDED
             elif score.recommended_tier == PriorityTier.P2_EXTENDED and test.priority_tier != PriorityTier.P0_CRITICAL:
-                updated_test = test.model_copy(update={"priority_tier": PriorityTier.P2_EXTENDED})
+                tier = PriorityTier.P2_EXTENDED
 
+            updated_test = test.model_copy(
+                update={"priority_tier": tier, "quality_score": score}
+            )
             accepted.append(updated_test)
             accepted_prompts.append(test.user_prompt)
 

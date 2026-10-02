@@ -68,6 +68,27 @@ class FailureHypothesis(BaseModel):
     provenance: ProvenanceLayer = Field(default=ProvenanceLayer.HYPOTHESIZED)
 
 
+class CandidateQualityScore(BaseModel):
+    """Multi-axis quality grading for a candidate test."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    severity: float = Field(ge=0.0, le=1.0, description="Failure severity weight (0-1)")
+    novelty: float = Field(ge=0.0, le=1.0, description="Uniqueness vs accepted pool (0-1)")
+    flakiness_risk: float = Field(ge=0.0, le=1.0, description="Likelihood of flake or ambiguity (0-1)")
+    execution_cost: float = Field(ge=0.0, le=1.0, description="Normalized execution cost (0-1)")
+    composite_score: float = Field(ge=0.0, le=1.0, description="Weighted composite quality (0-1)")
+    recommended_tier: PriorityTier = Field(
+        default=PriorityTier.P1_RECOMMENDED,
+        description="Recommended priority tier from Jev",
+    )
+    source: str = Field(
+        default="local_heuristic",
+        description="Classifier origin (typesafe_jev, local_heuristic, local_heuristic_fallback)",
+    )
+    rationale: str = Field(default="", description="Reasoning for assigned quality grade")
+
+
 class CandidateTest(BaseModel):
     """A single generated test candidate (pool member; not necessarily executed)."""
 
@@ -103,6 +124,10 @@ class CandidateTest(BaseModel):
     priority_tier: PriorityTier = Field(
         default=PriorityTier.P1_RECOMMENDED,
         description="P0 (Critical floors), P1 (Core workflows), P2 (Adversarial fuzzing)",
+    )
+    quality_score: CandidateQualityScore | None = Field(
+        default=None,
+        description="Multi-axis Jev quality score (composite Q, severity, novelty, flakiness, rationale)",
     )
 
 

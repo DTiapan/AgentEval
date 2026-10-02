@@ -74,6 +74,8 @@ def test_mandatory_floor_always_kept_regardless_of_cost() -> None:
     assert len(filtered) == 1
     assert filtered[0].id == "test-mandatory"
     assert filtered[0].priority_tier == PriorityTier.P0_CRITICAL
+    assert filtered[0].quality_score is not None
+    assert filtered[0].quality_score == score_map["test-mandatory"]
 
 
 def test_pruning_low_quality_and_duplicate_candidates() -> None:
@@ -108,6 +110,8 @@ def test_pruning_low_quality_and_duplicate_candidates() -> None:
     # Good test should be kept
     kept_ids = {t.id for t in filtered}
     assert "good-test-1" in kept_ids
+    assert filtered[0].quality_score is not None
+    assert filtered[0].quality_score.composite_score == score_map[filtered[0].id].composite_score
 
     # Vague slop or exact duplicate should have lower score and be pruned
     assert score_map["good-test-1"].composite_score > score_map["vague-slop"].composite_score

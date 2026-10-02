@@ -38,10 +38,12 @@ class LLMCandidateSynthesizer:
         model: str | None = None,
         personas: list[PersonaRef] | None = None,
         force_offline: bool | None = None,
+        timeout: float = 8.0,
     ) -> None:
         self.api_key = api_key
         self.model = model
         self.personas = personas or DEFAULT_SYNTHESIS_PERSONAS
+        self.timeout = timeout
         if force_offline is not None:
             self.force_offline = force_offline
         else:
@@ -73,13 +75,19 @@ class LLMCandidateSynthesizer:
         if not self.force_offline:
             key = self._resolve_api_key()
             if key:
+                import concurrent.futures
+
+                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
                 try:
-                    candidates = self._synthesize_with_litellm(card, prd_text, key)
+                    future = executor.submit(self._synthesize_with_litellm, card, prd_text, key)
+                    candidates = future.result(timeout=self.timeout)
                     if candidates:
                         return candidates
                 except Exception:
-                    # Fallback on any network/API failure
+                    # Fallback on any network/API failure or timeout
                     pass
+                finally:
+                    executor.shutdown(wait=False, cancel_futures=True)
 
         return self._offline_heuristic_synthesis(card, prd_text)
 
@@ -133,6 +141,8 @@ class LLMCandidateSynthesizer:
             api_key=api_key,
             temperature=0.2,
             max_tokens=4096,
+            timeout=self.timeout,
+            num_retries=0,
         )
 
         raw_content = resp.choices[0].message.content or ""
