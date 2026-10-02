@@ -35,6 +35,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-025 | **Production-Grade Assurance Appliance Architecture (Priority Tiering, PromptFoo Bridge, DeepEval Bridge, Inspect AI Sandbox & Deterministic State-Diff Hardening):** Formalized the 3-tier assurance hierarchy (`P0 Critical Floors`, `P1 Recommended Workflows`, `P2 Adversarial & Fuzzing`) backed by marginal coverage curves and interactive execution budget controls. Integrated PromptFoo red-team bridge synthesizing 7 OWASP attack vectors; DeepEval trajectory semantic metrics (`ToolCorrectness`, `PlanAdherence`, `TaskCompletion`, `Hallucination`) with offline deterministic fallbacks; Inspect AI Docker sandbox task builder & JSONL dataset exporter; and hardened deterministic multi-table state-diff ($\Delta S$) assertions emitting `UNVERIFIABLE` when mutation evidence is missing. | Accepted | 2026-09-27 |
 | DR-026 | **3-Tier Test Generation & Selection Backbone (LLM Synthesizer + Jev Quality Scorer + Real Ops Agent Target):** Implemented Tier 2 LLMCandidateSynthesizer (LiteLLM/DeepSeek with deterministic fallback) and Tier 3 JevCandidateScorer (multi-axis evaluation across severity, novelty, flakiness risk, and execution cost with P0 floor enforcement). Wired live reference IT Ops agent with real SQLite tools and state mutations on `http://127.0.0.1:8770/chat`. Agent deletion and cascading cleanup preserved as deferred. | Accepted | 2026-09-27 |
 | DR-027 | **Switchable Tier-2 LLM-as-a-Judge Evaluation Backbone & BlackboxRunner Escalation:** Implemented `LLMJudgeScorer` using LiteLLM (DeepSeek / OpenRouter / OpenAI) with deterministic offline fallback. Introduced `JudgeMode` (`HYBRID`, `DETERMINISTIC_ONLY`, `LLM_JUDGE`). In `HYBRID` mode (default), deterministic heuristics run first; if an open-ended candidate has no rule match, `BlackboxRunner` automatically escalates to `LLMJudgeScorer` instead of stalling at `UNVERIFIABLE`. Upgraded `DeepEvalBridge` to support LiteLLM/OpenRouter keys. Verified live against the real IT Ops Agent (`:8770/chat`). | Accepted | 2026-09-28 |
+| DR-028 | **Surface Jev Quality Ratings & Rationales in Web Studio UI & Bounded Live Evaluation:** Exposed TypeSafe AI Jev System One evaluation results ($Q$ score, severity, novelty, flakiness risk, cost, source, decision rationale) directly in the Web Studio UI (`web/src/components/Studio.tsx`) on test list items and detail inspector. Added `CandidateQualityScore` to engine and client types, bound live cloud evaluations to budget (`max_jev_evals=15`), and enforced non-blocking synthesis timeouts. | Accepted | 2026-10-02 |
 
 
 ---
@@ -139,6 +140,25 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
   3. Upgraded `DeepEvalBridge` to recognize `OPENROUTER_API_KEY` and `DEEPSEEK_API_KEY`.
   4. Verified live against the real IT Ops Agent at `:8770/chat`: functional and adversarial probes evaluated with rich semantic rationales.
 - **Consequences:** Eliminates premature `UNVERIFIABLE` verdicts on dynamic tests while preserving zero-cost deterministic fast-paths and full offline CI reproducibility.
+
+---
+
+### DR-028 — Surface Jev Quality Ratings & Rationales in Web Studio UI & Bounded Live Evaluation
+
+- **Date:** 2026-10-02
+- **Status:** accepted
+- **Context:** The blackbox planning engine grades generated candidate tests using TypeSafe AI's Jev System One model across four quality dimensions: Severity, Novelty, Flakiness Risk, and Execution Cost. While the backend calculated composite quality score ($Q$) and priority tiers, these ratings were previously internal to the optimizer. Users inspecting test packs in the Web Studio UI (`web/src/components/Studio.tsx`) could only see priority badges (`P0`, `P1`, `P2`) without understanding *why* a test was prioritized or seeing its quality assessment. Additionally, unbounded sequential cloud evaluations across large unpruned candidate pools (700+ permutations) risked HTTP timeouts.
+- **Alternatives considered:**
+  1. **Show ratings only in CLI / JSON:** Keep Web UI simple with basic tier badges. (Rejected: violates core principle 8 "Web UI-First Delivery" and transparency requirements).
+  2. **Unbounded live evaluation:** Call TypeSafe cloud API for all 700+ raw permutations. (Rejected: 700+ HTTP round-trips takes minutes and exhausts API rate limits).
+  3. **Direct UI transparency with bounded live evaluation budget (Option 3):**
+     - Attach `CandidateQualityScore` to `CandidateTest` domain and TypeScript models so persistence and APIs automatically deliver scores without mock translation layers.
+     - Surface compact quality badge pills (`Q: 0.86`) on test list items.
+     - Render a dedicated, dark-mode **TypeSafe AI Jev Quality Evaluation** card in the inspector pane featuring composite gauge, 4-axis metric breakdown (Severity, Novelty, Flakiness Risk, Cost), engine source badge, and quoted decision rationale.
+     - Implement a bounded live evaluation budget (`max_jev_evals=15`) in `filter_and_rank_pool` prioritizing mandatory floors and top candidates, gracefully falling back to deterministic calibrated heuristics for remaining pool candidates.
+     - Enforce non-blocking hard timeouts via `ThreadPoolExecutor(wait=False)` on external synthesis calls.
+- **Decision:** **Option 3.**
+- **Consequences:** Provides complete transparency into AI test grading directly in the Web Studio console with zero mock data. Sub-second live server responsiveness, 100% test pass rate across 15 unit tests, and clean production build.
 
 ---
 
