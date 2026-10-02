@@ -11,6 +11,7 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 | LL-003 | Operational Tier Stack-Ranking & Multi-Vendor LLM Gateway via LiteLLM | logged | project | architecture / llm |
 | LL-004 | Python Reserved Keywords in Tool Schema Bridges (Pydantic Aliasing) and Dynamic OSS Extra Loading | logged | project | architecture / typing |
 | LL-005 | Strict Suite Sync Prefixing and Capability Association for Red-Team/Adversarial Inferred Tests | logged | project | architecture / sync |
+| LL-006 | Playwright Driver CDN 404 in IDE Environment and Offline Mirror Restoration | logged | project | tooling / browser |
 
 ---
 
@@ -62,6 +63,16 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 - **Context**: Interfacing with external tool formats such as PromptFoo YAML specifications requires generating keys named `assert`, which is a reserved keyword in Python. In Pydantic v2, defining fields like `assert_list: list[PromptFooAssertion] = Field(default_factory=list, alias="assert")` handles serialization, but direct keyword initialization `PromptFooTestCase(assert=...)` triggers a Python `SyntaxError`. Furthermore, importing optional third-party packages like `deepeval` must not fail in environments where those extras are not installed.
 - **Root Cause**: Python's AST prohibits using reserved keywords as keyword arguments. Static type checkers (`mypy --strict`) reject direct imports of uninstalled optional packages unless handled dynamically or typed with stubs.
 - **Lesson / Rule**: For models with reserved keyword aliases, instantiate via `Model.model_validate({"assert": ..., ...})` to ensure both runtime validity and static typing without `# type: ignore` comments. For optional OSS packages, use `importlib.import_module()` with fallback handling to preserve zero-dependency lightweight operation while remaining 100% compliant with strict linting and typing constraints.
+
+---
+
+## LL-006: Playwright Driver CDN 404 in IDE Environment and Offline Mirror Restoration
+
+- **Date**: 2026-10-02
+- **Scope**: project
+- **Context**: During live browser verification of the Web Studio UI via the Antigravity IDE browser subagent, the underlying Playwright manager failed to launch the browser with `got non 200 status code: 404 (404 Not Found) from https://playwright.azureedge.net/builds/driver/playwright-1.57.0-mac-arm64.zip`.
+- **Root Cause**: The IDE's internal browser automation manager is hardcoded to download Playwright driver version `1.57.0` for `mac-arm64`. Microsoft Azure CDN endpoints return HTTP 404 for this zip package. The initial automated attempt left an empty folder at `~/Library/Caches/ms-playwright-go/1.57.0/`.
+- **Lesson / Rule**: When internal IDE tool dependencies experience upstream CDN deprecation/404s, perform offline manual recovery by downloading the exact artifact from an active archive/mirror (e.g. `https://cdn.npmmirror.com/binaries/playwright/builds/driver/playwright-1.57.0-mac-arm64.zip`), extracting into `~/Library/Caches/ms-playwright-go/1.57.0/`, setting executable permissions on `./node`, and bootstrapping the browser binaries via `./node package/cli.js install chromium`.
 
 <!-- New entries above ## Archive -->
 
