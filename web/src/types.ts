@@ -41,6 +41,17 @@ export type BudgetProjection = {
   mandatory_floors_total: number;
 };
 
+export type CandidateQualityScore = {
+  severity: number;
+  novelty: number;
+  flakiness_risk: number;
+  execution_cost: number;
+  composite_score: number;
+  recommended_tier: PriorityTier;
+  source: string;
+  rationale: string;
+};
+
 export type CandidateTest = {
   id: string;
   capability_id: string;
@@ -57,6 +68,7 @@ export type CandidateTest = {
   execution_cost?: number;
   is_mandatory?: boolean;
   priority_tier?: PriorityTier;
+  quality_score?: CandidateQualityScore | null;
 };
 
 export type TestPack = {

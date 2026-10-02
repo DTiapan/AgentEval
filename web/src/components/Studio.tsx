@@ -9,6 +9,7 @@ import {
   Play,
   RefreshCw,
   Save,
+  Sparkles,
   Terminal,
   Upload,
 } from "lucide-react";
@@ -854,6 +855,20 @@ export const Studio: React.FC = () => {
                             >
                               {tier}
                             </span>
+                            {test.quality_score && (
+                              <span
+                                className={`shrink-0 text-[10px] font-mono px-1.5 py-0.2 rounded border font-semibold ${
+                                  test.quality_score.composite_score >= 0.7
+                                    ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/25"
+                                    : test.quality_score.composite_score >= 0.4
+                                      ? "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/25"
+                                      : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/25"
+                                }`}
+                                title={`Jev Quality Q: ${test.quality_score.composite_score.toFixed(2)} | Severity: ${(test.quality_score.severity * 100).toFixed(0)}% | Origin: ${test.quality_score.source}`}
+                              >
+                                Q: {test.quality_score.composite_score.toFixed(2)}
+                              </span>
+                            )}
                             <span className="line-clamp-1 flex-1">{label}</span>
                           </div>
                         );
@@ -898,6 +913,177 @@ export const Studio: React.FC = () => {
                             </Badge>
                           )}
                         </div>
+
+                        {/* Jev System One Quality Card */}
+                        {currentTest.quality_score && (
+                          <div className="rounded-lg border border-border bg-card/70 p-3.5 space-y-3 shadow-xs">
+                            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-2.5">
+                              <div className="flex items-center gap-2">
+                                <Sparkles className="h-4 w-4 text-emerald-500 shrink-0" />
+                                <span className="font-mono text-xs font-semibold uppercase tracking-wider text-foreground">
+                                  TypeSafe AI Jev Quality Evaluation
+                                </span>
+                                <Badge
+                                  variant="outline"
+                                  className="text-[9px] font-mono px-1.5 py-0 text-muted-foreground border-border/80"
+                                >
+                                  {currentTest.quality_score.source === "typesafe_jev"
+                                    ? "System One Engine"
+                                    : currentTest.quality_score.source === "local_heuristic_fallback"
+                                      ? "Calibrated Fallback"
+                                      : "Deterministic Local Engine"}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-mono text-muted-foreground">
+                                  Composite Score
+                                </span>
+                                <span
+                                  className={`text-xs font-mono font-bold px-2 py-0.5 rounded border ${
+                                    currentTest.quality_score.composite_score >= 0.7
+                                      ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30"
+                                      : currentTest.quality_score.composite_score >= 0.4
+                                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30"
+                                        : "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                                  }`}
+                                >
+                                  Q: {currentTest.quality_score.composite_score.toFixed(3)}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* 4-Axis Grid */}
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-0.5 font-mono text-xs">
+                              <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+                                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                                  Severity Impact
+                                </div>
+                                <div className="mt-1 flex items-baseline justify-between">
+                                  <span className="font-bold text-foreground">
+                                    {(currentTest.quality_score.severity * 100).toFixed(0)}%
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {currentTest.quality_score.severity >= 0.85
+                                      ? "Critical"
+                                      : currentTest.quality_score.severity >= 0.65
+                                        ? "High"
+                                        : "Standard"}
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className="h-full bg-rose-500 rounded-full"
+                                    style={{
+                                      width: `${Math.min(100, currentTest.quality_score.severity * 100)}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+                                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                                  Uniqueness / Novelty
+                                </div>
+                                <div className="mt-1 flex items-baseline justify-between">
+                                  <span className="font-bold text-foreground">
+                                    {(currentTest.quality_score.novelty * 100).toFixed(0)}%
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {currentTest.quality_score.novelty >= 0.70
+                                      ? "Distinct"
+                                      : currentTest.quality_score.novelty >= 0.40
+                                        ? "Unique"
+                                        : "Similar"}
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className="h-full bg-blue-500 rounded-full"
+                                    style={{
+                                      width: `${Math.min(100, currentTest.quality_score.novelty * 100)}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+                                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                                  Flakiness Risk
+                                </div>
+                                <div className="mt-1 flex items-baseline justify-between">
+                                  <span className="font-bold text-foreground">
+                                    {(currentTest.quality_score.flakiness_risk * 100).toFixed(0)}%
+                                  </span>
+                                  <span
+                                    className={`text-[10px] font-semibold ${
+                                      currentTest.quality_score.flakiness_risk <= 0.25
+                                        ? "text-emerald-500"
+                                        : currentTest.quality_score.flakiness_risk <= 0.50
+                                          ? "text-amber-500"
+                                          : "text-rose-500"
+                                    }`}
+                                  >
+                                    {currentTest.quality_score.flakiness_risk <= 0.25
+                                      ? "Low Risk"
+                                      : currentTest.quality_score.flakiness_risk <= 0.50
+                                        ? "Moderate"
+                                        : "High Flake"}
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full ${
+                                      currentTest.quality_score.flakiness_risk <= 0.25
+                                        ? "bg-emerald-500"
+                                        : currentTest.quality_score.flakiness_risk <= 0.50
+                                          ? "bg-amber-500"
+                                          : "bg-rose-500"
+                                    }`}
+                                    style={{
+                                      width: `${Math.min(100, currentTest.quality_score.flakiness_risk * 100)}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="rounded-md border border-border/60 bg-muted/20 p-2.5">
+                                <div className="text-[10px] text-muted-foreground uppercase tracking-wide">
+                                  Execution Cost
+                                </div>
+                                <div className="mt-1 flex items-baseline justify-between">
+                                  <span className="font-bold text-foreground">
+                                    {(currentTest.quality_score.execution_cost * 100).toFixed(0)}%
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {currentTest.quality_score.execution_cost <= 0.35
+                                      ? "Fast / Light"
+                                      : "Standard"}
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                                  <div
+                                    className="h-full bg-primary/70 rounded-full"
+                                    style={{
+                                      width: `${Math.min(100, currentTest.quality_score.execution_cost * 100)}%`,
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Jev Decision Rationale */}
+                            {currentTest.quality_score.rationale && (
+                              <div className="rounded-md border border-border/40 bg-muted/15 p-2.5 text-xs">
+                                <span className="font-semibold text-foreground font-mono text-[11px]">
+                                  Jev Decision Rationale:
+                                </span>{" "}
+                                <span className="text-muted-foreground font-mono text-[11px]">
+                                  {currentTest.quality_score.rationale}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
 
                         <div>
                           <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
