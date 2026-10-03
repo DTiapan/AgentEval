@@ -141,7 +141,11 @@ def test_sync_suite_sqlite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> N
     assert sync.status_code == 200
     body = sync.json()
     assert body["new_version"] == 2
-    lookup_cap_id = RequirementsIngestor.from_text(PRD_TWO_CAPS, agent_id="sync-api").capabilities[1].requirement_id()
+    lookup_cap_id = (
+        RequirementsIngestor.from_text(PRD_TWO_CAPS, agent_id="sync-api")
+        .capabilities[1]
+        .requirement_id()
+    )
     assert lookup_cap_id in body["removed_capabilities"]
 
     detail = client.get("/v1/suites/sync-api", params={"suite_root": suite_root})
@@ -250,3 +254,36 @@ def test_run_suite_endpoint(
     )
     assert response.status_code == 200
     assert response.json()["run_id"] == "run-1"
+
+
+def test_delete_suite_endpoint(client: TestClient, tmp_path: Path) -> None:
+    suite_root = str(tmp_path / "suites")
+    # Initialize a suite
+    create_res = client.post(
+        "/v1/suites",
+        json={
+            "requirements_text": SAMPLE_PRD,
+            "agent_id": "to-delete",
+            "endpoint_url": "http://127.0.0.1:9/chat",
+            "suite_root": suite_root,
+            "force_new_version": True,
+        },
+    )
+    assert create_res.status_code == 201
+
+    # Verify it exists
+    get_res = client.get("/v1/suites/to-delete", params={"suite_root": suite_root})
+    assert get_res.status_code == 200
+
+    # Delete the suite
+    del_res = client.delete("/v1/suites/to-delete", params={"suite_root": suite_root})
+    assert del_res.status_code == 200
+    assert del_res.json() == {"deleted": True, "agent_id": "to-delete"}
+
+    # Second delete returns 404
+    del_404 = client.delete("/v1/suites/to-delete", params={"suite_root": suite_root})
+    assert del_404.status_code == 404
+
+    # Getting deleted suite returns 404
+    get_404 = client.get("/v1/suites/to-delete", params={"suite_root": suite_root})
+    assert get_404.status_code == 404

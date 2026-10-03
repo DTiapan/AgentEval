@@ -17,8 +17,6 @@ def control_row_id(pack_id: str, control_key: str) -> str:
     return f"{pack_id}:ctrl:{control_key}"
 
 
-
-
 def persist_pack_freeze_metadata(
     conn: sqlite3.Connection,
     suite_version_id: str,

@@ -41,10 +41,16 @@ class BudgetProjection(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tier: PriorityTier
-    label: str = Field(description="Short human label: Smoke (P0), Standard (P0+P1), Full Audit (All)")
+    label: str = Field(
+        description="Short human label: Smoke (P0), Standard (P0+P1), Full Audit (All)"
+    )
     target_test_count: int = Field(ge=0, description="Recommended number of tests")
-    projected_coverage_pct: float = Field(ge=0.0, le=100.0, description="Projected requirement coverage %")
-    estimated_latency_ms: float = Field(ge=0.0, description="Estimated total execution latency in ms")
+    projected_coverage_pct: float = Field(
+        ge=0.0, le=100.0, description="Projected requirement coverage %"
+    )
+    estimated_latency_ms: float = Field(
+        ge=0.0, description="Estimated total execution latency in ms"
+    )
     estimated_cost_usd: float = Field(ge=0.0, description="Estimated LLM/token cost in USD")
     mandatory_floors_covered: int = Field(ge=0)
     mandatory_floors_total: int = Field(ge=0)
@@ -75,7 +81,9 @@ class CandidateQualityScore(BaseModel):
 
     severity: float = Field(ge=0.0, le=1.0, description="Failure severity weight (0-1)")
     novelty: float = Field(ge=0.0, le=1.0, description="Uniqueness vs accepted pool (0-1)")
-    flakiness_risk: float = Field(ge=0.0, le=1.0, description="Likelihood of flake or ambiguity (0-1)")
+    flakiness_risk: float = Field(
+        ge=0.0, le=1.0, description="Likelihood of flake or ambiguity (0-1)"
+    )
     execution_cost: float = Field(ge=0.0, le=1.0, description="Normalized execution cost (0-1)")
     composite_score: float = Field(ge=0.0, le=1.0, description="Weighted composite quality (0-1)")
     recommended_tier: PriorityTier = Field(

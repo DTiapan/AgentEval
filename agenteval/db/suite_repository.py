@@ -59,6 +59,47 @@ class SuiteRepository:
         ).fetchall()
         return [str(row["id"]) for row in rows]
 
+    def delete_agent(self, agent_id: str) -> bool:
+        exists = self._conn.execute(
+            "SELECT 1 FROM agents WHERE id = ?",
+            (agent_id,),
+        ).fetchone()
+        if exists is None:
+            return False
+
+        with self._conn:
+            version_rows = self._conn.execute(
+                "SELECT id FROM suite_versions WHERE agent_id = ?",
+                (agent_id,),
+            ).fetchall()
+            version_ids = [str(r["id"]) for r in version_rows]
+
+            self._conn.execute(
+                "DELETE FROM assurance_runs WHERE agent_id = ?",
+                (agent_id,),
+            )
+
+            if version_ids:
+                placeholders = ",".join("?" for _ in version_ids)
+                self._conn.execute(
+                    f"DELETE FROM suite_pack_selections WHERE suite_version_id IN ({placeholders})",
+                    version_ids,
+                )
+                self._conn.execute(
+                    f"DELETE FROM test_cases WHERE suite_version_id IN ({placeholders})",
+                    version_ids,
+                )
+                self._conn.execute(
+                    f"DELETE FROM requirements WHERE suite_version_id IN ({placeholders})",
+                    version_ids,
+                )
+
+            self._conn.execute(
+                "DELETE FROM agents WHERE id = ?",
+                (agent_id,),
+            )
+        return True
+
     def init_suite(
         self,
         manifest: SuiteManifest,

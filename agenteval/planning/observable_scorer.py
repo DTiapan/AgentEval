@@ -618,4 +618,6 @@ class ObservableScorer:
     def _is_transport_failure(observation: ObservationBundle, text: str) -> bool:
         if observation.http_status == 0:
             return True
-        return observation.http_status >= 500 and any(tok in text for tok in _TRANSPORT_FAILURE_TOKENS)
+        return observation.http_status >= 500 and any(
+            tok in text for tok in _TRANSPORT_FAILURE_TOKENS
+        )

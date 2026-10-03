@@ -149,7 +149,9 @@ def suite_run(
     suite_root: Annotated[Path, typer.Option("--suite-root")] = Path(".agenteval/suites"),
     judge_mode: Annotated[
         str,
-        typer.Option("--judge-mode", "-j", help="Evaluation mode: hybrid | deterministic_only | llm_judge"),
+        typer.Option(
+            "--judge-mode", "-j", help="Evaluation mode: hybrid | deterministic_only | llm_judge"
+        ),
     ] = "hybrid",
 ) -> None:
     """Execute frozen test pack only (no generation)."""

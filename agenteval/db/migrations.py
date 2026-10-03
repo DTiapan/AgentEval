@@ -19,9 +19,7 @@ def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     return any(str(r[1]) == column for r in rows)
 
 
-def _add_column_if_missing(
-    conn: sqlite3.Connection, table: str, column: str, ddl: str
-) -> None:
+def _add_column_if_missing(conn: sqlite3.Connection, table: str, column: str, ddl: str) -> None:
     if not _column_exists(conn, table, column):
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
@@ -213,18 +211,14 @@ def _migration_v002(conn: sqlite3.Connection) -> None:
 
     if _table_exists(conn, "assurance_runs"):
         _add_column_if_missing(conn, "assurance_runs", "target_id", "target_id TEXT")
-        _add_column_if_missing(
-            conn, "assurance_runs", "baseline_run_id", "baseline_run_id TEXT"
-        )
+        _add_column_if_missing(conn, "assurance_runs", "baseline_run_id", "baseline_run_id TEXT")
         _add_column_if_missing(
             conn,
             "assurance_runs",
             "status",
             "status TEXT NOT NULL DEFAULT 'completed'",
         )
-        _add_column_if_missing(
-            conn, "assurance_runs", "inspect_log_path", "inspect_log_path TEXT"
-        )
+        _add_column_if_missing(conn, "assurance_runs", "inspect_log_path", "inspect_log_path TEXT")
         _add_column_if_missing(
             conn, "assurance_runs", "inspect_log_sha256", "inspect_log_sha256 TEXT"
         )

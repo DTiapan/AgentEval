@@ -95,7 +95,9 @@ def test_mocked_litellm_synthesis() -> None:
     mock_resp = MagicMock()
     mock_choice = MagicMock()
     mock_choice.message.content = mock_llm_json
-    mock_choice.message.reasoning_content = "Synthesizing realistic edge cases for ticket operations."
+    mock_choice.message.reasoning_content = (
+        "Synthesizing realistic edge cases for ticket operations."
+    )
     mock_resp.choices = [mock_choice]
 
     with patch("litellm.completion", return_value=mock_resp):

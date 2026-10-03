@@ -88,9 +88,7 @@ def build_assurance_signoff_context(
                 (req_id,),
             ).fetchall()
         ]
-        statuses = [
-            _criterion_status(verdict_by_criterion.get(cid)) for cid in crit_ids
-        ]
+        statuses = [_criterion_status(verdict_by_criterion.get(cid)) for cid in crit_ids]
         requirement_rows.append(
             RequirementRunStatusRow(
                 stable_id=str(req["stable_id"]),
@@ -128,9 +126,7 @@ def build_assurance_signoff_context(
                     (control_id,),
                 ).fetchall()
             ]
-            statuses = [
-                _criterion_status(verdict_by_criterion.get(cid)) for cid in crit_ids
-            ]
+            statuses = [_criterion_status(verdict_by_criterion.get(cid)) for cid in crit_ids]
             req_stables = [
                 str(r["stable_id"])
                 for r in conn.execute(

@@ -23,7 +23,9 @@ class HTMLReportGenerator:
     def _format_test_label(test_def: CandidateTest | None, test_id: str, index: int) -> str:
         """Match ``web/src/lib/format-test-label.ts`` for console parity."""
         ordinal = f"{index + 1:02d}"
-        tier_pfx = f"[{test_def.priority_tier.value}] " if (test_def and test_def.priority_tier) else ""
+        tier_pfx = (
+            f"[{test_def.priority_tier.value}] " if (test_def and test_def.priority_tier) else ""
+        )
         if test_def is None:
             return f"[{ordinal}] {test_id}"
         persona = (test_def.persona_id or "persona").replace("-", " ")
@@ -99,9 +101,7 @@ class HTMLReportGenerator:
                 )
 
             tier_val = (
-                test_def.priority_tier.value
-                if (test_def and test_def.priority_tier)
-                else "P1"
+                test_def.priority_tier.value if (test_def and test_def.priority_tier) else "P1"
             )
             merged_tests.append(
                 {
@@ -891,13 +891,13 @@ class HTMLReportGenerator:
       <div style="font-size: 13px; font-weight: 600; color: var(--foreground);">Assurance Priority Tiers</div>
       <div style="display: flex; gap: 10px; flex-wrap: wrap;">
         <span class="diff-chip" style="background: color-mix(in oklch, var(--destructive) 10%, var(--card)); border: 1px solid color-mix(in oklch, var(--destructive) 35%, transparent); color: var(--destructive);">
-          P0 Critical: {p0_info['passed']}/{p0_info['total']} ({p0_info['pass_rate']}%)
+          P0 Critical: {p0_info["passed"]}/{p0_info["total"]} ({p0_info["pass_rate"]}%)
         </span>
         <span class="diff-chip" style="background: color-mix(in oklch, var(--primary) 10%, var(--card)); border: 1px solid color-mix(in oklch, var(--primary) 35%, transparent); color: var(--primary);">
-          P1 Core: {p1_info['passed']}/{p1_info['total']} ({p1_info['pass_rate']}%)
+          P1 Core: {p1_info["passed"]}/{p1_info["total"]} ({p1_info["pass_rate"]}%)
         </span>
         <span class="diff-chip" style="background: color-mix(in oklch, var(--warn) 10%, var(--card)); border: 1px solid color-mix(in oklch, var(--warn) 35%, transparent); color: var(--warn);">
-          P2 Extended: {p2_info['passed']}/{p2_info['total']} ({p2_info['pass_rate']}%)
+          P2 Extended: {p2_info["passed"]}/{p2_info["total"]} ({p2_info["pass_rate"]}%)
         </span>
       </div>
     </div>
@@ -941,9 +941,9 @@ class HTMLReportGenerator:
         {reg_filter_btn}
         <button class="filter-btn" onclick="setFilter('pass', this)">Passed ({passed})</button>
         <button class="filter-btn" onclick="setFilter('unverifiable', this)">Unverifiable ({unverifiable})</button>
-        <button class="filter-btn" onclick="setFilter('p0', this)">P0 ({p0_info['total']})</button>
-        <button class="filter-btn" onclick="setFilter('p1', this)">P1 ({p1_info['total']})</button>
-        <button class="filter-btn" onclick="setFilter('p2', this)">P2 ({p2_info['total']})</button>
+        <button class="filter-btn" onclick="setFilter('p0', this)">P0 ({p0_info["total"]})</button>
+        <button class="filter-btn" onclick="setFilter('p1', this)">P1 ({p1_info["total"]})</button>
+        <button class="filter-btn" onclick="setFilter('p2', this)">P2 ({p2_info["total"]})</button>
       </div>
       <div>
         <input type="text" id="searchInput" class="search-input" placeholder="Search tests, prompt, tags..." oninput="handleSearch()" />

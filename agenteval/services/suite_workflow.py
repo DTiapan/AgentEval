@@ -543,6 +543,18 @@ class SuiteWorkflow:
             requirements=self._load_requirements_result(agent_id),
         )
 
+    def delete_suite(self, agent_id: str) -> bool:
+        """Permanently delete an agent suite, versions, and runs across DB and disk."""
+        store = self._store()
+        repo = self._repository()
+        deleted_repo = False
+        if repo is not None:
+            deleted_repo = repo.delete_agent(agent_id)
+        deleted_store = store.delete_suite(agent_id)
+        if not deleted_repo and not deleted_store:
+            raise FileNotFoundError(f"No suite found for agent '{agent_id}'.")
+        return True
+
     def generate_html_report(
         self,
         agent_id: str,

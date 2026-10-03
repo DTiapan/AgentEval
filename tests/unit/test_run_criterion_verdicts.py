@@ -13,8 +13,7 @@ from agenteval.planning.suite_store import SuiteStore
 def test_save_run_writes_criterion_verdicts_with_evidence_links(tmp_path: Path) -> None:
     db = tmp_path / "run-verdicts.db"
     prd = (
-        "# Agent\n\n## Capabilities\n"
-        "- Process customer refund requests within the $100 ceiling.\n"
+        "# Agent\n\n## Capabilities\n- Process customer refund requests within the $100 ceiling.\n"
     )
     card = RequirementsIngestor.from_text(prd, agent_id="verdict-agent")
     fp = RequirementsIngestor.fingerprint_text(prd)

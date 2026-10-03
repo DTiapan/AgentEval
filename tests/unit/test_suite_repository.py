@@ -101,3 +101,46 @@ def test_save_run_round_trips_trajectory(tmp_path: Path) -> None:
     by_id = repo.load_run("repo-agent", "run-1")
     assert by_id is not None
     assert by_id.results[0].observation.response_text == "hello"
+
+
+def test_delete_agent_cascades_and_removes_data(tmp_path: Path) -> None:
+    db = tmp_path / "test.db"
+    repo = SuiteRepository(db)
+    manifest = SuiteStore.new_manifest("repo-agent", "fp1", "http://127.0.0.1/chat")
+    pack = _sample_pack("repo-agent")
+    repo.init_suite(manifest, list(pack.tests), pack)
+
+    obs = ObservationBundle(
+        test_id="t1",
+        user_prompt="hi",
+        response_text="hello",
+        http_status=200,
+        latency_ms=3.0,
+    )
+    trajectory = build_blackbox_trajectory(obs, "PASS", "ok")
+    report = SuiteRunReport(
+        agent_id="repo-agent",
+        run_id="run-1",
+        suite_version=1,
+        results=[
+            TestCaseResult(
+                test_id="t1",
+                verdict="PASS",
+                observation=obs,
+                rationale="ok",
+                trajectory=trajectory,
+            )
+        ],
+        passed=1,
+        failed=0,
+        unverifiable=0,
+    )
+    repo.save_run("repo-agent", report, endpoint_url="http://127.0.0.1/chat")
+
+    assert "repo-agent" in repo.list_agent_ids()
+    assert repo.delete_agent("repo-agent") is True
+    assert "repo-agent" not in repo.list_agent_ids()
+    assert repo.load_latest_run("repo-agent") is None
+    # Deleting non-existent agent returns False
+    assert repo.delete_agent("repo-agent") is False
+    assert repo.delete_agent("non-existent-agent") is False

@@ -150,4 +150,3 @@ class BlackboxRunner:
         if parts:
             return " ".join(parts).strip()
         return json.dumps(data)
-

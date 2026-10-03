@@ -234,3 +234,41 @@ def test_init_persists_requirements_text_sqlite(tmp_path: Path) -> None:
     detail = workflow.get_suite("prd-agent")
     assert detail.requirements_text == SAMPLE_PRD
     assert len(detail.optimized_pack.tests) >= 1
+
+
+def test_delete_suite_filesystem(tmp_path: Path) -> None:
+    suite_root = tmp_path / "suites"
+    workflow = SuiteWorkflow(suite_root=suite_root, use_sqlite=False)
+    workflow.init_from_prd_text(
+        SAMPLE_PRD,
+        agent_id="del-agent",
+        endpoint_url="http://127.0.0.1/chat",
+        force_new_version=True,
+    )
+    assert any(s.agent_id == "del-agent" for s in workflow.list_suites())
+    assert workflow.delete_suite("del-agent") is True
+    assert not any(s.agent_id == "del-agent" for s in workflow.list_suites())
+    # Calling delete again raises FileNotFoundError
+    import pytest
+
+    with pytest.raises(FileNotFoundError):
+        workflow.delete_suite("del-agent")
+
+
+def test_delete_suite_sqlite(tmp_path: Path) -> None:
+    suite_root = tmp_path / "suites"
+    db_path = tmp_path / "test.db"
+    workflow = SuiteWorkflow(suite_root=suite_root, use_sqlite=True, db_path=db_path)
+    workflow.init_from_prd_text(
+        SAMPLE_PRD,
+        agent_id="sql-agent",
+        endpoint_url="http://127.0.0.1/chat",
+        force_new_version=True,
+    )
+    assert any(s.agent_id == "sql-agent" for s in workflow.list_suites())
+    assert workflow.delete_suite("sql-agent") is True
+    assert not any(s.agent_id == "sql-agent" for s in workflow.list_suites())
+    import pytest
+
+    with pytest.raises(FileNotFoundError):
+        workflow.delete_suite("sql-agent")

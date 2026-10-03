@@ -167,9 +167,7 @@ def test_html_report_includes_signoff_sections(
             )
         ],
     )
-    html_output = HTMLReportGenerator.generate(
-        sample_report, sample_pack, signoff=signoff
-    )
+    html_output = HTMLReportGenerator.generate(sample_report, sample_pack, signoff=signoff)
     assert "Requirements sign-off (engine)" in html_output
     assert "Compliance controls (packs)" in html_output
     assert "FIN-REFUND-DISCLOSURE" in html_output

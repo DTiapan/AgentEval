@@ -4,10 +4,12 @@
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Deploy](https://img.shields.io/badge/deploy-Google%20Cloud%20Run-4285F4.svg?logo=googlecloud&logoColor=white)](deploy/gcp/)
+[![Docker](https://img.shields.io/badge/docker-multi--stage-2496ED.svg?logo=docker&logoColor=white)](Dockerfile)
 
 AgentEval is an open-source **agent assurance platform**: it ingests requirements, generates and optimizes tests, runs them against your agent over HTTP (or harness/sandbox profiles), and records **PASS / FAIL / UNVERIFIABLE** with sealed evidence. The Web Console, REST API, and SQLite persistence share one engine — no parallel “demo” data paths.
 
-Built as a **portfolio-grade system**: domain model, ADRs, migration plan, and a deliberate wedge for **small teams in regulated industries** (fintech → insurance → health) who need proof, not just dashboards.
+Built as a **production-ready, portfolio-grade system**: domain model, ADRs, migration plan, cloud-native deployment pipeline (Google Cloud Run Gen2, GCS persistent volume mount, Secret Manager), and a deliberate wedge for **small teams in regulated industries** (fintech → insurance → health) who need proof, not just dashboards.
 
 ---
 
@@ -21,6 +23,7 @@ Built as a **portfolio-grade system**: domain model, ADRs, migration plan, and a
 - [What’s shipped vs what’s next](#whats-shipped-vs-whats-next)
 - [Architecture & key decisions](#architecture--key-decisions)
 - [Quick start](#quick-start)
+- [Cloud deployment & production infrastructure](#cloud-deployment--production-infrastructure)
 - [Verify it works](#verify-it-works)
 - [Roadmap & expansion](#roadmap--expansion)
 - [Documentation index](#documentation-index)
@@ -124,6 +127,7 @@ Domain pack (fintech, …) adds requirements, controls, checks
 | Web Console (Studio, Assurance, Replay, report embed) | **Shipped** | [MVP](docs/MVP.md) slices M1–M4 |
 | `agenteval serve` + `/v1/suites/*` | **Shipped** | UI-first delivery [DR-021](docs/engineering-ledger/decisions.md) |
 | SQLite `SuiteRepository` + import from JSON | **Shipped** | [ADR-004](docs/decisions/ADR-004-sqlite-local-persistence.md) |
+| Cloud Run Gen2 + GCS Persistent Volume + Secret Manager | **Shipped** | Turnkey script, unprivileged container, VPC [deploy/gcp/](deploy/gcp/) [DR-029](docs/engineering-ledger/decisions.md) |
 | PRD ingest → AgentCard → pool → optimized pack | **Shipped** | Black-box pipeline [ADR-003](docs/decisions/ADR-003-black-box-test-intelligence-pipeline.md) |
 | Stable requirement IDs (`req-…`) + suite sync remap | **Shipped** | FR-B-02; [requirement_ids.py](agenteval/core/requirement_ids.py) |
 | SQLite v2 additive migration (targets, requirements tables, …) | **Partial** | [migrations.py](agenteval/db/migrations.py); normalized rows on freeze **next** |
@@ -294,6 +298,112 @@ agenteval db reset --yes
 
 ---
 
+## Cloud deployment & production infrastructure
+
+Beyond local development, AgentEval is architected as an **enterprise-ready, cloud-native appliance**. It packages the FastAPI REST backend, the React 19 Web Console, and SQLite persistence into an unprivileged, production-hardened container deployable to **Google Cloud Platform (Cloud Run Gen2)** in a single command.
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────────┐
+│ Google Cloud Platform                                                                  │
+│                                                                                        │
+│   ┌────────────────────────────────────────────────────────────────────────────────┐   │
+│   │ Google Cloud Run (Managed Gen2, 2 vCPUs, 4 GiB RAM, CPU Boost)                 │   │
+│   │                                                                                │   │
+│   │   • React 19 + Tailwind v4 Web Console (served directly at /)                  │   │
+│   │   • FastAPI REST Engine & OpenAPI Swagger docs (:8080)                         │   │
+│   │   • Unprivileged service runtime (non-root UID: 10001)                         │   │
+│   │   • Native container healthcheck on /health                                    │   │
+│   └───────────────┬───────────────────────────────┬──────────────────────────┬─────┘   │
+│                   │                               │                          │         │
+│                   ▼                               ▼                          │         │
+│   ┌───────────────────────────────┐   ┌───────────────────────┐              │         │
+│   │ Cloud Storage Volume Mount    │   │ Secret Manager        │              │         │
+│   │ (/app/data)                   │   │ (Zero Plaintext Keys) │              │         │
+│   │                               │   │                       │              │         │
+│   │ • SQLite Database             │   │ • OpenRouter API Key  │              │         │
+│   │ • Frozen Test Suites          │   │ • TypeSafe Jev Key    │              │         │
+│   │ • Trajectories & Run Reports  │   │ • OpenAI / DeepSeek   │              │         │
+│   │ (Survives container redeploy) │   │ (Bound via IAM roles) │              │         │
+│   └───────────────────────────────┘   └───────────────────────┘              │         │
+│                                                                              ▼         │
+│                                                                   ┌──────────────────┐ │
+│                                                                   │ Serverless VPC   │ │
+│                                                                   │ Access Connector │ │
+│                                                                   └──────────┬───────┘ │
+│                                                                              │         │
+└──────────────────────────────────────────────────────────────────────────────┼─────────┘
+                                                                               ▼
+                                                                ┌────────────────────────┐
+                                                                │ Evaluated Agents (VPC) │
+                                                                │ Private GCE / GKE Pods │
+                                                                └────────────────────────┘
+```
+
+### Architecture Highlights for Engineers & Reviewers
+
+1. **Zero-Loss Serverless Persistence (Cloud Run Gen2 + GCS FUSE)**
+   - Classic serverless containers suffer from ephemeral disk loss. AgentEval solves this by mounting a Cloud Storage bucket (`gs://${GCS_DATA_BUCKET}`) directly to `/app/data` using Cloud Run Gen2 Volume Mounts.
+   - All SQLite database records (`agenteval.db`), frozen test suites, historical assurance runs, and sealed execution artifacts survive container restarts, revision rollouts, and auto-scaling events.
+2. **Enterprise Secret Management (Google Cloud Secret Manager)**
+   - Zero API keys or credentials exist in plaintext, environment files, or repository commits.
+   - `deploy.sh` scans and binds `openrouter-api-key`, `typesafe-api-key`, `openai-api-key`, and `deepseek-api-key` directly via IAM `roles/secretmanager.secretAccessor` into the Cloud Run service container.
+3. **Private VPC Agent Evaluation (Serverless VPC Access)**
+   - Enterprise AI agents often run on private internal networks (GCE VMs, internal GKE clusters, private endpoints) without public internet ingress.
+   - Using `deploy/gcp/vpc-network.sh`, AgentEval attaches a Serverless VPC Access connector (`--vpc-egress=private-ranges-only`). This enables AgentEval to privately probe and evaluate internal agent backends (`10.x.x.x`, `172.16-31.x.x`, `192.168.x.x`) while routing external LLM calls directly to public APIs.
+4. **Defense-in-Depth Container Security**
+   - The multi-stage [`Dockerfile`](Dockerfile) builds Web Console static assets with Node 20, compiles Python wheels with Astral `uv`, and drops all privileges to an unprivileged user (`agenteval:agenteval`, UID `10001`).
+5. **Cost-Effective Scale-to-Zero Economics**
+   - Cloud Run automatically scales to 0 instances when idle, incurring **$0 baseline hosting cost** while retaining immediate sub-second invocation with CPU Boost on incoming requests.
+
+---
+
+### Quick Deployment to Google Cloud
+
+#### 1. Automated Project Setup (Optional)
+If setting up a fresh GCP project, bootstrap the project, billing link, and APIs in one command:
+```bash
+./deploy/gcp/setup-project.sh [NEW_PROJECT_ID]
+```
+
+#### 2. Configure Environment
+```bash
+cp .env.gcp.example .env.gcp
+# Set GCP_PROJECT_ID in .env.gcp
+```
+
+#### 3. Store Evaluator Keys in Secret Manager
+```bash
+gcloud secrets create openrouter-api-key --data-file=- <<< "sk-or-v1-..."
+gcloud secrets create typesafe-api-key --data-file=- <<< "apikey_..."
+```
+
+#### 4. Turnkey Deploy
+```bash
+./deploy/gcp/deploy.sh
+```
+
+Upon completion, `deploy.sh` provisions the Artifact Registry repository, submits high-CPU Cloud Build compilation, mounts the persistent storage bucket, and outputs your live URL:
+
+```bash
+# Verify health and persistence status
+curl -s https://<YOUR-SERVICE-URL>/health
+
+# Sample response:
+# {
+#   "status": "ok",
+#   "version": "0.1.0",
+#   "persistence": {
+#     "sqlite_enabled": true,
+#     "database_path": "/app/data/agenteval.db",
+#     "suite_root": "/app/data/suites"
+#   }
+# }
+```
+
+Detailed operational guide and VPC private network instructions: [`deploy/gcp/README.md`](deploy/gcp/README.md).
+
+---
+
 ## Verify it works
 
 **Console:** Studio → create suite → Assurance → **Execute Run** → open HTML report.
@@ -360,6 +470,7 @@ Phases are **shippable slices**, not “foundation only” releases ([ROADMAP](d
 | [decisions/ADR-*.md](docs/decisions/) | Architecture decision records |
 | [CONSTRAINTS.md](CONSTRAINTS.md) | Quality bar and behavioral contract |
 | [AGENTS.md](AGENTS.md) | Contributor / agent orchestration rules |
+| [deploy/gcp/README.md](deploy/gcp/README.md) | Turnkey Google Cloud Run deployment, GCS volume & VPC guide |
 
 ---
 

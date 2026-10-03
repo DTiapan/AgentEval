@@ -18,8 +18,20 @@ _UI_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 
 @serve_app.callback()
 def serve(
-    host: Annotated[str, typer.Option(help="Bind host")] = "127.0.0.1",
-    port: Annotated[int, typer.Option(help="Bind port")] = 8766,
+    host: Annotated[
+        str,
+        typer.Option(
+            envvar=["HOST", "AGENTEVAL_HOST"],
+            help="Bind host (or HOST / AGENTEVAL_HOST env var)",
+        ),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option(
+            envvar=["PORT", "AGENTEVAL_PORT"],
+            help="Bind port (or PORT / AGENTEVAL_PORT env var)",
+        ),
+    ] = 8766,
     reload: Annotated[bool, typer.Option(help="Dev auto-reload")] = False,
     with_ui: Annotated[
         bool | None,

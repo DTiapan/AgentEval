@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { EngineHealth, fetchHealth, listSuites } from "../api";
+import { EngineHealth, deleteSuite, fetchHealth, listSuites } from "../api";
 import { SuiteListItem, Workspace } from "../types";
 
 export type ToastMessage = {
@@ -17,6 +17,7 @@ interface WorkspaceContextValue {
   activeAgentId: string | null;
   setActiveAgentId: (id: string | null) => void;
   refreshSuites: () => Promise<void>;
+  deleteAgentSuite: (agentId: string) => Promise<boolean>;
   isLoadingSuites: boolean;
   engineHealth: EngineHealth | null;
   toasts: ToastMessage[];
@@ -70,6 +71,31 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  const deleteAgentSuite = async (agentId: string): Promise<boolean> => {
+    try {
+      await deleteSuite(agentId);
+      setSuites((prev) => prev.filter((s) => s.agent_id !== agentId));
+      if (activeAgentId === agentId) {
+        setActiveAgentId(null);
+      }
+      addToast({
+        type: "success",
+        title: "Agent Suite Deleted",
+        message: `Agent suite '${agentId}' and associated runs have been permanently deleted.`,
+      });
+      await refreshSuites();
+      return true;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      addToast({
+        type: "error",
+        title: "Failed to Delete Agent",
+        message: msg,
+      });
+      return false;
+    }
+  };
+
   useEffect(() => {
     fetchHealth()
       .then((health) => setEngineHealth(health))
@@ -89,6 +115,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         activeAgentId,
         setActiveAgentId,
         refreshSuites,
+        deleteAgentSuite,
         isLoadingSuites,
         engineHealth,
         toasts,

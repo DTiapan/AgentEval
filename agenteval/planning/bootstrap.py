@@ -83,7 +83,9 @@ class SuiteBootstrap:
 
         from agenteval.planning.llm_candidate_synthesizer import LLMCandidateSynthesizer
 
-        synthesized_tests = LLMCandidateSynthesizer(personas=self.personas).synthesize_candidates(card)
+        synthesized_tests = LLMCandidateSynthesizer(personas=self.personas).synthesize_candidates(
+            card
+        )
         for syn in synthesized_tests:
             if syn.id not in existing_ids:
                 pool.append(syn)

@@ -1,6 +1,7 @@
 """Persist frozen regression suites under .agenteval/suites/ (DR-010)."""
 
 import json
+import shutil
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -35,6 +36,13 @@ class SuiteStore:
             if entry.is_dir() and (entry / "suite.manifest.json").is_file():
                 ids.append(entry.name)
         return ids
+
+    def delete_suite(self, agent_id: str) -> bool:
+        directory = self.agent_dir(agent_id)
+        if not directory.exists():
+            return False
+        shutil.rmtree(directory)
+        return True
 
     def init_suite(
         self,

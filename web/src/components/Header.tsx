@@ -1,8 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { ChevronDown, Moon, PlayCircle, Shield, Sliders, Sun } from "lucide-react";
+import { AlertTriangle, ChevronDown, Moon, PlayCircle, Shield, Sliders, Sun, Trash2 } from "lucide-react";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PRODUCT_DOMAIN } from "@/lib/product";
@@ -30,8 +38,23 @@ export const Header: React.FC<HeaderProps> = ({
     suites,
     activeAgentId,
     setActiveAgentId,
+    deleteAgentSuite,
     engineHealth,
   } = useWorkspace();
+
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const handleDeleteAgent = async () => {
+    if (!activeAgentId || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      await deleteAgentSuite(activeAgentId);
+      setIsDeleteDialogOpen(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const [isDark, setIsDark] = useState<boolean>(() => {
     if (typeof window !== "undefined") {
@@ -116,7 +139,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <select
                   value={activeAgentId ?? ""}
                   onChange={(e) => setActiveAgentId(e.target.value ? e.target.value : null)}
-                  disabled={lockAgentSwitcher}
+                  disabled={lockAgentSwitcher || isDeleting}
                   title={
                     lockAgentSwitcher
                       ? "Agent locked to sealed replay — return to Assurance Runs to switch"
@@ -133,6 +156,19 @@ export const Header: React.FC<HeaderProps> = ({
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
               </div>
+              {activeAgentId && !lockAgentSwitcher && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsDeleteDialogOpen(true)}
+                  disabled={isDeleting}
+                  title={`Delete agent suite '${activeAgentId}'`}
+                  aria-label={`Delete agent suite ${activeAgentId}`}
+                  className="ml-1 h-7 w-7 text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
+              )}
             </div>
           )}
 
@@ -179,6 +215,50 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Delete Agent Confirmation Dialog */}
+      <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <div className="flex items-center gap-2 text-destructive mb-1">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
+              <DialogTitle>Delete Agent Suite</DialogTitle>
+            </div>
+            <DialogDescription className="text-muted-foreground text-xs leading-relaxed pt-1">
+              Are you sure you want to permanently delete agent{" "}
+              <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] font-semibold text-foreground">
+                {activeAgentId}
+              </code>
+              ?
+              <span className="mt-2 block text-muted-foreground">
+                This will permanently delete the agent specification, frozen test packs, and all historical assurance run verdicts and evidence from the local database. This action cannot be undone.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 sm:gap-0 mt-4">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setIsDeleteDialogOpen(false)}
+              disabled={isDeleting}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={handleDeleteAgent}
+              disabled={isDeleting}
+              className="gap-1.5"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {isDeleting ? "Deleting…" : "Delete Agent Suite"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </header>
   );
 };

@@ -124,13 +124,19 @@ class LLMCandidateSynthesizer:
 
         user_content = (
             f"Agent Name: {card.name} (Archetype: {card.archetype.value})\n"
-            f"Capabilities:\n" + "\n".join(cap_list) + "\n\n"
-            + "Required Tools:\n" + ("\n".join(tools_list) if tools_list else "None") + "\n\n"
+            f"Capabilities:\n"
+            + "\n".join(cap_list)
+            + "\n\n"
+            + "Required Tools:\n"
+            + ("\n".join(tools_list) if tools_list else "None")
+            + "\n\n"
             + f"Invariants: {invariants_desc}\n\n"
         )
         if prd_text:
             user_content += f"Additional PRD Context:\n{prd_text[:1200]}\n\n"
-        user_content += "Generate 4 to 8 high-leverage edge cases covering realistic subtle failures."
+        user_content += (
+            "Generate 4 to 8 high-leverage edge cases covering realistic subtle failures."
+        )
 
         resp = litellm.completion(
             model=self._resolve_model(),

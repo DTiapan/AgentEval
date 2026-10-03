@@ -111,4 +111,3 @@ def test_capability_signals_extracts_new_flags() -> None:
     sig_ro = capability_signals(cap_ro)
     assert sig_ro.is_read_only
     assert not sig_ro.is_mutating
-

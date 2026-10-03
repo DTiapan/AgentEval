@@ -66,9 +66,7 @@ def test_freeze_merges_fintech_pack_requirements(tmp_path: Path, monkeypatch) ->
     assert len(pack_rows_db) == 1
     assert pack_rows_db[0]["name"] == "fintech"
 
-    selections = conn.execute(
-        "SELECT COUNT(*) AS c FROM suite_pack_selections"
-    ).fetchone()
+    selections = conn.execute("SELECT COUNT(*) AS c FROM suite_pack_selections").fetchone()
     assert selections is not None and int(selections["c"]) == 1
 
     controls = conn.execute("SELECT COUNT(*) AS c FROM compliance_controls").fetchone()

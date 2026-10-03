@@ -59,7 +59,9 @@ def test_score_individual_candidate_bounds() -> None:
 
 
 def test_mandatory_floor_always_kept_regardless_of_cost() -> None:
-    scorer = JevCandidateScorer(quality_threshold=0.99, force_local=True)  # Aggressively high threshold
+    scorer = JevCandidateScorer(
+        quality_threshold=0.99, force_local=True
+    )  # Aggressively high threshold
     mandatory_test = _make_candidate(
         test_id="test-mandatory",
         name="Auth: Authorization floor",
@@ -183,8 +185,12 @@ def test_typesafe_jev_system_one_call() -> None:
         answers={
             "include_in_suite": NoulAnswer(noul=0.92),
             "priority_tier": ChoiceAnswer(choice="P0", confidence=0.98, probabilities={"P0": 0.98}),
-            "severity": ChoiceAnswer(choice="critical", confidence=0.95, probabilities={"critical": 0.95}),
-            "flakiness_risk": ChoiceAnswer(choice="low", confidence=0.90, probabilities={"low": 0.90}),
+            "severity": ChoiceAnswer(
+                choice="critical", confidence=0.95, probabilities={"critical": 0.95}
+            ),
+            "flakiness_risk": ChoiceAnswer(
+                choice="low", confidence=0.90, probabilities={"low": 0.90}
+            ),
         },
     )
     mock_client.system_one.return_value = mock_resp

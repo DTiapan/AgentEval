@@ -16,14 +16,26 @@ from agenteval.planning.optimizer import TestPackOptimizer
 
 def test_classify_priority_tier() -> None:
     # 1. Mandatory category present -> P0
-    assert classify_priority_tier([MandatoryCategory.DATA_ISOLATION], "functional", "user") == PriorityTier.P0_CRITICAL
-    assert classify_priority_tier([MandatoryCategory.AUTHORIZATION], "functional", "user") == PriorityTier.P0_CRITICAL
-    assert classify_priority_tier([MandatoryCategory.CRITICAL_INVARIANTS], "functional", "user") == PriorityTier.P0_CRITICAL
+    assert (
+        classify_priority_tier([MandatoryCategory.DATA_ISOLATION], "functional", "user")
+        == PriorityTier.P0_CRITICAL
+    )
+    assert (
+        classify_priority_tier([MandatoryCategory.AUTHORIZATION], "functional", "user")
+        == PriorityTier.P0_CRITICAL
+    )
+    assert (
+        classify_priority_tier([MandatoryCategory.CRITICAL_INVARIANTS], "functional", "user")
+        == PriorityTier.P0_CRITICAL
+    )
 
     # 2. Security/Auth categories -> P0
     assert classify_priority_tier([], "security", "frequent-user") == PriorityTier.P0_CRITICAL
     assert classify_priority_tier([], "auth", "frequent-user") == PriorityTier.P0_CRITICAL
-    assert classify_priority_tier([], "critical_invariants", "frequent-user") == PriorityTier.P0_CRITICAL
+    assert (
+        classify_priority_tier([], "critical_invariants", "frequent-user")
+        == PriorityTier.P0_CRITICAL
+    )
 
     # 3. Adversary / Chaos / Fuzzing personas or categories -> P2
     assert classify_priority_tier([], "functional", "adversary") == PriorityTier.P2_EXTENDED
@@ -97,7 +109,11 @@ def test_marginal_coverage_curve_calculation() -> None:
     # Marginal progression: P0 count <= P1 count <= P2 count
     assert p0_proj.target_test_count <= p1_proj.target_test_count <= p2_proj.target_test_count
     # Coverage progression: P0 coverage <= P1 coverage <= P2 coverage
-    assert p0_proj.projected_coverage_pct <= p1_proj.projected_coverage_pct <= p2_proj.projected_coverage_pct
+    assert (
+        p0_proj.projected_coverage_pct
+        <= p1_proj.projected_coverage_pct
+        <= p2_proj.projected_coverage_pct
+    )
     assert p2_proj.projected_coverage_pct == 100.0
     assert p0_proj.estimated_latency_ms > 0
     assert p0_proj.estimated_cost_usd >= 0

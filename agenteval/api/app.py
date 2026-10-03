@@ -86,6 +86,18 @@ def create_app() -> FastAPI:
             ) from None
         return JSONResponse(content=detail.model_dump(mode="json"))
 
+    @app.delete("/v1/suites/{agent_id}")
+    def delete_suite(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
+        workflow = create_suite_workflow(suite_root=suite_root)
+        try:
+            workflow.delete_suite(agent_id)
+        except FileNotFoundError:
+            raise HTTPException(
+                status_code=404,
+                detail=f"No suite for agent '{agent_id}'.",
+            ) from None
+        return JSONResponse(content={"deleted": True, "agent_id": agent_id})
+
     @app.post("/v1/endpoints/probe")
     def probe_agent_endpoint(body: EndpointProbeRequest) -> JSONResponse:
         """Probe target agent from the engine (avoids browser CORS to user endpoints)."""

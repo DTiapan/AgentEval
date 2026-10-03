@@ -19,9 +19,7 @@ def score_criterion(
         return CriterionVerdictDraft(
             verdict=test_verdict,
             rationale=test_rationale,
-            evidence_item_ids=[
-                e["id"] for e in evidence_items if test_verdict in ("PASS", "FAIL")
-            ],
+            evidence_item_ids=[e["id"] for e in evidence_items if test_verdict in ("PASS", "FAIL")],
         )
 
     checks = discover_pack_checks()

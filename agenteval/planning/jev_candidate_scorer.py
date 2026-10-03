@@ -115,9 +115,7 @@ class JevCandidateScorer:
                     candidate, existing_prompts, source="local_heuristic_fallback"
                 )
 
-        return self._local_heuristic_score(
-            candidate, existing_prompts, source="local_heuristic"
-        )
+        return self._local_heuristic_score(candidate, existing_prompts, source="local_heuristic")
 
     def _typesafe_jev_score(
         self,
@@ -277,9 +275,7 @@ class JevCandidateScorer:
                     return self._local_heuristic_score(
                         cand, accepted_prompts, source="local_heuristic_fallback"
                     )
-            return self._local_heuristic_score(
-                cand, accepted_prompts, source="local_heuristic"
-            )
+            return self._local_heuristic_score(cand, accepted_prompts, source="local_heuristic")
 
         # 1. Mandatory tests are always accepted unconditionally into P0
         for test in pool:
@@ -305,22 +301,32 @@ class JevCandidateScorer:
             score_map[test.id] = score
 
             # Prune tests that fall below quality threshold or are near-duplicates
-            if score.composite_score < self.quality_threshold or score.novelty < self.novelty_threshold:
+            if (
+                score.composite_score < self.quality_threshold
+                or score.novelty < self.novelty_threshold
+            ):
                 continue
 
             # Assign priority tier based on Jev recommendations
             tier = test.priority_tier
-            if score.recommended_tier == PriorityTier.P0_CRITICAL and test.priority_tier != PriorityTier.P0_CRITICAL:
+            if (
+                score.recommended_tier == PriorityTier.P0_CRITICAL
+                and test.priority_tier != PriorityTier.P0_CRITICAL
+            ):
                 # Do not promote non-mandatory tests to P0 unless explicitly mandatory
                 tier = PriorityTier.P1_RECOMMENDED
-            elif score.recommended_tier == PriorityTier.P1_RECOMMENDED and test.priority_tier != PriorityTier.P0_CRITICAL:
+            elif (
+                score.recommended_tier == PriorityTier.P1_RECOMMENDED
+                and test.priority_tier != PriorityTier.P0_CRITICAL
+            ):
                 tier = PriorityTier.P1_RECOMMENDED
-            elif score.recommended_tier == PriorityTier.P2_EXTENDED and test.priority_tier != PriorityTier.P0_CRITICAL:
+            elif (
+                score.recommended_tier == PriorityTier.P2_EXTENDED
+                and test.priority_tier != PriorityTier.P0_CRITICAL
+            ):
                 tier = PriorityTier.P2_EXTENDED
 
-            updated_test = test.model_copy(
-                update={"priority_tier": tier, "quality_score": score}
-            )
+            updated_test = test.model_copy(update={"priority_tier": tier, "quality_score": score})
             accepted.append(updated_test)
             accepted_prompts.append(test.user_prompt)
 

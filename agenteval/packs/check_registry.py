@@ -20,7 +20,9 @@ def discover_pack_checks() -> dict[str, PackCheckFn]:
     return found
 
 
-def resolve_check_by_kind(check_kind: str, pack_checks: dict[str, PackCheckFn]) -> PackCheckFn | None:
+def resolve_check_by_kind(
+    check_kind: str, pack_checks: dict[str, PackCheckFn]
+) -> PackCheckFn | None:
     """Resolve check_kind (e.g. fintech.audit.refund_logged) via pack register_checks metadata."""
     from agenteval.packs.registry import discover_domain_packs
 

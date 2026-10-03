@@ -219,3 +219,12 @@ export async function downloadSuiteReport(
   anchor.click();
   URL.revokeObjectURL(objectUrl);
 }
+
+export async function deleteSuite(
+  agentId: string,
+): Promise<{ deleted: boolean; agent_id: string }> {
+  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}`, {
+    method: "DELETE",
+  });
+  return parseJson(res);
+}

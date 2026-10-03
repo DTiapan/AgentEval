@@ -36,6 +36,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-026 | **3-Tier Test Generation & Selection Backbone (LLM Synthesizer + Jev Quality Scorer + Real Ops Agent Target):** Implemented Tier 2 LLMCandidateSynthesizer (LiteLLM/DeepSeek with deterministic fallback) and Tier 3 JevCandidateScorer (multi-axis evaluation across severity, novelty, flakiness risk, and execution cost with P0 floor enforcement). Wired live reference IT Ops agent with real SQLite tools and state mutations on `http://127.0.0.1:8770/chat`. Agent deletion and cascading cleanup preserved as deferred. | Accepted | 2026-09-27 |
 | DR-027 | **Switchable Tier-2 LLM-as-a-Judge Evaluation Backbone & BlackboxRunner Escalation:** Implemented `LLMJudgeScorer` using LiteLLM (DeepSeek / OpenRouter / OpenAI) with deterministic offline fallback. Introduced `JudgeMode` (`HYBRID`, `DETERMINISTIC_ONLY`, `LLM_JUDGE`). In `HYBRID` mode (default), deterministic heuristics run first; if an open-ended candidate has no rule match, `BlackboxRunner` automatically escalates to `LLMJudgeScorer` instead of stalling at `UNVERIFIABLE`. Upgraded `DeepEvalBridge` to support LiteLLM/OpenRouter keys. Verified live against the real IT Ops Agent (`:8770/chat`). | Accepted | 2026-09-28 |
 | DR-028 | **Surface Jev Quality Ratings & Rationales in Web Studio UI & Bounded Live Evaluation:** Exposed TypeSafe AI Jev System One evaluation results ($Q$ score, severity, novelty, flakiness risk, cost, source, decision rationale) directly in the Web Studio UI (`web/src/components/Studio.tsx`) on test list items and detail inspector. Added `CandidateQualityScore` to engine and client types, bound live cloud evaluations to budget (`max_jev_evals=15`), and enforced non-blocking synthesis timeouts. | Accepted | 2026-10-02 |
+| DR-029 | **Turnkey Google Cloud Deployment Pipeline (Cloud Run Gen2, GCS Volume Mount, Secret Manager & Serverless VPC):** Prepared production GCP deployment pipeline modeled after Recall: (1) Multi-stage security-hardened Dockerfile with unprivileged user building Web Console (`web/dist`) and Python virtualenv; (2) Automated `deploy/gcp/deploy.sh` script managing Artifact Registry, Cloud Build compilation, Cloud Storage volume mount (`/app/data`), and auto-binding Secret Manager secrets; (3) `deploy/gcp/vpc-network.sh` for Serverless VPC Access connector allowing AgentEval to privately evaluate internal VPC agents; (4) Declarative Knative `deploy/gcp/service.yaml` and `cloudbuild.yaml` CI/CD trigger; (5) Resolved runtime suite and SQLite persistence path resolution under mounted volumes (`AGENTEVAL_DATA_DIR`). | Accepted | 2026-10-03 |
 
 
 ---
@@ -159,6 +160,25 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
      - Enforce non-blocking hard timeouts via `ThreadPoolExecutor(wait=False)` on external synthesis calls.
 - **Decision:** **Option 3.**
 - **Consequences:** Provides complete transparency into AI test grading directly in the Web Studio console with zero mock data. Sub-second live server responsiveness, 100% test pass rate across 15 unit tests, and clean production build.
+
+---
+
+### DR-029 — Turnkey Google Cloud Deployment Pipeline: Cloud Run Gen2, GCS Persistent Volume Mount, Secret Manager & Serverless VPC Access
+
+- **Date:** 2026-10-03
+- **Status:** accepted
+- **Context:** Following the development of the assurance appliance, test generation backbone, and Web Studio UI, the platform required a production deployment mechanism to Google Cloud. The deployment had to follow battle-tested patterns established in the sister project Recall: containerizing the service with security best practices, persisting data across container redeploys without fragile local state, integrating with Secret Manager for evaluator keys, and enabling private VPC network communication to evaluate enterprise agents running inside VPCs.
+- **Alternatives considered:**
+  1. **Bare VM / Compute Engine deployment:** Spin up manual GCE instances. (Rejected: high maintenance overhead, manual patching, no serverless auto-scaling or native zero-downtime rolling updates).
+  2. **GKE / Kubernetes cluster:** Deploy via Helm / Kubernetes manifests. (Rejected: excessive operational overhead and idle compute cost for current scale; over-engineering when Cloud Run Gen2 supports persistent volumes and VPC connectors).
+  3. **Google Cloud Run Gen2 with Cloud Storage Volume Mount & Secret Manager (Recall Pattern):**
+     - Multi-stage Dockerfile compiling Web Console (`web/dist`) and Python virtual environment with an unprivileged runtime user (`agenteval:agenteval`, uid 10001).
+     - Automated `deploy/gcp/deploy.sh` script creating Artifact Registry, submitting Cloud Build with high-CPU machines, mounting Cloud Storage bucket (`gs://<PROJECT_ID>-agenteval-data`) to `/app/data` via Cloud Run Gen2 Volume Mounts, and scanning/binding Secret Manager secrets (`openrouter-api-key`, `deepseek-api-key`, `openai-api-key`, `typesafe-api-key`).
+     - Serverless VPC Access connector script (`deploy/gcp/vpc-network.sh`) with firewall rules allowing Cloud Run to probe and evaluate internal VPC agents without public ingress exposure.
+     - Knative `service.yaml` and `cloudbuild.yaml` declarative specifications for automated CI/CD.
+     - Persistence path resolution updates in `workflow_factory.py` and `agenteval serve` ensuring SQLite database (`agenteval.db`) and test suites (`suites/`) automatically reside within the mounted volume.
+- **Decision:** **Option 3.**
+- **Consequences:** Provides a single-command turnkey deployment (`./deploy/gcp/deploy.sh`) to Google Cloud Platform. Data survives container restarts and redeployments, secret keys remain securely stored in Secret Manager, and internal enterprise agents in private VPCs can be evaluated securely. Clean typing (`mypy --strict`), linting (`ruff`), and 229 passing unit tests at 87.05% test coverage.
 
 ---
 
