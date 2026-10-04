@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from pathlib import Path
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,6 +29,7 @@ from agenteval.planning.models import (
     SuiteManifest,
     SuiteRequirementsResult,
     SuiteRunReport,
+    TestCaseResult,
     TestPack,
 )
 from agenteval.planning.optimizer import TestPackOptimizer
@@ -194,7 +196,7 @@ class SuiteWorkflow:
     ) -> None:
         repo = self._repository()
         if self._sqlite_primary() and repo is not None:
-            repo.save_run(agent_id, report, endpoint_url=endpoint_url)
+            repo.finalize_run(agent_id, report, endpoint_url=endpoint_url)
             return
         store.save_run(agent_id, report)
 
@@ -363,29 +365,57 @@ class SuiteWorkflow:
             raise ValueError("endpoint_url required when suite has no stored endpoint")
 
         previous_run = self._load_latest_run(store, agent_id)
+        effective_run_id = run_id or uuid4().hex[:12]
+        repo = self._repository()
+        if self._sqlite_primary() and repo is not None:
+            repo.initialize_run(
+                agent_id=agent_id,
+                run_id=effective_run_id,
+                suite_version=manifest.version,
+                endpoint_url=url,
+            )
+
+        def _on_result(res: TestCaseResult) -> None:
+            if self._sqlite_primary() and repo is not None:
+                repo.save_partial_result(effective_run_id, res)
+
         runner = BlackboxRunner(
             endpoint_url=url,
             judge_mode=judge_mode,
             force_offline_judge=force_offline_judge,
             max_workers=max_concurrency,
         )
-        report = runner.run_pack(
-            pack,
-            run_id=run_id,
-            max_workers=max_concurrency,
-            on_progress=on_progress,
-        )
-        pool = self._load_pool(store, agent_id)
-        coverage = CoverageMapper().report(pool, pack.tests)
-        report.coverage_report = coverage
 
-        if previous_run is not None:
-            run_diff = diff_suite_runs(previous_run, report)
-            if run_diff is not None:
-                report.run_diff = run_diff.model_dump(mode="json")
+        try:
+            report = runner.run_pack(
+                pack,
+                run_id=effective_run_id,
+                max_workers=max_concurrency,
+                on_progress=on_progress,
+                on_result=_on_result,
+            )
+            pool = self._load_pool(store, agent_id)
+            coverage = CoverageMapper().report(pool, pack.tests)
+            report.coverage_report = coverage
 
-        self._save_run(store, agent_id, report, endpoint_url=url)
-        repo = self._repository()
+            if previous_run is not None:
+                run_diff = diff_suite_runs(previous_run, report)
+                if run_diff is not None:
+                    report.run_diff = run_diff.model_dump(mode="json")
+
+            if report.run_id != effective_run_id and self._sqlite_primary() and repo is not None:
+                with repo._write_lock, repo._conn:
+                    repo._conn.execute(
+                        "DELETE FROM assurance_runs WHERE run_id = ?",
+                        (effective_run_id,),
+                    )
+
+            self._save_run(store, agent_id, report, endpoint_url=url)
+        except Exception as exc:
+            if self._sqlite_primary() and repo is not None:
+                repo.mark_run_failed(effective_run_id, str(exc))
+            raise
+
         if repo is not None:
             return repo.enrich_run_report(report)
         return report

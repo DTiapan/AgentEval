@@ -346,6 +346,14 @@ class SuiteRunReport(BaseModel):
         default_factory=list,
         description="Populated when SQLite v2 verdict rows exist for this run",
     )
+    status: str = Field(
+        default="completed",
+        description="Execution status: running, completed, failed",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Error message if run failed",
+    )
 
 
 class SuiteManifest(BaseModel):

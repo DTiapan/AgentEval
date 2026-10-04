@@ -222,6 +222,13 @@ def _migration_v002(conn: sqlite3.Connection) -> None:
         _add_column_if_missing(
             conn, "assurance_runs", "inspect_log_sha256", "inspect_log_sha256 TEXT"
         )
+        _add_column_if_missing(conn, "assurance_runs", "error_message", "error_message TEXT")
+
+
+def _migration_v003(conn: sqlite3.Connection) -> None:
+    """Additive v3: error_message on assurance_runs for failed runs."""
+    if _table_exists(conn, "assurance_runs"):
+        _add_column_if_missing(conn, "assurance_runs", "error_message", "error_message TEXT")
 
 
 def apply_migrations(conn: sqlite3.Connection) -> None:
@@ -237,12 +244,20 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT MAX(version) FROM schema_migrations").fetchone()
     current = int(row[0]) if row and row[0] is not None else 0
 
+    from datetime import UTC, datetime
+
     if current < 2:
         _migration_v002(conn)
-        from datetime import UTC, datetime
-
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             (2, datetime.now(UTC).isoformat()),
+        )
+        conn.commit()
+
+    if current < 3:
+        _migration_v003(conn)
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (3, datetime.now(UTC).isoformat()),
         )
         conn.commit()

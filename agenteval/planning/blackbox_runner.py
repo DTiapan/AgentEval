@@ -90,6 +90,7 @@ class BlackboxRunner:
         run_id: str | None = None,
         max_workers: int | None = None,
         on_progress: Callable[[int, int], None] | None = None,
+        on_result: Callable[[TestCaseResult], None] | None = None,
     ) -> SuiteRunReport:
         effective_run_id = run_id or uuid4().hex[:12]
         effective_workers = max_workers if max_workers is not None else self.max_workers
@@ -140,8 +141,11 @@ class BlackboxRunner:
 
         if effective_workers <= 1 or total_tests <= 1:
             for test in pack.tests:
-                results.append(_execute_one(test))
+                res = _execute_one(test)
+                results.append(res)
                 completed_count += 1
+                if on_result:
+                    on_result(res)
                 if on_progress:
                     on_progress(completed_count, total_tests)
         else:
@@ -150,8 +154,11 @@ class BlackboxRunner:
             ) as pool:
                 futures = [pool.submit(_execute_one, test) for test in pack.tests]
                 for future in concurrent.futures.as_completed(futures):
-                    results.append(future.result())
+                    res = future.result()
+                    results.append(res)
                     completed_count += 1
+                    if on_result:
+                        on_result(res)
                     if on_progress:
                         on_progress(completed_count, total_tests)
 

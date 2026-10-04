@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -46,6 +47,7 @@ class SuiteRepository:
     def __init__(self, db_path: Path | str | None = None) -> None:
         self.db_path = Path(db_path) if db_path is not None else database_path()
         self._conn = connect(self.db_path)
+        self._write_lock = threading.RLock()
         init_schema(self._conn)
         self._ensure_default_workspace()
 
@@ -375,13 +377,119 @@ class SuiteRepository:
             )
         return target_id
 
-    def save_run(
+    def initialize_run(
+        self,
+        agent_id: str,
+        run_id: str,
+        suite_version: int,
+        *,
+        endpoint_url: str,
+    ) -> str:
+        """Initialize an assurance run row in 'running' state with zero tallies."""
+        row = self._conn.execute(
+            """
+            SELECT id FROM suite_versions
+            WHERE agent_id = ? AND version = ?
+            """,
+            (agent_id, suite_version),
+        ).fetchone()
+        if row is None:
+            raise FileNotFoundError(
+                f"No suite version {suite_version} for agent '{agent_id}'"
+            )
+        suite_version_id = str(row["id"])
+        now = datetime.now(UTC).isoformat()
+        target_id = self.ensure_default_target(agent_id, endpoint_url)
+        has_target_column = self._conn.execute(
+            "SELECT 1 FROM pragma_table_info('assurance_runs') WHERE name = 'target_id'"
+        ).fetchone()
+
+        with self._write_lock, self._conn:
+            if has_target_column is not None:
+                self._conn.execute(
+                    """
+                    INSERT OR REPLACE INTO assurance_runs (
+                        run_id, agent_id, suite_version_id, environment_id,
+                        endpoint_url, started_at, finished_at,
+                        passed, failed, unverifiable, run_diff_json, target_id, status
+                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, 0, 0, 0, NULL, ?, 'running')
+                    """,
+                    (
+                        run_id,
+                        agent_id,
+                        suite_version_id,
+                        endpoint_url,
+                        now,
+                        now,
+                        target_id,
+                    ),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    INSERT OR REPLACE INTO assurance_runs (
+                        run_id, agent_id, suite_version_id, environment_id,
+                        endpoint_url, started_at, finished_at,
+                        passed, failed, unverifiable, run_diff_json
+                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, 0, 0, 0, NULL)
+                    """,
+                    (
+                        run_id,
+                        agent_id,
+                        suite_version_id,
+                        endpoint_url,
+                        now,
+                        now,
+                    ),
+                )
+        return suite_version_id
+
+    def save_partial_result(self, run_id: str, result: TestCaseResult) -> None:
+        """Atomically persist a single test case result and trajectory, updating running tallies."""
+        now = datetime.now(UTC).isoformat()
+        result_id = f"{run_id}:{result.test_id}"
+        with self._write_lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO test_case_results (
+                    id, run_id, test_id, verdict, rationale, observation_json
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    result_id,
+                    run_id,
+                    result.test_id,
+                    result.verdict,
+                    result.rationale,
+                    result.observation.model_dump_json(),
+                ),
+            )
+            self._conn.execute(
+                "DELETE FROM execution_steps WHERE test_case_result_id = ?",
+                (result_id,),
+            )
+            self._insert_trajectory(result_id, result.trajectory)
+
+            self._conn.execute(
+                """
+                UPDATE assurance_runs
+                SET passed = (SELECT count(*) FROM test_case_results WHERE run_id = ? AND verdict = 'PASS'),
+                    failed = (SELECT count(*) FROM test_case_results WHERE run_id = ? AND verdict = 'FAIL'),
+                    unverifiable = (SELECT count(*) FROM test_case_results WHERE run_id = ? AND verdict = 'UNVERIFIABLE'),
+                    finished_at = ?
+                WHERE run_id = ?
+                """,
+                (run_id, run_id, run_id, now, run_id),
+            )
+
+    def finalize_run(
         self,
         agent_id: str,
         report: SuiteRunReport,
         *,
         endpoint_url: str,
     ) -> None:
+        """Mark run as completed, update diff/tallies, and persist evidence and inspect sidecars."""
         row = self._conn.execute(
             """
             SELECT id FROM suite_versions
@@ -396,79 +504,49 @@ class SuiteRepository:
         suite_version_id = str(row["id"])
         now = datetime.now(UTC).isoformat()
         run_diff_json = json.dumps(report.run_diff) if report.run_diff is not None else None
-        target_id = self.ensure_default_target(agent_id, endpoint_url)
-        has_target_column = self._conn.execute(
-            "SELECT 1 FROM pragma_table_info('assurance_runs') WHERE name = 'target_id'"
-        ).fetchone()
 
-        with self._conn:
-            if has_target_column is not None:
-                self._conn.execute(
-                    """
-                    INSERT OR REPLACE INTO assurance_runs (
-                        run_id, agent_id, suite_version_id, environment_id,
-                        endpoint_url, started_at, finished_at,
-                        passed, failed, unverifiable, run_diff_json, target_id, status
-                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, 'completed')
-                    """,
-                    (
-                        report.run_id,
-                        agent_id,
-                        suite_version_id,
-                        endpoint_url,
-                        now,
-                        now,
-                        report.passed,
-                        report.failed,
-                        report.unverifiable,
-                        run_diff_json,
-                        target_id,
-                    ),
-                )
-            else:
-                self._conn.execute(
-                    """
-                    INSERT OR REPLACE INTO assurance_runs (
-                        run_id, agent_id, suite_version_id, environment_id,
-                        endpoint_url, started_at, finished_at,
-                        passed, failed, unverifiable, run_diff_json
-                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        report.run_id,
-                        agent_id,
-                        suite_version_id,
-                        endpoint_url,
-                        now,
-                        now,
-                        report.passed,
-                        report.failed,
-                        report.unverifiable,
-                        run_diff_json,
-                    ),
-                )
-            self._conn.execute(
-                "DELETE FROM test_case_results WHERE run_id = ?",
+        with self._write_lock, self._conn:
+            run_row = self._conn.execute(
+                "SELECT 1 FROM assurance_runs WHERE run_id = ?",
                 (report.run_id,),
-            )
+            ).fetchone()
+            if run_row is None:
+                self.initialize_run(
+                    agent_id,
+                    report.run_id,
+                    report.suite_version,
+                    endpoint_url=endpoint_url,
+                )
+
             for result in report.results:
                 result_id = f"{report.run_id}:{result.test_id}"
-                self._conn.execute(
-                    """
-                    INSERT INTO test_case_results (
-                        id, run_id, test_id, verdict, rationale, observation_json
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        result_id,
-                        report.run_id,
-                        result.test_id,
-                        result.verdict,
-                        result.rationale,
-                        result.observation.model_dump_json(),
-                    ),
-                )
-                self._insert_trajectory(result_id, result.trajectory)
+                exists = self._conn.execute(
+                    "SELECT 1 FROM test_case_results WHERE id = ?",
+                    (result_id,),
+                ).fetchone()
+                if exists is None:
+                    self.save_partial_result(report.run_id, result)
+
+            self._conn.execute(
+                """
+                UPDATE assurance_runs
+                SET status = 'completed',
+                    finished_at = ?,
+                    passed = ?,
+                    failed = ?,
+                    unverifiable = ?,
+                    run_diff_json = ?
+                WHERE run_id = ?
+                """,
+                (
+                    now,
+                    report.passed,
+                    report.failed,
+                    report.unverifiable,
+                    run_diff_json,
+                    report.run_id,
+                ),
+            )
             persist_run_evidence_and_verdicts(
                 self._conn,
                 report.run_id,
@@ -477,6 +555,64 @@ class SuiteRepository:
                 captured_at=now,
             )
             self._persist_inspect_sidecar(suite_version_id, report)
+
+    def mark_run_failed(self, run_id: str, error_message: str | None = None) -> None:
+        """Mark run as failed upon unexpected error/exception."""
+        now = datetime.now(UTC).isoformat()
+        has_error_col = self._conn.execute(
+            "SELECT 1 FROM pragma_table_info('assurance_runs') WHERE name = 'error_message'"
+        ).fetchone()
+        with self._write_lock, self._conn:
+            if has_error_col is not None:
+                self._conn.execute(
+                    """
+                    UPDATE assurance_runs
+                    SET status = 'failed',
+                        finished_at = ?,
+                        error_message = ?
+                    WHERE run_id = ?
+                    """,
+                    (now, error_message, run_id),
+                )
+            else:
+                self._conn.execute(
+                    """
+                    UPDATE assurance_runs
+                    SET status = 'failed',
+                        finished_at = ?
+                    WHERE run_id = ?
+                    """,
+                    (now, run_id),
+                )
+
+    def get_run_record(self, run_id: str) -> dict[str, Any] | None:
+        """Return the raw assurance_runs row as a dict, including status and tallies."""
+        row = self._conn.execute(
+            "SELECT * FROM assurance_runs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return dict(row)
+
+    def save_run(
+        self,
+        agent_id: str,
+        report: SuiteRunReport,
+        *,
+        endpoint_url: str,
+    ) -> None:
+        """Batch persistence for a run report (backward-compatible)."""
+        self.initialize_run(
+            agent_id,
+            report.run_id,
+            report.suite_version,
+            endpoint_url=endpoint_url,
+        )
+        for result in report.results:
+            self.save_partial_result(report.run_id, result)
+        self.finalize_run(agent_id, report, endpoint_url=endpoint_url)
+
 
     def _persist_inspect_sidecar(self, suite_version_id: str, report: SuiteRunReport) -> None:
         from agenteval.inspect_bridge.log_archive import inspect_extra_available, write_run_archive
@@ -513,7 +649,7 @@ class SuiteRepository:
         row = self._conn.execute(
             """
             SELECT run_id FROM assurance_runs
-            WHERE agent_id = ?
+            WHERE agent_id = ? AND (status IS NULL OR status = 'completed')
             ORDER BY started_at DESC
             LIMIT 1
             """,
@@ -564,6 +700,14 @@ class SuiteRepository:
         if run_row["run_diff_json"]:
             run_diff = json.loads(str(run_row["run_diff_json"]))
 
+        status = "completed"
+        error_msg: str | None = None
+        row_keys = run_row.keys()
+        if "status" in row_keys and run_row["status"]:
+            status = str(run_row["status"])
+        if "error_message" in row_keys and run_row["error_message"]:
+            error_msg = str(run_row["error_message"])
+
         report = SuiteRunReport(
             agent_id=agent_id,
             run_id=run_id,
@@ -573,6 +717,8 @@ class SuiteRepository:
             failed=int(run_row["failed"]),
             unverifiable=int(run_row["unverifiable"]),
             run_diff=run_diff,
+            status=status,
+            error=error_msg,
         )
         return enrich_run_report(self._conn, report)
 

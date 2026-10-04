@@ -259,23 +259,47 @@ def create_app() -> FastAPI:
         if job is not None:
             return JSONResponse(content=job.model_dump(mode="json"))
         workflow = create_suite_workflow(suite_root=suite_root)
+        repo = workflow._repository()
+        run_record = repo.get_run_record(run_id) if repo is not None else None
         report = workflow.get_run(agent_id, run_id)
-        if report is not None:
+        if report is not None or run_record is not None:
             now_iso = datetime.now(UTC).isoformat()
+            status = "completed"
+            error = None
+            started_at = now_iso
+            finished_at = now_iso
+            if run_record is not None:
+                status = str(run_record.get("status") or "completed")
+                error = run_record.get("error_message")
+                started_at = str(run_record.get("started_at") or now_iso)
+                finished_at = str(run_record.get("finished_at") or now_iso)
+
+            completed_count = len(report.results) if report else 0
+            total_count = completed_count
+            try:
+                pack = workflow._load_pack(workflow._store(), agent_id)
+                total_count = max(len(pack.tests), completed_count)
+            except Exception:
+                pass
+
+            percent = 100.0 if status == "completed" else (
+                (completed_count / total_count * 100.0) if total_count > 0 else 0.0
+            )
+
             return JSONResponse(
                 content={
                     "run_id": run_id,
                     "agent_id": agent_id,
-                    "status": "completed",
-                    "created_at": now_iso,
-                    "started_at": now_iso,
-                    "completed_at": now_iso,
+                    "status": status,
+                    "created_at": started_at,
+                    "started_at": started_at,
+                    "completed_at": finished_at if status in ("completed", "failed") else None,
                     "progress": {
-                        "completed": len(report.results),
-                        "total": len(report.results),
-                        "percent": 100.0,
+                        "completed": completed_count,
+                        "total": total_count,
+                        "percent": round(percent, 1),
                     },
-                    "error": None,
+                    "error": error,
                 }
             )
         raise HTTPException(
