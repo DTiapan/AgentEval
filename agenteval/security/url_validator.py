@@ -7,10 +7,14 @@ import os
 import socket
 import urllib.error
 import urllib.request
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import urlparse
 
 import httpx
+
+from agenteval.logging import get_logger
+
+logger = get_logger("agenteval.security.url_validator")
 
 _ALWAYS_BLOCKED_HOSTNAMES = frozenset(
     {
@@ -28,6 +32,13 @@ _BLOCKED_SCHEMES = frozenset({"file", "ftp", "gopher", "data", "javascript", "ld
 
 class UnsafeURLError(ValueError):
     """Raised when an endpoint URL targets an internal, link-local, or forbidden resource."""
+
+
+def _raise_unsafe(
+    msg: str, url: str, host: str | None = None, ip: str | None = None
+) -> NoReturn:
+    logger.warning("ssrf_blocked", url=url, hostname=host, ip=ip, reason=msg)
+    raise UnsafeURLError(msg)
 
 
 def is_private_allowed() -> bool:
@@ -50,42 +61,45 @@ def validate_endpoint_url(url: str, *, allow_private: bool = False) -> str:
     5. IPv6 mapped IPv4 normalization: unwrap ::ffff:x.x.x.x before checking.
     """
     if not url or not isinstance(url, str):
-        raise UnsafeURLError("URL must be a non-empty string.")
+        _raise_unsafe("URL must be a non-empty string.", str(url))
 
     try:
         parsed = urlparse(url.strip())
     except Exception as exc:
-        raise UnsafeURLError(f"Invalid URL format: {exc}") from exc
+        _raise_unsafe(f"Invalid URL format: {exc}", url)
 
     scheme = (parsed.scheme or "").lower()
     if scheme in _BLOCKED_SCHEMES or scheme not in ("http", "https"):
-        raise UnsafeURLError(
-            f"Unsupported URL scheme '{scheme}'. Only http and https endpoints are permitted."
+        _raise_unsafe(
+            f"Unsupported URL scheme '{scheme}'. Only http and https endpoints are permitted.",
+            url,
         )
 
     raw_host = parsed.hostname
     if not raw_host:
-        raise UnsafeURLError(f"URL '{url}' does not contain a valid hostname.")
+        _raise_unsafe(f"URL '{url}' does not contain a valid hostname.", url)
 
     # Strip IPv6 literal brackets for IP checks
     host = raw_host.strip("[]").lower()
 
     if host in _ALWAYS_BLOCKED_HOSTNAMES:
-        raise UnsafeURLError(
-            f"Blocked hostname: '{raw_host}' targets cloud metadata infrastructure."
+        _raise_unsafe(
+            f"Blocked hostname: '{raw_host}' targets cloud metadata infrastructure.",
+            url,
+            host=raw_host,
         )
 
     if not allow_private and host in ("localhost", "0.0.0.0"):
-        raise UnsafeURLError(f"Blocked hostname: '{raw_host}' targets local host.")
+        _raise_unsafe(f"Blocked hostname: '{raw_host}' targets local host.", url, host=raw_host)
 
     # Port range check if specified
     try:
         port = parsed.port
     except ValueError as exc:
-        raise UnsafeURLError(f"Invalid port: {exc}") from exc
+        _raise_unsafe(f"Invalid port: {exc}", url, host=raw_host)
 
     if port is not None and not (1 <= port <= 65535):
-        raise UnsafeURLError(f"Invalid port: {port}. Must be between 1 and 65535.")
+        _raise_unsafe(f"Invalid port: {port}. Must be between 1 and 65535.", url, host=raw_host)
 
     # DNS Resolution check
     try:
@@ -96,7 +110,7 @@ def validate_endpoint_url(url: str, *, allow_private: bool = False) -> str:
         return url
 
     for info in addr_infos:
-        raw_ip_str = info[4][0]
+        raw_ip_str = str(info[4][0])
         try:
             ip = ipaddress.ip_address(raw_ip_str)
         except ValueError:
@@ -108,34 +122,53 @@ def validate_endpoint_url(url: str, *, allow_private: bool = False) -> str:
 
         # 1. Link-local (e.g. 169.254.x.x or fe80::) is ALWAYS blocked, even with allow_private=True
         if ip.is_link_local or str(ip) in ("169.254.169.254", "fd00:ec2::254"):
-            raise UnsafeURLError(
-                f"URL resolves to cloud metadata / link-local address {raw_ip_str}."
+            _raise_unsafe(
+                f"URL resolves to cloud metadata / link-local address {raw_ip_str}.",
+                url,
+                host=raw_host,
+                ip=raw_ip_str,
             )
 
         # 2. Loopback (127.0.0.0/8, ::1)
         if ip.is_loopback:
             if not allow_private:
-                raise UnsafeURLError(
+                _raise_unsafe(
                     f"URL resolves to loopback address {raw_ip_str}. "
-                    "Set AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=1 to permit local evaluation."
+                    "Set AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=1 to permit local evaluation.",
+                    url,
+                    host=raw_host,
+                    ip=raw_ip_str,
                 )
             continue
 
         # 3. Unspecified (0.0.0.0, ::)
         if ip.is_unspecified:
             if not allow_private:
-                raise UnsafeURLError(f"URL resolves to unspecified address {raw_ip_str}.")
+                _raise_unsafe(
+                    f"URL resolves to unspecified address {raw_ip_str}.",
+                    url,
+                    host=raw_host,
+                    ip=raw_ip_str,
+                )
             continue
 
         # 4. Multicast or Reserved non-routable IP
         if ip.is_multicast or ip.is_reserved:
-            raise UnsafeURLError(f"URL resolves to reserved or non-routable address {raw_ip_str}.")
+            _raise_unsafe(
+                f"URL resolves to reserved or non-routable address {raw_ip_str}.",
+                url,
+                host=raw_host,
+                ip=raw_ip_str,
+            )
 
         # 5. Private RFC 1918 / unique-local
         if not allow_private and ip.is_private:
-            raise UnsafeURLError(
+            _raise_unsafe(
                 f"URL resolves to private subnet address {raw_ip_str}. "
-                "Set AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=1 to permit private network evaluation."
+                "Set AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=1 to permit private network evaluation.",
+                url,
+                host=raw_host,
+                ip=raw_ip_str,
             )
 
     return url

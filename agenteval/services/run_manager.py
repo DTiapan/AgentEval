@@ -11,9 +11,13 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agenteval.logging import bind_contextvars, clear_contextvars, get_logger
+
 if TYPE_CHECKING:
     from agenteval.planning.models import SuiteRunReport
     from agenteval.services.suite_workflow import SuiteWorkflow
+
+logger = get_logger("agenteval.services.run_manager")
 
 
 class JobStatus(StrEnum):
@@ -88,6 +92,13 @@ class RunJobManager:
         with self._lock:
             self._jobs[run_id] = job
 
+        logger.info(
+            "job_submitted",
+            run_id=run_id,
+            agent_id=agent_id,
+            judge_mode=judge_mode,
+        )
+
         self._executor.submit(
             self._execute_job,
             run_id=run_id,
@@ -110,6 +121,8 @@ class RunJobManager:
         judge_mode: str,
         max_concurrency: int | None,
     ) -> None:
+        clear_contextvars()
+        bind_contextvars(run_id=run_id, agent_id=agent_id)
         started_str = datetime.now(UTC).isoformat()
         with self._lock:
             if run_id in self._jobs:
@@ -117,6 +130,8 @@ class RunJobManager:
                 self._jobs[run_id] = current_job.model_copy(
                     update={"status": JobStatus.RUNNING, "started_at": started_str}
                 )
+
+        logger.info("job_started", run_id=run_id, agent_id=agent_id)
 
         def on_progress(completed: int, total: int) -> None:
             pct = round((completed / total) * 100.0, 1) if total > 0 else 0.0
@@ -158,6 +173,12 @@ class RunJobManager:
                             ),
                         }
                     )
+            logger.info(
+                "job_completed",
+                run_id=run_id,
+                agent_id=agent_id,
+                total_tests=total_tests,
+            )
         except Exception as exc:
             failed_str = datetime.now(UTC).isoformat()
             with self._lock:
@@ -170,6 +191,14 @@ class RunJobManager:
                             "error": str(exc),
                         }
                     )
+            logger.error(
+                "job_failed",
+                run_id=run_id,
+                agent_id=agent_id,
+                error=str(exc),
+            )
+        finally:
+            clear_contextvars()
 
     def get_job(self, run_id: str) -> RunJobInfo | None:
         """Retrieve job metadata and progress by run_id."""

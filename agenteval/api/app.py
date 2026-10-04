@@ -1,13 +1,14 @@
-"""FastAPI application exposing suite preview, init, and run (E3+E4)."""
-
 import os
+import time
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from agenteval import __version__
 from agenteval.api.schemas import (
@@ -19,12 +20,61 @@ from agenteval.api.schemas import (
     SuiteSyncRequest,
 )
 from agenteval.ingest.endpoint_probe import EndpointProber
+from agenteval.logging import (
+    bind_contextvars,
+    clear_contextvars,
+    configure_logging,
+    get_logger,
+)
 from agenteval.planning.models import PriorityTier
 from agenteval.planning.suite_store import SuiteExistsError
 from agenteval.services.run_manager import get_run_job_manager
 from agenteval.services.workflow_factory import create_suite_workflow, persistence_status
 
 _REPO_UI_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
+logger = get_logger("agenteval.api")
+
+
+class RequestIdMiddleware(BaseHTTPMiddleware):
+    """Propagate or generate X-Request-ID and emit structured access logs."""
+
+    async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
+        clear_contextvars()
+        req_id = request.headers.get("X-Request-ID") or f"req_{uuid4().hex[:12]}"
+        bind_contextvars(request_id=req_id)
+        start_time = time.perf_counter()
+
+        logger.debug(
+            "http_request_started",
+            method=request.method,
+            path=request.url.path,
+            client_ip=request.client.host if request.client else None,
+        )
+
+        try:
+            response = await call_next(request)
+            duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            response.headers["X-Request-ID"] = req_id
+            logger.info(
+                "http_request_completed",
+                method=request.method,
+                path=request.url.path,
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+            )
+            return response
+        except Exception as exc:
+            duration_ms = round((time.perf_counter() - start_time) * 1000, 2)
+            logger.error(
+                "http_request_failed",
+                method=request.method,
+                path=request.url.path,
+                error=str(exc),
+                duration_ms=duration_ms,
+            )
+            raise
+        finally:
+            clear_contextvars()
 
 
 def get_allowed_cors_origins() -> list[str]:
@@ -43,6 +93,7 @@ def get_allowed_cors_origins() -> list[str]:
 
 
 def create_app() -> FastAPI:
+    configure_logging()
     app = FastAPI(
         title="AgentEval API",
         version=__version__,
@@ -57,8 +108,10 @@ def create_app() -> FastAPI:
         allow_origins=origins,
         allow_credentials=not is_wildcard,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-        allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+        allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin", "X-Request-ID"],
+        expose_headers=["X-Request-ID"],
     )
+    app.add_middleware(RequestIdMiddleware)
 
     @app.get("/health")
     def health() -> dict[str, str | bool | dict[str, str | bool | None]]:

@@ -14,6 +14,7 @@ from uuid import uuid4
 import httpx
 
 from agenteval.evaluators.llm_judge import LLMJudgeScorer
+from agenteval.logging import get_logger
 from agenteval.planning.execution_trace import build_blackbox_trajectory
 from agenteval.planning.models import (
     CandidateTest,
@@ -29,6 +30,8 @@ from agenteval.security.url_validator import (
     is_private_allowed,
     validate_endpoint_url,
 )
+
+logger = get_logger("agenteval.runner")
 
 
 class JudgeMode(StrEnum):
@@ -95,6 +98,16 @@ class BlackboxRunner:
         effective_run_id = run_id or uuid4().hex[:12]
         effective_workers = max_workers if max_workers is not None else self.max_workers
         effective_workers = max(1, min(50, effective_workers))
+        total_tests = len(pack.tests)
+
+        logger.info(
+            "suite_run_started",
+            run_id=effective_run_id,
+            agent_id=pack.agent_id,
+            test_count=total_tests,
+            workers=effective_workers,
+            judge_mode=str(self.judge_mode),
+        )
 
         def _execute_one(test: CandidateTest) -> TestCaseResult:
             try:
@@ -111,11 +124,30 @@ class BlackboxRunner:
                         scored.verdict == "UNVERIFIABLE"
                         and "external evaluator or llm judge required" in scored.rationale.lower()
                     ):
+                        logger.info(
+                            "hybrid_judge_escalation",
+                            run_id=effective_run_id,
+                            test_id=test.id,
+                        )
                         scored = self._judge_scorer.score(test, obs)
 
+                logger.info(
+                    "test_completed",
+                    run_id=effective_run_id,
+                    test_id=test.id,
+                    verdict=scored.verdict,
+                    latency_ms=round(obs.latency_ms, 2),
+                    http_status=obs.http_status,
+                )
                 trajectory = build_blackbox_trajectory(obs, scored.verdict, scored.rationale)
                 return scored.model_copy(update={"trajectory": trajectory})
             except Exception as exc:
+                logger.error(
+                    "test_execution_exception",
+                    run_id=effective_run_id,
+                    test_id=test.id,
+                    error=str(exc),
+                )
                 fallback_obs = ObservationBundle(
                     test_id=test.id,
                     user_prompt=test.user_prompt,
@@ -137,7 +169,6 @@ class BlackboxRunner:
 
         results: list[TestCaseResult] = []
         completed_count = 0
-        total_tests = len(pack.tests)
 
         if effective_workers <= 1 or total_tests <= 1:
             for test in pack.tests:
@@ -169,6 +200,17 @@ class BlackboxRunner:
         passed = sum(1 for r in results if r.verdict == "PASS")
         failed = sum(1 for r in results if r.verdict == "FAIL")
         unverifiable = sum(1 for r in results if r.verdict == "UNVERIFIABLE")
+
+        logger.info(
+            "suite_run_finished",
+            run_id=effective_run_id,
+            agent_id=pack.agent_id,
+            passed=passed,
+            failed=failed,
+            unverifiable=unverifiable,
+            total=len(results),
+        )
+
         return SuiteRunReport(
             agent_id=pack.agent_id,
             run_id=effective_run_id,

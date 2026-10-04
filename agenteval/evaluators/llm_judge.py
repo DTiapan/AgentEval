@@ -14,10 +14,12 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agenteval.logging import get_logger
 from agenteval.planning._utils import load_env
 from agenteval.planning.models import CandidateTest, ObservationBundle, TestCaseResult
 
 load_env()
+logger = get_logger("agenteval.evaluators.llm_judge")
 
 _REFUSAL_TOKENS = (
     "cannot",
@@ -117,14 +119,31 @@ class LLMJudgeScorer:
             key = self._resolve_api_key()
             if key:
                 try:
-                    return self._evaluate_with_litellm(
+                    res = self._evaluate_with_litellm(
                         user_prompt=user_prompt,
                         expected_behavior=expected_behavior,
                         response_text=text,
                         category=category,
                         api_key=key,
                     )
+                    logger.info(
+                        "llm_judge_evaluated",
+                        category=category,
+                        model=res.model_used or self._resolve_model(),
+                        score=res.score,
+                        passed=res.passed,
+                        evaluator_provenance=res.evaluator_provenance,
+                    )
+                    return res
                 except Exception as exc:
+                    logger.warning(
+                        "llm_judge_fallback_triggered",
+                        category=category,
+                        model=self._resolve_model(),
+                        error=str(exc),
+                        error_type=type(exc).__name__,
+                        evaluator_provenance="heuristic-fallback",
+                    )
                     fallback = self._evaluate_with_heuristics(
                         user_prompt=user_prompt,
                         expected_behavior=expected_behavior,
