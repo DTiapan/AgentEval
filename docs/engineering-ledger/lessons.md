@@ -20,6 +20,7 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 | LL-012 | In-Process Background Task Traps: SQLite Thread Affinity and FastAPI Route Masking | logged | project | architecture / threading |
 | LL-013 | Streaming Persistence Prevents Catastrophic Test Preemption in Containerized Runtimes | logged | project | architecture / database |
 | LL-014 | Structured JSON Logging in Containerized Cloud Runtimes: Severity Mappings, Contextvars, and Evaluator Attribution | logged | project | observability / architecture |
+| LL-015 | OpenTelemetry Lifecycle Management in Hermetic Python Test Suites & Duplicate Exception Suppression | logged | project | observability / testing |
 
 ---
 
@@ -172,6 +173,19 @@ Blameless capture of surprises, failed approaches, and reusable principles.
   2. Inject and preserve `X-Request-ID` at HTTP boundary middlewares (`RequestIdMiddleware`), expose it in CORS allowlists, and bind it to thread/async contextvars so downstream execution traces inherit correlation automatically.
   3. Never silently degrade evaluation engines; always stamp results with `evaluator_provenance` (`litellm-judge` vs `heuristic-fallback`) and emit structured warnings on fallback activation.
   4. Detect terminal TTY vs container environments dynamically: render human-readable colorized logs when running interactively on a developer terminal, and switch to strict single-line JSON (`JSONRenderer`) when redirected to pipes, log files, or production container runtimes.
+
+
+## LL-015: OpenTelemetry Global Provider Invariants in Hermetic Test Suites & Duplicate Exception Recording
+
+- **Date**: 2026-10-04
+- **Scope**: project
+- **Context**: In OpenTelemetry Python SDK, `trace.set_tracer_provider()` enforces a strict single-set invariant (`_TRACER_PROVIDER_SET_ONCE`). Attempting to register another TracerProvider (for example, switching from a NoOpTracerProvider or between test fixtures configured with different in-memory span exporters) emits an SDK warning and retains the previously set global provider. Furthermore, when implementing custom span helper wrappers (e.g. `start_span`), handling exceptions within `try...except` blocks can easily result in duplicate exception telemetry.
+- **Root Cause**:
+  1. **Global TracerProvider Freezing**: Once `trace.set_tracer_provider()` is called, the OTel SDK protects against accidental provider swapping by ignoring subsequent calls. In pytest test suites testing TracerProvider configuration, custom exporters, and span capture, tests bleed into one another if the global tracer provider cannot be reset between runs.
+  2. **Duplicate Exception Events**: `tracer.start_as_current_span()` context manager automatically records any unhandled exception on exit (`record_exception=True` by default). If an error-handling wrapper catches `Exception as exc`, explicitly executes `span.record_exception(exc)`, and then re-raises, the span ends up recording two identical exception events in its event array.
+- **Lesson / Rule**:
+  1. In Python services requiring dynamic or testable OTel lifecycle management, maintain an internal reference (`_TRACER_PROVIDER`) and reset internal SDK globals (`trace._TRACER_PROVIDER = None` and `trace._TRACER_PROVIDER_SET_ONCE._done = False`) within a clean `reset_telemetry()` teardown utility.
+  2. When wrapping code in `tracer.start_as_current_span()`, do not manually call `span.record_exception(exc)` inside `except` blocks if the exception is re-raised. Only set `span.set_status(StatusCode.ERROR, str(exc))` to mark the span's error status, allowing the underlying context manager to record the exception payload exactly once.
 
 <!-- New entries above ## Archive -->
 

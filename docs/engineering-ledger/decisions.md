@@ -45,6 +45,9 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-035 | **Decoupled Asynchronous Background Runs (In-Process Job Manager, Non-Blocking 202 Accepted, and Real-Time Progress Polling):** Decoupled HTTP API requests from test suite execution time via `agenteval.services.run_manager.RunJobManager`. Replaced synchronous blocking in `POST /v1/suites/{agent_id}/runs` with `202 Accepted` returning a `RunJobInfo` descriptor, eliminating HTTP 504 Gateway Timeouts across Cloud Run, reverse proxies, and browsers. Implemented thread-safe `RunJobManager` with concurrency bounds (`ThreadPoolExecutor`), live test progress tracking (`on_progress` callback in `BlackboxRunner`), `GET /status` polling, and `GET /runs/{run_id}` retrieval. Configured SQLite `connect(timeout=30.0, check_same_thread=False)` to prevent multi-threaded connection affinity panics. Preserved synchronous execution via `wait: true` for scripts and CI. Built animated live progress banner in Web Console (`AssuranceView.tsx`) per `ui-ux-pro-max`. | Accepted | 2026-10-04 |
 | DR-036 | **Incremental Run Persistence (Streaming Flushes, Live Tallies, and Crash Recovery):** Flushes completed test case results and multi-step trajectories immediately to SQLite via `on_result` callback rather than buffering entirely in memory. Introduces `agenteval.db.migrations._migration_v003` with `error_message`, thread-safe `threading.RLock()`, in-flight `status='running'`, and gated baseline queries. | Accepted | 2026-10-04 |
 | DR-037 | **Structured JSON Logging with structlog, GCP Cloud Logging Severity Mapping, and Distributed Correlation:** Implemented centralized observability module (`agenteval/core/logging.py`, `agenteval/logging.py`) powered by `structlog>=24.1.0`. Auto-detects TTY vs JSON output, maps log levels to native GCP Cloud Logging `severity` (`INFO`, `WARNING`, `ERROR`, `CRITICAL`), and manages thread/async contextvars. Added `RequestIdMiddleware` generating/preserving `X-Request-ID` and emitting structured access logs. Instrument `llm_judge_evaluated` / `llm_judge_fallback_triggered` with `evaluator_provenance`, `ssrf_blocked` security auditing, runner test lifecycle, and async background job execution. | Accepted | 2026-10-04 |
+| DR-038 | **API Key Authentication (BYOA First Layer) & APIRouter Gating:** Implemented global `/v1` endpoint protection using `X-API-Key` or `Authorization: Bearer` verified securely against `AGENTEVAL_API_KEY` via `secrets.compare_digest`. Migrated FastAPI endpoints to `APIRouter` to isolate protected domains while leaving `/health` and UI static asset routes unauthenticated. Handled backward compatibility gracefully for local development. | Accepted | 2026-10-04 |
+| DR-039 | **Deprecation and Complete Removal of Filesystem Dual-Persistence in Runtime Workflows:** Removed legacy `SuiteStore` fallback branches and `_sqlite_primary()` checks from `SuiteWorkflow`, cementing `SuiteRepository` (SQLite) as the single authoritative persistence backend for all suite operations. Preserved `SuiteStore` solely for legacy migrations via `agenteval db import-suites`. | Accepted | 2026-10-04 |
+| DR-040 | **OpenTelemetry (OTel) Distributed Tracing Engine, W3C Propagation & OpenInference Semantic Conventions:** End-to-end distributed tracing across FastAPI API endpoints, suite operations (`suite.run_pack`, `suite.preview`, `suite.init`), individual test case execution (`test.case.execute`), agent endpoint HTTP invocations (`agent.endpoint.invoke` with outbound W3C `traceparent` propagation), LLM evaluations (`llm.judge.evaluate`), candidate synthesizers (`llm.candidate.synthesize`), Jev scorers (`jev.candidate.score`), and SQLite mutations (`db.sqlite.operation`). Automated correlation of active `trace_id` and `span_id` with `structlog` JSON logs. | Accepted | 2026-10-04 |
 
 
 ---
@@ -358,6 +361,51 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
        - `RunJobManager`: log `job_submitted`, `job_started`, `job_completed`, and `job_failed` with bound context variables.
 - **Decision:** **Option 3.**
 - **Consequences:** All log emissions are machine-queryable JSON in production and readable in local terminals. Correlation IDs link HTTP requests directly to downstream test runs. LLM fallback events and SSRF violations are explicitly indexed for alerting. Test suite passes with 293 tests at 87.52% coverage; 0 ruff or mypy errors.
+### DR-038 — API Key Authentication (BYOA First Layer) & APIRouter Gating
+
+- **Context:** Moving towards a multi-tenant SaaS trajectory requires securing backend API access. The current state left all API endpoints open, assuming isolation via GCP network policies or local development bounds.
+- **Decision:** Implemented a robust basic API Key authentication layer as the first step of the SaaS trajectory.
+  - Added `agenteval/api/auth.py` exposing a `get_api_key` dependency.
+  - Supports both custom `X-API-Key` header and standard `Authorization: Bearer <key>` format.
+  - Mitigates timing attacks by using `secrets.compare_digest` to check against `AGENTEVAL_API_KEY`.
+  - Refactored `agenteval/api/app.py` by grouping all `/v1` API endpoints into an `APIRouter` (with the `get_api_key` dependency globally applied to the router), preserving unauthenticated access to the `/health` endpoint and frontend static UI mounts.
+  - Adapted frontend network layer in `web/src/api.ts` to seamlessly intercept and inject the key from `localStorage` into all `authFetch` requests.
+- **Consequences:** Secured core API bounds while maintaining a frictionless local developer experience (bypassing auth if `AGENTEVAL_API_KEY` is not set). Establishes the foundational router required for forthcoming JWT and OAuth integrations.
+
+### DR-039 — Deprecation and Complete Removal of Filesystem Dual-Persistence in Runtime Workflows
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** AgentEval originally supported filesystem-based JSON persistence (`SuiteStore`), before migrating to SQLite (`SuiteRepository` under ADR-004). However, `SuiteWorkflow` continued to maintain dual-persistence branching logic (`if self._sqlite_primary() and repo is not None: ... else: ...`) across every CRUD and execution pathway (suite init, suite run, sync, gap loop, reports, deletion). This caused technical debt, subtle branch divergence, dual-write overhead, and race condition potential.
+- **Alternatives considered:**
+  1. **Retain dual persistence with synchronized dual writes:** (Rejected: doubled I/O latency, potential disk vs SQLite desynchronization, unnecessary complexity).
+  2. **Pluggable Store interface:** (Rejected: premature abstraction for an appliance that now has a clear production DB standard in SQLite).
+  3. **Direct SQLite repository adoption with legacy migration CLI preserved (Option 3):**
+     - Strip all `_store()` and dual-write branches from `SuiteWorkflow`.
+     - Direct all suite operations (init, run, get, list, delete, sync, extend, report) straight to `SuiteRepository`.
+     - Default `use_sqlite_persistence()` to `True`.
+     - Preserve `SuiteStore` in `agenteval/planning/suite_store.py` solely for the `agenteval db import-suites` CLI tool.
+- **Decision:** **Option 3.**
+- **Consequences:** `SuiteWorkflow` simplified by 84 lines of branching code. Eliminates risks of filesystem/DB state divergence. Test suite passes with 298 tests at 87.84% coverage; 0 ruff or mypy errors.
+
+---
+
+### DR-040 — OpenTelemetry (OTel) Distributed Tracing Engine, W3C Propagation & OpenInference Semantic Conventions
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** AgentEval operates as an assurance platform evaluating autonomous AI agents across external HTTP endpoints, local SQLite persistence, LLM judges (LiteLLM/DeepSeek), candidate synthesizers, and TypeSafe AI Jev classifiers. Without end-to-end distributed tracing, diagnosing performance bottlenecks, test timeouts, transport retries, or judge latency across multi-hop agent evaluation graphs requires tedious manual log correlation. Furthermore, customer agents receiving evaluation requests had no trace context linkage to join the evaluation graph.
+- **Alternatives considered:**
+  1. **Proprietary tracing or ad-hoc timing logs:** (Rejected: locks telemetry into proprietary formats, doesn't adhere to Core Principle 6 "Open Standards First", fails distributed correlation).
+  2. **Vendor-specific APM agents (Datadog/NewRelic):** (Rejected: violates BYOA neutrality and adds heavy closed-source dependencies).
+  3. **Vendor-neutral OpenTelemetry SDK + OpenInference Semantic Conventions (Option 3):**
+     - Centralized engine `agenteval/core/telemetry.py` (aliased at `agenteval/telemetry.py`) supporting OTLP HTTP, Console, and InMemory exporters with clean reset capabilities.
+     - Outbound W3C Trace Context (`traceparent` header) injection via `inject_trace_context(headers)` in `BlackboxRunner._invoke()` so evaluated agents join the distributed trace graph.
+     - OpenInference semantic attributes (`openinference.span.kind = "LLM" | "EVALUATOR"`) on `llm.judge.evaluate`, `llm.candidate.synthesize`, and `jev.candidate.score` spans.
+     - Automated correlation with `structlog` logs via `add_otel_trace_context` injecting active `trace_id` and `span_id` into all structured log lines.
+     - Auto-instrumentation of FastAPI routes via `FastAPIInstrumentor` and telemetry status reporting in `/health`.
+- **Decision:** **Option 3.**
+- **Consequences:** End-to-end tracing coverage across all critical execution planes. Evaluated agents receive standard W3C `traceparent` headers. Active trace and span IDs correlate seamlessly in `structlog` JSON logs. Verified with 12 comprehensive unit tests in `tests/unit/test_otel_telemetry.py`; full suite passes 310 tests with 87.97% coverage.
 
 <!-- New entries above ## Archive -->
 
