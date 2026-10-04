@@ -5,7 +5,7 @@ from pathlib import Path
 
 from agenteval.core.manifest import AgentCard
 from agenteval.planning.coverage import CoverageMapper
-from agenteval.planning.generator import CandidatePoolGenerator, PersonaRef
+from agenteval.planning.generator import DEFAULT_PERSONAS, CandidatePoolGenerator, PersonaRef
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
 from agenteval.planning.jev_candidate_scorer import JevCandidateScorer
 from agenteval.planning.models import (
@@ -16,17 +16,7 @@ from agenteval.planning.models import (
     TestPack,
 )
 from agenteval.planning.optimizer import TestPackOptimizer
-
-DEFAULT_PERSONAS: list[PersonaRef] = [
-    PersonaRef(slug="frequent-user", name="Frequent User", framing="a regular customer"),
-    PersonaRef(slug="adversary", name="Adversary", framing="a potentially malicious user"),
-    PersonaRef(
-        slug="security-auditor",
-        name="Security Auditor",
-        framing="a compliance reviewer testing boundaries",
-    ),
-]
-
+from agenteval.planning.scenario_config import legacy_b2_enabled, scenario_first_enabled
 
 class SuiteBootstrap:
     """Generate pool and optimized pack without LLM (personas are defaults unless extended)."""
@@ -64,6 +54,7 @@ class SuiteBootstrap:
         card: AgentCard,
         requirements_fingerprint: str,
         *,
+        prd_text: str | None = None,
         max_tier: PriorityTier | None = None,
         selected_test_ids: list[str] | None = None,
     ) -> tuple[list[CandidateTest], TestPack, CoverageReport]:
@@ -71,7 +62,19 @@ class SuiteBootstrap:
         if not capabilities:
             raise ValueError("AgentCard has no capabilities; cannot generate suite.")
 
-        pool = CandidatePoolGenerator().build_pool(card.id, capabilities, self.personas)
+        if scenario_first_enabled():
+            from agenteval.planning.scenario_compiler import ScenarioCompiler
+
+            pool = ScenarioCompiler(personas=self.personas).compile_pool(
+                card, requirements_fingerprint, prd_text
+            )
+        else:
+            pool = CandidatePoolGenerator().build_pool(
+                card.id,
+                capabilities,
+                self.personas,
+                legacy_meta_persona=legacy_b2_enabled(),
+            )
         from agenteval.planning.promptfoo_bridge import PromptFooBridge
 
         adversarial_tests = PromptFooBridge().generate_adversarial_candidates(card)
@@ -84,7 +87,7 @@ class SuiteBootstrap:
         from agenteval.planning.llm_candidate_synthesizer import LLMCandidateSynthesizer
 
         synthesized_tests = LLMCandidateSynthesizer(personas=self.personas).synthesize_candidates(
-            card
+            card, prd_text=prd_text
         )
         for syn in synthesized_tests:
             if syn.id not in existing_ids:

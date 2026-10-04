@@ -274,6 +274,7 @@ def create_app() -> FastAPI:
                 selected_test_ids=body.selected_test_ids,
                 headers=body.headers or None,
                 connection_profile=body.auth_profile,
+                preview_id=body.preview_id,
             )
         except SuiteExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None

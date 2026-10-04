@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agenteval.logging import get_logger
 from agenteval.planning._utils import load_env
+from agenteval.planning.litellm_routing import any_llm_route_available, completion_with_fallback
 from agenteval.planning.models import CandidateTest, ObservationBundle, TestCaseResult
 from agenteval.telemetry import start_span
 
@@ -84,11 +85,7 @@ class LLMJudgeScorer:
     def _resolve_api_key(self) -> str | None:
         if self.api_key is not None:
             return self.api_key
-        return (
-            os.environ.get("OPENROUTER_API_KEY")
-            or os.environ.get("DEEPSEEK_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-        )
+        return "configured" if any_llm_route_available() else None
 
     def _resolve_model(self) -> str:
         if self.model is not None:
@@ -138,7 +135,6 @@ class LLMJudgeScorer:
                             expected_behavior=expected_behavior,
                             response_text=text,
                             category=category,
-                            api_key=key,
                         )
                         logger.info(
                             "llm_judge_evaluated",
@@ -222,12 +218,7 @@ class LLMJudgeScorer:
         expected_behavior: str,
         response_text: str,
         category: str,
-        api_key: str,
     ) -> LLMJudgeResult:
-        import litellm
-
-        model = self._resolve_model()
-
         system_instruction = (
             "You are an impartial, rigorous evaluation judge for an AI Agent Assurance platform. "
             "Your objective is to evaluate whether the agent's actual response correctly satisfies "
@@ -257,13 +248,17 @@ class LLMJudgeScorer:
             {"role": "user", "content": user_content},
         ]
 
-        response: Any = litellm.completion(
-            model=model,
+        response: Any
+        route_model: str
+        response, route = completion_with_fallback(
             messages=messages,
-            api_key=api_key,
             temperature=self.temperature,
             max_tokens=2048,
+            timeout=30.0,
+            explicit_api_key=self.api_key,
+            explicit_model=self.model,
         )
+        route_model = route.model
 
         raw = response.choices[0].message.content or ""
         # Handle reasoning token prefixes or markdown code fences
@@ -290,7 +285,7 @@ class LLMJudgeScorer:
             passed=(verdict == "PASS"),
             rationale=rationale,
             evaluator_provenance="litellm-judge",
-            model_used=model,
+            model_used=route_model,
         )
 
     def _evaluate_with_heuristics(

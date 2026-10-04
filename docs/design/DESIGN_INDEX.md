@@ -15,7 +15,9 @@
 | 5 | [requirements-traceability.md](requirements-traceability.md) | **FR-B / FR-P → schema → API → code → tests** |
 | 6 | [PRD_SAAS_FULL.md](PRD_SAAS_FULL.md) §9A | Product requirements and status |
 | 7 | [black-box-test-intelligence-pipeline.md](black-box-test-intelligence-pipeline.md) | Black-box **pipeline** (ingest → run); maps to domain model § vocabulary |
+| 7b | [scenario-first-test-generation.md](scenario-first-test-generation.md) | **B2′** scenario-first candidate generation (backbone focus) |
 | 8 | [architecture.md](architecture.md) | **Dual profiles** (harness vs black-box) + long-term subsystems; see §0 for alignment |
+| — | [ux-studio-builder.md](ux-studio-builder.md) | **Console builder UX** (stepper, copy SoT, Assurance CI gate) |
 
 ## ADRs (decisions)
 
@@ -35,7 +37,7 @@
 | Freeze → requirements / test_cases | Yes | **Yes** (slice 1) |
 | Freeze → full criteria UX | Yes (lifecycle doc) | Placeholder criterion only |
 | Run → criterion_verdicts + evidence | Yes | **Partial** (`save_run` + normalized suite) |
-| Packs | Interface doc | **v0** (mandatory reqs, compliance rows, synthetic data, audit check) |
+| Packs | Interface doc | **Interface defined; fintech adapter dormant (env-only)** |
 | Inspect integration | ADR-001/005 | **Partial** (5a sidecar when `inspect-ai` extra installed) |
 
 ## Build order (enforced)
@@ -44,7 +46,7 @@
 ① Design debt closed (this index + lifecycle + pack interface + traceability)
 ② Runner writes evidence + per-criterion verdicts (slice 2 ✓)
 ③ API/UI reads criterion verdicts (slice 3 ✓)
-④ Fintech pack v0 ✓ (`AGENTEVAL_ENABLED_DOMAIN_PACKS=fintech`; audit DB via `AGENTEVAL_AUDIT_LOG_DB_PATH`)
+④ B2′ scenario-first test generation ([scenario-first-test-generation.md](scenario-first-test-generation.md))
 ⑤ Inspect eval() wiring (5a sidecar ✓; full Task/Solver migration deferred)
 ⑥ CI backbone boundary (NFR-B-07) — `scripts/check_backbone_domain_strings.py` ◐
 ```

@@ -49,9 +49,24 @@ import {
 } from "@/components/ui/table";
 import { SAMPLE_AGENT_ENDPOINT_PLACEHOLDER } from "@/lib/mvp-defaults";
 import { openTrajectoryReplay } from "@/lib/replay-session";
-import { navigateConsoleView } from "@/lib/console-route";
+import {
+  navigateAssuranceTab,
+  navigateConsoleView,
+  readAssuranceTab,
+  type AssuranceTab,
+} from "@/lib/console-route";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AssuranceRequirementsSignoff } from "@/components/assurance/AssuranceRequirementsSignoff";
 import { AssuranceEmptyState } from "@/components/AssuranceEmptyState";
 import { ReportEmbedFrame } from "@/components/ReportEmbedFrame";
+import {
+  ConsoleBuilderJourney,
+  useAssuranceBuilderCompletion,
+} from "@/components/ConsoleBuilderJourney";
+import { AssuranceCIGateBanner } from "@/components/assurance/AssuranceCIGateBanner";
+import { ConsoleStickyActionBar } from "@/components/console/ConsoleStickyActionBar";
+import { ASSURANCE_JOURNEY_UX } from "@/lib/studio-ux-config";
+import { cn } from "@/lib/utils";
 
 function useConsoleTheme(): "light" | "dark" {
   const [theme, setTheme] = useState<"light" | "dark">(() =>
@@ -84,6 +99,13 @@ export const AssuranceView: React.FC = () => {
   const [isReportModalOpen, setIsReportModalOpen] = useState(false);
   const [isDownloadingReport, setIsDownloadingReport] = useState(false);
   const [evidenceViewMode, setEvidenceViewMode] = useState<"cards" | "monaco">("cards");
+  const [assuranceTab, setAssuranceTab] = useState<AssuranceTab>(() => readAssuranceTab());
+
+  useEffect(() => {
+    const sync = () => setAssuranceTab(readAssuranceTab());
+    window.addEventListener("hashchange", sync);
+    return () => window.removeEventListener("hashchange", sync);
+  }, []);
 
   const loadSuiteData = async (agentId: string) => {
     setIsLoadingDetail(true);
@@ -119,9 +141,6 @@ export const AssuranceView: React.FC = () => {
   const requirementRows = suiteDetail?.requirements?.requirements ?? [];
   const criterionVerdicts: CriterionVerdictSummary[] =
     latestRun?.criterion_verdicts ?? suiteDetail?.latest_run?.criterion_verdicts ?? [];
-  const showRequirementSignoff =
-    requirementRows.length > 0 && criterionVerdicts.length > 0;
-
   const statementForRequirement = (stableId: string) =>
     requirementRows.find((r) => r.stable_id === stableId)?.statement ?? stableId;
 
@@ -320,6 +339,14 @@ export const AssuranceView: React.FC = () => {
       ? diff.same_verdict_count
       : changes.filter((c) => c.kind === "STABLE").length;
 
+  const journeyCompletion = useAssuranceBuilderCompletion({
+    agentId: activeAgentId ?? "",
+    endpointUrl: suiteDetail?.manifest?.endpoint_profile,
+    requirementsText: suiteDetail?.requirements_text,
+    hasFrozenManifest: Boolean(suiteDetail?.manifest),
+    hasAssuranceRun: Boolean(latestRun),
+  });
+
   const showNoSuitesEmpty = !isLoadingSuites && suites.length === 0;
   const showNoRunEmpty =
     Boolean(activeAgentId) && !isLoadingDetail && suiteDetail !== null && !latestRun;
@@ -354,30 +381,53 @@ export const AssuranceView: React.FC = () => {
   }
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      {/* Top Action & Control Bar */}
-      <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-xl font-bold tracking-tight text-foreground">
-              Assurance Runs
-            </h1>
-            {activeAgentId && (
-              <Badge variant="outline" className="font-mono text-xs border-border bg-muted text-foreground">
-                {activeAgentId} (v{suiteDetail?.manifest?.version ?? 1})
-              </Badge>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {activeAgentId
-              ? suiteDetail
-                ? `Frozen pack v${suiteDetail.manifest.version} · ${suiteDetail.optimized_pack?.tests?.length ?? 0} tests · target ${suiteDetail.manifest.endpoint_profile?.trim() || "not set in manifest"}`
-                : "Loading suite from engine…"
-              : "Select or create a suite in Studio to run assurance against your agent endpoint."}
-          </p>
-        </div>
+    <div
+      className={cn(
+        "mx-auto max-w-7xl px-4 py-6 sm:px-6",
+        assuranceTab === "runs" &&
+          activeAgentId &&
+          "pb-[calc(5.5rem+env(safe-area-inset-bottom))]",
+      )}
+    >
+      <ConsoleBuilderJourney
+        mode="assurance"
+        completion={journeyCompletion}
+        agentLabel={
+          activeAgentId
+            ? `${activeAgentId} (v${suiteDetail?.manifest?.version ?? 1})`
+            : undefined
+        }
+        onAssurancePrimaryAction={showNoRunEmpty ? handleRunSuite : undefined}
+        assurancePrimaryDisabled={!activeAgentId}
+        assurancePrimaryLoading={isRunning}
+      />
+      <Tabs
+        value={assuranceTab}
+        onValueChange={(v) => {
+          const tab = v as AssuranceTab;
+          setAssuranceTab(tab);
+          navigateAssuranceTab(tab);
+        }}
+        className="w-full"
+      >
+        <TabsList className="mb-4 h-auto flex-wrap">
+          <TabsTrigger value="runs" className="text-xs">
+            {ASSURANCE_JOURNEY_UX.tabRuns}
+          </TabsTrigger>
+          <TabsTrigger value="signoff" className="text-xs">
+            {ASSURANCE_JOURNEY_UX.tabSignoff}
+          </TabsTrigger>
+        </TabsList>
 
-        <div className="flex items-center gap-3">
+        <TabsContent value="runs" className="mt-0">
+      {/* Top Action & Control Bar — wireframe: target + run + report */}
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+        <p className="text-xs text-muted-foreground max-w-xl order-2 sm:order-1">
+          {activeAgentId && suiteDetail
+            ? `Frozen pack · ${suiteDetail.optimized_pack?.tests?.length ?? 0} tests`
+            : ASSURANCE_JOURNEY_UX.subtitle}
+        </p>
+        <div className="flex flex-wrap items-center justify-end gap-3 order-1 sm:order-2 w-full sm:w-auto">
           {/* Target Endpoint Input */}
           <div className="flex items-center gap-2 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs font-mono text-foreground">
             <span className="text-muted-foreground shrink-0">Target:</span>
@@ -390,7 +440,7 @@ export const AssuranceView: React.FC = () => {
             />
           </div>
 
-          {/* Run Suite Button */}
+          {latestRun && (
           <Button
             variant="default"
             onClick={handleRunSuite}
@@ -402,8 +452,9 @@ export const AssuranceView: React.FC = () => {
             ) : (
               <Play className="h-3.5 w-3.5 fill-current mr-1.5" />
             )}
-            <span>Execute Run</span>
+            <span>Re-run suite</span>
           </Button>
+          )}
 
           {activeAgentId && latestRun && hasCoverageGaps && (
             <Button
@@ -443,8 +494,8 @@ export const AssuranceView: React.FC = () => {
                 onClick={() => setIsReportModalOpen(true)}
                 className="cursor-pointer"
               >
-                <span>View report</span>
-                <ArrowUpRight className="h-3.5 w-3.5 ml-1 text-muted-foreground" />
+                <span>{ASSURANCE_JOURNEY_UX.reportAction}</span>
+                <ArrowUpRight className="h-3.5 w-3.5 ml-1 text-muted-foreground" aria-hidden />
               </Button>
             </>
           )}
@@ -453,7 +504,7 @@ export const AssuranceView: React.FC = () => {
 
       {/* Background Run Progress Indicator Card */}
       {isRunning && (
-        <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 p-4 shadow-sm backdrop-blur-xs transition-all animate-in fade-in-50">
+        <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 p-4 shadow-sm backdrop-blur-xs transition-colors animate-in fade-in-50">
           <div className="flex items-center justify-between gap-4 mb-2.5">
             <div className="flex items-center gap-2.5">
               <span className="relative flex h-2.5 w-2.5">
@@ -469,7 +520,7 @@ export const AssuranceView: React.FC = () => {
             </div>
             <div className="flex items-center gap-3">
               <span className="font-mono text-xs text-muted-foreground">
-                {runProgress?.total ? `${runProgress.completed} / ${runProgress.total} tests` : "Initializing..."}
+                {runProgress?.total ? `${runProgress.completed} / ${runProgress.total} tests` : "Initializing…"}
               </span>
               <span className="font-mono text-xs font-semibold text-primary">
                 {runProgress ? `${Math.round(runProgress.percent)}%` : "0%"}
@@ -479,7 +530,7 @@ export const AssuranceView: React.FC = () => {
           {/* Progress Bar Container */}
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary/80">
             <div
-              className="h-full bg-primary transition-all duration-300 ease-out"
+              className="h-full bg-primary transition-[width] duration-300 ease-out"
               style={{ width: `${Math.min(100, Math.max(runProgress?.percent || 0, isRunning ? 5 : 0))}%` }}
             />
           </div>
@@ -502,6 +553,8 @@ export const AssuranceView: React.FC = () => {
         </div>
       )}
 
+      {!showNoRunEmpty && (
+      <>
       {/* KPI Metric Strip - Styled matching Screenshots 2 & 3 */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         {/* Pass Rate */}
@@ -519,7 +572,7 @@ export const AssuranceView: React.FC = () => {
                   : "text-rose-500"
               }`}
             >
-              {totalTests > 0 ? `${passRate}%` : "—"}
+              {totalTests > 0 ? `${passRate}%` : "n/a"}
             </span>
             <span className="text-xs text-muted-foreground">
               {latestRun?.passed ?? 0}/{totalTests}
@@ -591,6 +644,13 @@ export const AssuranceView: React.FC = () => {
         </Card>
       </div>
 
+      <AssuranceCIGateBanner
+        failedCount={latestRun?.failed ?? 0}
+        regressionCount={regressionsList.length}
+        unverifiableCount={latestRun?.unverifiable ?? 0}
+        passRate={passRate}
+      />
+
       {/* Regression Diff Alert */}
       {diff && baselineRunId && (
         <div
@@ -627,76 +687,18 @@ export const AssuranceView: React.FC = () => {
         </div>
       )}
 
-      {showRequirementSignoff && (
-        <Card className="mb-6 border-border bg-card shadow-xs overflow-hidden">
-          <div className="border-b border-border bg-muted/30 px-4 py-3">
-            <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Requirements sign-off (engine)
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Per-criterion verdicts from SQLite — same data as{" "}
-              <code className="font-mono text-[11px]">GET /v1/suites/…/requirements</code>
-            </p>
-          </div>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Requirement</TableHead>
-                <TableHead>Criterion</TableHead>
-                <TableHead className="w-[100px]">Test</TableHead>
-                <TableHead className="w-[110px]">Verdict</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {criterionVerdicts.map((cv) => (
-                <TableRow key={`${cv.criterion_id}-${cv.test_id}`}>
-                  <TableCell className="text-xs max-w-[240px]">
-                    <span className="font-mono text-[10px] text-muted-foreground block">
-                      {cv.requirement_stable_id}
-                    </span>
-                    {statementForRequirement(cv.requirement_stable_id)}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {cv.criterion_stable_id}
-                  </TableCell>
-                  <TableCell className="font-mono text-[11px]">{cv.test_id}</TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={
-                        cv.verdict === "PASS"
-                          ? "pass"
-                          : cv.verdict === "FAIL"
-                            ? "fail"
-                            : "outline"
-                      }
-                      className="text-[10px]"
-                    >
-                      {cv.verdict}
-                    </Badge>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </Card>
-      )}
-
-      {showNoRunEmpty ? null : (
       <ResizablePanelGroup
         direction="horizontal"
         className="min-h-[580px] gap-5"
       >
         {/* Left Resizable Panel: Test Cases Explorer Table */}
-        <ResizablePanel defaultSize={55} minSize={35} className="flex flex-col gap-3 overflow-y-auto">
+        <ResizablePanel defaultSize={58} minSize={40} className="flex flex-col gap-3 overflow-y-auto">
           {/* Column Header */}
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Test Cases Explorer
               </h2>
-              <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
-                Left Pane
-              </Badge>
             </div>
           </div>
 
@@ -799,7 +801,7 @@ export const AssuranceView: React.FC = () => {
                             <span className="text-foreground">cap: {capId}</span>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground">
+                        <TableCell className="text-right font-mono text-xs text-muted-foreground tabular-nums">
                           {Math.round(r.observation.latency_ms)}ms
                         </TableCell>
                         <TableCell>
@@ -809,6 +811,7 @@ export const AssuranceView: React.FC = () => {
                               size="icon"
                               className="h-7 w-7"
                               title="Trajectory replay (jump to fail)"
+                              aria-label={`Open trajectory replay for ${r.test_id}`}
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setSelectedTest(r);
@@ -848,16 +851,13 @@ export const AssuranceView: React.FC = () => {
         <ResizableHandle withHandle />
 
         {/* Right Resizable Panel: Execution Evidence Inspector */}
-        <ResizablePanel defaultSize={45} minSize={30} className="flex flex-col gap-3 overflow-y-auto">
+        <ResizablePanel defaultSize={42} minSize={28} className="flex flex-col gap-3 overflow-y-auto">
           {/* Column Header */}
           <div className="flex items-center justify-between px-1">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                 Execution Evidence Inspector
               </h2>
-              <Badge variant="outline" className="font-mono text-[10px] text-muted-foreground">
-                Right Pane
-              </Badge>
             </div>
             {/* View Mode Toggle: Formatted Cards vs Monaco JSON */}
             <div className="flex items-center gap-1 rounded-md border border-border bg-muted/40 p-0.5">
@@ -1005,7 +1005,19 @@ export const AssuranceView: React.FC = () => {
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>
+      </>
       )}
+        </TabsContent>
+
+        <TabsContent value="signoff" className="mt-0">
+          <AssuranceRequirementsSignoff
+            criterionVerdicts={criterionVerdicts}
+            statementForRequirement={statementForRequirement}
+            hasRun={Boolean(latestRun)}
+            hasRequirements={requirementRows.length > 0}
+          />
+        </TabsContent>
+      </Tabs>
 
       {/* Standalone HTML Report In-App Modal with Shadcn Dialog */}
       <Dialog open={isReportModalOpen} onOpenChange={setIsReportModalOpen}>
@@ -1021,7 +1033,7 @@ export const AssuranceView: React.FC = () => {
                   REPORT
                 </Badge>
                 <h3 className="text-sm font-semibold text-foreground font-mono">
-                  {activeAgentId} — Run {latestRun.run_id.slice(0, 8)}
+                  {activeAgentId} · Run {latestRun.run_id.slice(0, 8)}
                 </h3>
               </div>
               <div className="flex items-center gap-2 pr-6">
@@ -1064,6 +1076,30 @@ export const AssuranceView: React.FC = () => {
         )}
         </DialogContent>
       </Dialog>
+
+      {assuranceTab === "runs" && activeAgentId && suiteDetail && (
+        <ConsoleStickyActionBar aria-label="Assurance run actions">
+          <p className="hidden min-w-0 flex-1 truncate text-[11px] text-muted-foreground sm:block">
+            {latestRun
+              ? `Frozen pack · ${suiteDetail.optimized_pack?.tests?.length ?? 0} tests · last run ${latestRun.run_id}`
+              : `Frozen pack · ${suiteDetail.optimized_pack?.tests?.length ?? 0} tests · no runs yet`}
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            className="w-full sm:w-auto"
+            onClick={handleRunSuite}
+            disabled={isRunning || !activeAgentId}
+          >
+            {isRunning ? (
+              <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" aria-hidden />
+            ) : (
+              <Play className="h-3.5 w-3.5 fill-current mr-1.5" aria-hidden />
+            )}
+            {latestRun ? "Re-run suite" : ASSURANCE_JOURNEY_UX.primaryAction}
+          </Button>
+        </ConsoleStickyActionBar>
+      )}
     </div>
   );
 };

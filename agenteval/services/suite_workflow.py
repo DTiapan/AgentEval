@@ -16,6 +16,7 @@ from agenteval.packs.enabled import set_run_audit_log_db_path
 from agenteval.packs.registry import discover_domain_packs
 from agenteval.planning.blackbox_runner import BlackboxRunner
 from agenteval.planning.bootstrap import SuiteBootstrap
+from agenteval.planning.scenario_config import scenario_first_enabled
 from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.gap_loop import SuiteGapExtender
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator
@@ -38,6 +39,8 @@ from agenteval.planning.run_diff import diff_suite_runs
 from agenteval.planning.suite_store import SuiteStore
 from agenteval.planning.suite_sync import SuiteSynchronizer, SuiteSyncResult
 from agenteval.targets import TargetConnectionProfile
+from agenteval.services.preview_session import PreviewSessionStore, binding_from_request
+from agenteval.services.workflow_activity import WorkflowActivityEntry, WorkflowActivityLog
 from agenteval.telemetry import start_span
 
 
@@ -51,6 +54,14 @@ class SuitePreviewResult(BaseModel):
     coverage: CoverageReport
     endpoint_probe: EndpointProbeResult | None = None
     marginal_curve: list[BudgetProjection] = Field(default_factory=list)
+    activity_log: list[WorkflowActivityEntry] = Field(
+        default_factory=list,
+        description="Ordered engine steps recorded during preview (for Studio activity panel).",
+    )
+    preview_id: str | None = Field(
+        default=None,
+        description="Server session id; pass to POST /v1/suites to freeze without regenerating.",
+    )
 
 
 class SuiteListItem(BaseModel):
@@ -128,6 +139,12 @@ class SuiteWorkflow:
         if self._repo is None:
             self._repo = create_suite_repository(self._db_path)
         return self._repo
+
+    def _resolved_db_path(self) -> Path:
+        return self._db_path if self._db_path is not None else database_path()
+
+    def _preview_session_store(self) -> PreviewSessionStore:
+        return PreviewSessionStore(self._resolved_db_path())
 
     def _list_agent_ids(self) -> list[str]:
         return self._repository().list_agent_ids()
@@ -237,6 +254,7 @@ class SuiteWorkflow:
             if connection_profile and connection_profile.endpoint_url
             else endpoint_url
         )
+        activity = WorkflowActivityLog()
         with start_span(
             "suite.preview",
             attributes={
@@ -244,6 +262,7 @@ class SuiteWorkflow:
                 "agenteval.has_endpoint": bool(eff_url),
             },
         ):
+            activity.info("Ingesting requirements and building agent card")
             card, fingerprint, probe = AgentBootstrap.from_text(
                 prd_text,
                 agent_id=agent_id,
@@ -252,16 +271,50 @@ class SuiteWorkflow:
                 headers=headers,
                 connection_profile=connection_profile,
             )
+            activity.ok(f"Capabilities: {len(card.capabilities)} · fingerprint {fingerprint}")
+            if eff_url:
+                if probe:
+                    level = "ok" if probe.status == "OK" else "warn"
+                    getattr(activity, level)(
+                        f"Endpoint probe {probe.status} · {probe.latency_ms:.0f} ms · {eff_url}"
+                    )
+                else:
+                    activity.info(f"Endpoint probe skipped · {eff_url}")
+            else:
+                activity.info("No target endpoint (pack generation only)")
+
+            pool_mode = (
+                "scenario-first (goals + sample openings)"
+                if scenario_first_enabled()
+                else "template + LLM synthesis"
+            )
+            activity.info(f"Building candidate pool ({pool_mode})")
             pool, pack, coverage = SuiteBootstrap(max_tests=self.max_tests).build(
                 card,
                 fingerprint,
+                prd_text=prd_text,
                 max_tier=max_tier,
                 selected_test_ids=selected_test_ids,
             )
+            activity.ok(f"Candidate pool: {len(pool)} tests")
+            activity.ok(
+                f"Optimized pack: {len(pack.tests)} tests (budget max {self.max_tests})"
+            )
+            if coverage.critical_uncovered:
+                activity.warn(
+                    f"Mandatory gaps remain: {len(coverage.critical_uncovered)} tag(s)"
+                )
+            else:
+                activity.ok(
+                    f"Coverage tags in pack: {len(coverage.covered_tags)} covered"
+                )
+
             hyp_gen = FailureHypothesisGenerator()
             applicable = hyp_gen.infer_applicable_mandatory(card.capabilities)
+            activity.info("Computing assurance budget tiers")
             marginal_curve = TestPackOptimizer.compute_marginal_coverage_curve(pool, applicable)
-            return SuitePreviewResult(
+            activity.ok(f"Budget projections: {len(marginal_curve)} tier(s)")
+            result = SuitePreviewResult(
                 agent_card=card,
                 requirements_fingerprint=fingerprint,
                 candidate_pool=pool,
@@ -269,7 +322,24 @@ class SuiteWorkflow:
                 coverage=coverage,
                 endpoint_probe=probe,
                 marginal_curve=marginal_curve,
+                activity_log=activity.entries,
             )
+            tier_str = max_tier.value if max_tier else None
+            binding = binding_from_request(
+                agent_id=agent_id,
+                requirements_text=prd_text,
+                max_tests=self.max_tests,
+                target_tier=tier_str,
+                selected_test_ids=selected_test_ids,
+                endpoint_url=eff_url,
+                connection_profile=connection_profile,
+            )
+            store = self._preview_session_store()
+            try:
+                preview_id = store.save(binding, result.model_dump(mode="json"))
+            finally:
+                store.close()
+            return result.model_copy(update={"preview_id": preview_id})
 
     def init_from_prd_text(
         self,
@@ -284,34 +354,61 @@ class SuiteWorkflow:
         selected_test_ids: list[str] | None = None,
         headers: dict[str, str] | None = None,
         connection_profile: TargetConnectionProfile | None = None,
+        preview_id: str | None = None,
     ) -> SuiteInitResult:
         eff_url = (
             connection_profile.endpoint_url
             if connection_profile and connection_profile.endpoint_url
             else endpoint_url
         )
+        tier_str = max_tier.value if max_tier else None
         with start_span(
             "suite.init",
             attributes={
                 "agenteval.agent_id": agent_id,
                 "agenteval.has_endpoint": bool(eff_url),
                 "agenteval.force_new_version": force_new_version,
+                "agenteval.preview_session": bool(preview_id),
             },
         ):
-            card, fingerprint, probe = AgentBootstrap.from_text(
-                prd_text,
-                agent_id=agent_id,
-                endpoint_url=eff_url,
-                probe_endpoint=probe_endpoint and eff_url is not None,
-                headers=headers,
-                connection_profile=connection_profile,
-            )
-            pool, pack, coverage = SuiteBootstrap(max_tests=self.max_tests).build(
-                card,
-                fingerprint,
-                max_tier=max_tier,
-                selected_test_ids=selected_test_ids,
-            )
+            if preview_id:
+                binding = binding_from_request(
+                    agent_id=agent_id,
+                    requirements_text=prd_text,
+                    max_tests=self.max_tests,
+                    target_tier=tier_str,
+                    selected_test_ids=selected_test_ids,
+                    endpoint_url=eff_url,
+                    connection_profile=connection_profile,
+                )
+                store = self._preview_session_store()
+                try:
+                    payload = store.consume(preview_id, binding)
+                finally:
+                    store.close()
+                preview = SuitePreviewResult.model_validate(payload)
+                card = preview.agent_card
+                fingerprint = preview.requirements_fingerprint
+                pool = preview.candidate_pool
+                pack = preview.optimized_pack
+                coverage = preview.coverage
+                probe = preview.endpoint_probe
+            else:
+                card, fingerprint, probe = AgentBootstrap.from_text(
+                    prd_text,
+                    agent_id=agent_id,
+                    endpoint_url=eff_url,
+                    probe_endpoint=probe_endpoint and eff_url is not None,
+                    headers=headers,
+                    connection_profile=connection_profile,
+                )
+                pool, pack, coverage = SuiteBootstrap(max_tests=self.max_tests).build(
+                    card,
+                    fingerprint,
+                    prd_text=prd_text,
+                    max_tier=max_tier,
+                    selected_test_ids=selected_test_ids,
+                )
 
             manifest = SuiteStore.new_manifest(card.id, fingerprint, eff_url or "")
             profile_json = connection_profile.model_dump_json() if connection_profile else None

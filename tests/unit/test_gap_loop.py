@@ -1,6 +1,7 @@
 """B5 gap loop: incremental pack extension from pool."""
 
-from agenteval.planning.bootstrap import DEFAULT_PERSONAS, SuiteBootstrap
+from agenteval.planning.bootstrap import SuiteBootstrap
+from agenteval.planning.generator import DEFAULT_PERSONAS
 from agenteval.planning.gap_loop import SuiteGapExtender
 from agenteval.planning.generator import CandidatePoolGenerator
 from agenteval.planning.suite_store import SuiteStore

@@ -1,6 +1,6 @@
 # Domain pack and connector interface
 
-> **Status:** Contract + fintech v0 implemented (2026-09-27). Enable pack at freeze via env; audit evidence via `AGENTEVAL_AUDIT_LOG_DB_PATH`.
+> **Status:** Contract canonical (ADR-006). Fintech v0 remains a **reference adapter** (dormant in product UI); enable at freeze via `AGENTEVAL_ENABLED_DOMAIN_PACKS` and audit via `AGENTEVAL_AUDIT_LOG_DB_PATH` for engineering only.
 > **ADR:** [ADR-006](../decisions/ADR-006-pack-and-connector-contract.md)
 > **Traces to:** FR-P-01..06, FR-B-21..23; [domain-model.md](domain-model.md).
 

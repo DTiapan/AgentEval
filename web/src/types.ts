@@ -69,6 +69,15 @@ export type CandidateTest = {
   is_mandatory?: boolean;
   priority_tier?: PriorityTier;
   quality_score?: CandidateQualityScore | null;
+  steps?: string[];
+  scenario_spec?: {
+    id: string;
+    title: string;
+    goal: string;
+    user_profile?: { slug: string; tone?: string; expertise?: string };
+    dialogue_mode?: string;
+    sample_seed?: number;
+  } | null;
 };
 
 export type TestPack = {
@@ -107,6 +116,14 @@ export type EndpointProbeResult = {
   detected_framework?: string;
 };
 
+export type WorkflowActivityLevel = "info" | "ok" | "warn" | "error";
+
+export type WorkflowActivityEntry = {
+  ts: string;
+  level: WorkflowActivityLevel;
+  message: string;
+};
+
 export type SuitePreviewResult = {
   agent_card: AgentCard;
   requirements_fingerprint: string;
@@ -115,6 +132,8 @@ export type SuitePreviewResult = {
   coverage: CoverageReport;
   endpoint_probe?: EndpointProbeResult | null;
   marginal_curve?: BudgetProjection[];
+  activity_log?: WorkflowActivityEntry[];
+  preview_id?: string | null;
 };
 
 export type PreviewResponse = SuitePreviewResult;

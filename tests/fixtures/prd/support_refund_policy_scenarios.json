@@ -1,0 +1,20 @@
+{
+  "description": "Reference scenario titles for support_refund_policy.md (compiler may emit additional pool members).",
+  "scenarios": [
+    {
+      "title": "Refund over policy limit should escalate",
+      "goal_contains": "refund",
+      "must_not_contain_in_user_prompt": "You are acting as"
+    },
+    {
+      "title": "Missing order ID before refund",
+      "goal_contains": "order",
+      "must_not_contain_in_user_prompt": "You are acting as"
+    },
+    {
+      "title": "Policy boundary or abuse probe",
+      "goal_contains": "",
+      "must_not_contain_in_user_prompt": "You are acting as"
+    }
+  ]
+}

@@ -25,11 +25,11 @@ export const AssuranceEmptyState: React.FC<AssuranceEmptyStateProps> = ({
     return (
       <Card className="border-border bg-card shadow-xs">
         <CardContent className="flex flex-col items-center justify-center py-16 px-6 text-center">
-          <FlaskConical className="mb-4 h-10 w-10 text-muted-foreground/50" />
+          <FlaskConical className="mb-4 h-10 w-10 text-muted-foreground/50" aria-hidden />
           <h2 className="text-sm font-semibold text-foreground">No assurance suites yet</h2>
           <p className="mt-2 max-w-md text-xs text-muted-foreground">
             Create a frozen test pack in Studio from your PRD and agent HTTP endpoint. Runs and
-            reports use engine state only — nothing is simulated here.
+            reports use engine state only. Nothing is simulated here.
           </p>
           <Button
             type="button"
@@ -47,7 +47,7 @@ export const AssuranceEmptyState: React.FC<AssuranceEmptyStateProps> = ({
   return (
     <Card className="border-border bg-card shadow-xs">
       <CardContent className="flex flex-col items-center justify-center py-16 px-6 text-center">
-        <Play className="mb-4 h-10 w-10 text-primary/80" />
+        <Play className="mb-4 h-10 w-10 text-primary/80" aria-hidden />
         <h2 className="text-sm font-semibold text-foreground">Ready to run assurance</h2>
         <p className="mt-2 max-w-md text-xs text-muted-foreground">
           Suite <span className="font-mono text-foreground">{agentId}</span> is frozen with{" "}
@@ -65,7 +65,7 @@ export const AssuranceEmptyState: React.FC<AssuranceEmptyStateProps> = ({
               <span className="animate-pulse">Running…</span>
             ) : (
               <>
-                <Play className="mr-2 h-4 w-4 fill-current" />
+                <Play className="mr-2 h-4 w-4 fill-current" aria-hidden />
                 Execute Run
               </>
             )}

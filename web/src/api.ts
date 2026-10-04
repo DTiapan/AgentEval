@@ -11,12 +11,13 @@ import {
   TargetConnectionProfile,
 } from "./types";
 import { formatApiErrorBody } from "@/lib/api-error";
+import { readEngineApiKey } from "@/lib/engine-api-key";
 
 const API_BASE = "";
 
 async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
   const headers = new Headers(init?.headers);
-  const apiKey = localStorage.getItem("AGENTEVAL_API_KEY");
+  const apiKey = readEngineApiKey();
   if (apiKey) {
     headers.set("X-API-Key", apiKey);
   }
@@ -135,6 +136,7 @@ export async function initSuite(payload: {
   enabled_domain_packs?: string[];
   target_tier?: string;
   selected_test_ids?: string[];
+  preview_id?: string | null;
 }): Promise<SuiteInitResult> {
   const res = await authFetch(`${API_BASE}/v1/suites`, {
     method: "POST",

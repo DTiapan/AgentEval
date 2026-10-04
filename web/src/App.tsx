@@ -10,13 +10,16 @@ import { AssuranceView } from "./components/AssuranceView";
 import { Header } from "./components/Header";
 import { Landing } from "./components/Landing";
 import { Studio } from "./components/Studio";
+import { WorkspaceEntryPage } from "./components/workspace/WorkspaceEntryPage";
 import { TrajectoryReplay } from "./components/TrajectoryReplay";
+import { navigateConsoleView, readConsoleView, type ConsoleView } from "./lib/console-route";
 import {
-  hashForConsoleView,
-  navigateConsoleView,
-  readConsoleView,
-  type ConsoleView,
-} from "./lib/console-route";
+  enterProductFromMarketing,
+  navigateMarketing,
+  readSiteRoute,
+  startFreeFromMarketing,
+  type SiteRoute,
+} from "@/lib/site-route";
 import { ToastMessage, WorkspaceProvider, useWorkspace } from "./context/WorkspaceContext";
 import { PRODUCT_DOMAIN } from "./lib/product";
 
@@ -26,7 +29,12 @@ const ToastContainer: React.FC = () => {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm">
+    <div
+      className="fixed bottom-5 right-5 z-50 flex flex-col gap-2 max-w-sm"
+      role="region"
+      aria-live="polite"
+      aria-label="Notifications"
+    >
       {toasts.map((toast: ToastMessage) => {
         const isSuccess = toast.type === "success";
         const isError = toast.type === "error";
@@ -35,7 +43,7 @@ const ToastContainer: React.FC = () => {
         return (
           <div
             key={toast.id}
-            className={`flex items-start gap-3 rounded-lg border p-3.5 shadow-sm transition-all ${
+            className={`flex items-start gap-3 rounded-lg border p-3.5 shadow-sm transition-colors ${
               isSuccess
                 ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200"
                 : isError
@@ -46,13 +54,13 @@ const ToastContainer: React.FC = () => {
             }`}
           >
             {isSuccess ? (
-              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" />
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600 dark:text-emerald-400 mt-0.5" aria-hidden />
             ) : isError ? (
-              <ShieldAlert className="h-4 w-4 shrink-0 text-destructive mt-0.5" />
+              <ShieldAlert className="h-4 w-4 shrink-0 text-destructive mt-0.5" aria-hidden />
             ) : isWarning ? (
-              <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" />
+              <AlertCircle className="h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400 mt-0.5" aria-hidden />
             ) : (
-              <Info className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" />
+              <Info className="h-4 w-4 shrink-0 text-muted-foreground mt-0.5" aria-hidden />
             )}
 
             <div className="flex-1 text-xs">
@@ -65,10 +73,12 @@ const ToastContainer: React.FC = () => {
             </div>
 
             <button
+              type="button"
               onClick={() => removeToast(toast.id)}
               className="text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              aria-label="Dismiss notification"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-3.5 w-3.5" aria-hidden />
             </button>
           </div>
         );
@@ -149,6 +159,12 @@ const MainContent: React.FC<{ onBackToMarketing?: () => void }> = ({
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col font-sans transition-colors duration-200">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-50 focus:rounded-md focus:border focus:border-border focus:bg-card focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-foreground"
+      >
+        Skip to main content
+      </a>
       <Header
         activeTab={consoleView}
         setActiveTab={setConsoleTab}
@@ -157,7 +173,7 @@ const MainContent: React.FC<{ onBackToMarketing?: () => void }> = ({
         lockAgentSwitcher={consoleView === "replay"}
       />
 
-      <main className="flex-1 pb-10">
+      <main id="main-content" className="flex-1 pb-10" tabIndex={-1}>
         <ErrorBoundary>
           {consoleView === "replay" ? (
             <TrajectoryReplay
@@ -192,23 +208,13 @@ const MainContent: React.FC<{ onBackToMarketing?: () => void }> = ({
   );
 };
 
-type SiteRoute = "marketing" | "console";
-
-function readRoute(): SiteRoute {
-  const hash = window.location.hash.replace(/^#/, "");
-  if (hash === "/console" || hash.startsWith("/console/")) return "console";
-  return "marketing";
-}
-
-function navigateTo(route: SiteRoute) {
-  window.location.hash = route === "console" ? hashForConsoleView("studio") : "#/";
-}
-
 export const App: React.FC = () => {
-  const [route, setRoute] = useState<SiteRoute>(() => readRoute());
+  const [route, setRoute] = useState<SiteRoute>(() => readSiteRoute());
+
+  const syncRoute = () => setRoute(readSiteRoute());
 
   useEffect(() => {
-    const onHash = () => setRoute(readRoute());
+    const onHash = () => syncRoute();
     window.addEventListener("hashchange", onHash);
     if (!window.location.hash) {
       window.location.hash = "#/";
@@ -216,14 +222,24 @@ export const App: React.FC = () => {
     return () => window.removeEventListener("hashchange", onHash);
   }, []);
 
-  const enterConsole = () => navigateTo("console");
+  const handleStartFree = () => {
+    startFreeFromMarketing();
+    setRoute("workspace");
+  };
+
+  const handleOpenConsole = () => {
+    enterProductFromMarketing();
+    setRoute(readSiteRoute());
+  };
 
   return (
     <WorkspaceProvider>
       {route === "marketing" ? (
-        <Landing onStartFree={enterConsole} onOpenConsole={enterConsole} />
+        <Landing onStartFree={handleStartFree} onOpenConsole={handleOpenConsole} />
+      ) : route === "workspace" ? (
+        <WorkspaceEntryPage onWorkspaceReady={() => setRoute("console")} />
       ) : (
-        <MainContent onBackToMarketing={() => navigateTo("marketing")} />
+        <MainContent onBackToMarketing={navigateMarketing} />
       )}
     </WorkspaceProvider>
   );

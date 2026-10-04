@@ -1,5 +1,19 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { EngineHealth, deleteSuite, fetchHealth, listSuites } from "../api";
+import {
+  ENGINE_API_KEY_CHANGED_EVENT,
+  hasEngineApiKey,
+  isEngineAuthErrorMessage,
+} from "@/lib/engine-api-key";
+import {
+  WORKSPACE_CHANGED_EVENT,
+  createWorkspace,
+  ensureDefaultWorkspace,
+  getActiveWorkspace,
+  readStoredWorkspaces,
+  setActiveWorkspaceId,
+  toWorkspaceView,
+} from "@/lib/workspace-session";
 import { SuiteListItem, Workspace } from "../types";
 
 export type ToastMessage = {
@@ -10,9 +24,11 @@ export type ToastMessage = {
 };
 
 interface WorkspaceContextValue {
-  workspace: Workspace;
+  workspace: Workspace | null;
   workspaces: Workspace[];
-  setWorkspace: (ws: Workspace) => void;
+  selectWorkspace: (workspaceId: string) => void;
+  createAndSelectWorkspace: (name: string) => Workspace;
+  syncWorkspacesFromStorage: () => void;
   suites: SuiteListItem[];
   activeAgentId: string | null;
   setActiveAgentId: (id: string | null) => void;
@@ -20,28 +36,37 @@ interface WorkspaceContextValue {
   deleteAgentSuite: (agentId: string) => Promise<boolean>;
   isLoadingSuites: boolean;
   engineHealth: EngineHealth | null;
+  engineApiKeyConfigured: boolean;
+  refreshEngineConnection: () => Promise<void>;
   toasts: ToastMessage[];
   addToast: (toast: Omit<ToastMessage, "id">) => void;
   removeToast: (id: string) => void;
 }
 
-/** MVP: one local workspace; suite list comes from GET /v1/suites only. */
-export const LOCAL_WORKSPACE: Workspace = {
-  id: "ws-local",
-  name: "Local workspace",
-  slug: "local",
-  role: "OWNER",
-  isEnterpriseCloud: false,
-};
-
 const WorkspaceContext = createContext<WorkspaceContextValue | undefined>(undefined);
 
+function migrateLegacyBrowserSession(): void {
+  if (readStoredWorkspaces().length > 0) return;
+  const legacySignals = localStorage.getItem("AGENTEVAL_API_KEY");
+  if (legacySignals) {
+    ensureDefaultWorkspace();
+  }
+}
+
 export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [workspace] = useState<Workspace>(LOCAL_WORKSPACE);
+  const [workspace, setWorkspace] = useState<Workspace | null>(() => {
+    migrateLegacyBrowserSession();
+    const active = getActiveWorkspace();
+    return active ? toWorkspaceView(active) : null;
+  });
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() =>
+    readStoredWorkspaces().map(toWorkspaceView),
+  );
   const [suites, setSuites] = useState<SuiteListItem[]>([]);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
   const [isLoadingSuites, setIsLoadingSuites] = useState(false);
   const [engineHealth, setEngineHealth] = useState<EngineHealth | null>(null);
+  const [engineApiKeyConfigured, setEngineApiKeyConfigured] = useState(() => hasEngineApiKey());
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   const addToast = (toast: Omit<ToastMessage, "id">) => {
@@ -56,7 +81,16 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
+  const syncWorkspacesFromStorage = useCallback(() => {
+    migrateLegacyBrowserSession();
+    setWorkspaces(readStoredWorkspaces().map(toWorkspaceView));
+    const active = getActiveWorkspace();
+    setWorkspace(active ? toWorkspaceView(active) : null);
+    setEngineApiKeyConfigured(hasEngineApiKey());
+  }, []);
+
   const refreshSuites = async () => {
+    if (!getActiveWorkspace()) return;
     setIsLoadingSuites(true);
     try {
       const items = await listSuites();
@@ -65,7 +99,15 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setActiveAgentId(null);
       }
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
       console.warn("Failed to load suites", err);
+      if (isEngineAuthErrorMessage(msg)) {
+        addToast({
+          type: "warning",
+          title: "Engine API key required",
+          message: "Open Workspace → Engine API key and paste the value from AGENTEVAL_API_KEY.",
+        });
+      }
     } finally {
       setIsLoadingSuites(false);
     }
@@ -96,21 +138,68 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     }
   };
 
+  const refreshEngineConnection = useCallback(async () => {
+    syncWorkspacesFromStorage();
+    if (!getActiveWorkspace()) {
+      setEngineHealth(null);
+      setSuites([]);
+      return;
+    }
+    setEngineApiKeyConfigured(hasEngineApiKey());
+    try {
+      const health = await fetchHealth();
+      setEngineHealth(health);
+    } catch {
+      setEngineHealth(null);
+    }
+    await refreshSuites();
+  }, [syncWorkspacesFromStorage]);
+
+  const selectWorkspace = useCallback(
+    (workspaceId: string) => {
+      setActiveWorkspaceId(workspaceId);
+      syncWorkspacesFromStorage();
+      void refreshEngineConnection();
+    },
+    [refreshEngineConnection, syncWorkspacesFromStorage],
+  );
+
+  const createAndSelectWorkspace = useCallback(
+    (name: string) => {
+      const stored = createWorkspace({ name });
+      syncWorkspacesFromStorage();
+      void refreshEngineConnection();
+      return toWorkspaceView(stored);
+    },
+    [refreshEngineConnection, syncWorkspacesFromStorage],
+  );
+
   useEffect(() => {
-    fetchHealth()
-      .then((health) => setEngineHealth(health))
-      .catch(() => setEngineHealth(null));
-    refreshSuites();
-  }, []);
+    if (workspace) {
+      void refreshEngineConnection();
+    }
+  }, [workspace?.id]);
+
+  useEffect(() => {
+    const onKeyChange = () => {
+      void refreshEngineConnection();
+    };
+    window.addEventListener(ENGINE_API_KEY_CHANGED_EVENT, onKeyChange);
+    window.addEventListener(WORKSPACE_CHANGED_EVENT, onKeyChange);
+    return () => {
+      window.removeEventListener(ENGINE_API_KEY_CHANGED_EVENT, onKeyChange);
+      window.removeEventListener(WORKSPACE_CHANGED_EVENT, onKeyChange);
+    };
+  }, [refreshEngineConnection]);
 
   return (
     <WorkspaceContext.Provider
       value={{
         workspace,
-        workspaces: [LOCAL_WORKSPACE],
-        setWorkspace: () => {
-          /* MVP: single workspace until /v1/workspaces exists */
-        },
+        workspaces,
+        selectWorkspace,
+        createAndSelectWorkspace,
+        syncWorkspacesFromStorage,
         suites,
         activeAgentId,
         setActiveAgentId,
@@ -118,6 +207,8 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         deleteAgentSuite,
         isLoadingSuites,
         engineHealth,
+        engineApiKeyConfigured,
+        refreshEngineConnection,
         toasts,
         addToast,
         removeToast,

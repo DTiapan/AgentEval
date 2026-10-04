@@ -1,5 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { AlertTriangle, ChevronDown, Moon, PlayCircle, Shield, Sliders, Sun, Trash2 } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronDown,
+  KeyRound,
+  Moon,
+  PlayCircle,
+  Shield,
+  Sliders,
+  Sun,
+  Trash2,
+} from "lucide-react";
+import { EngineApiKeyDialog } from "@/components/console/EngineApiKeyDialog";
+import { WorkspaceSwitcherDialog } from "@/components/workspace/WorkspaceSwitcherDialog";
 import { useWorkspace } from "../context/WorkspaceContext";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -40,8 +52,12 @@ export const Header: React.FC<HeaderProps> = ({
     setActiveAgentId,
     deleteAgentSuite,
     engineHealth,
+    engineApiKeyConfigured,
+    refreshEngineConnection,
   } = useWorkspace();
 
+  const [isApiKeyDialogOpen, setIsApiKeyDialogOpen] = useState(false);
+  const [isWorkspaceDialogOpen, setIsWorkspaceDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -85,9 +101,10 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={onBrandClick}
             className="flex items-center gap-2.5 rounded-md text-left hover:opacity-90 transition-opacity cursor-pointer"
             title={onBrandClick ? `Back to ${PRODUCT_DOMAIN}` : undefined}
+            aria-label={onBrandClick ? `Back to ${PRODUCT_DOMAIN} marketing site` : "AgentEval home"}
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground font-bold shadow-xs">
-              <Shield className="h-4 w-4 fill-current" />
+              <Shield className="h-4 w-4 fill-current" aria-hidden />
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm font-semibold tracking-tight text-foreground">
@@ -112,11 +129,11 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <TabsList className="h-auto p-0.5">
                 <TabsTrigger value="studio" className="gap-2 px-3 py-1.5">
-                  <Sliders className="h-3.5 w-3.5" />
+                  <Sliders className="h-3.5 w-3.5" aria-hidden />
                   Studio & Planner
                 </TabsTrigger>
                 <TabsTrigger value="assurance" className="gap-2 px-3 py-1.5">
-                  <PlayCircle className="h-3.5 w-3.5" />
+                  <PlayCircle className="h-3.5 w-3.5" aria-hidden />
                   Assurance Runs
                   {suites.length > 0 && (
                     <span className="ml-0.5 rounded-full bg-primary/10 text-primary px-1.5 text-[10px] font-semibold">
@@ -134,18 +151,22 @@ export const Header: React.FC<HeaderProps> = ({
           {/* Agent Switcher */}
           {suites.length > 0 && (
             <div className="relative flex items-center">
-              <span className="mr-2 text-xs text-muted-foreground">Agent:</span>
+              <label id="header-agent-label" htmlFor="header-agent-select" className="mr-2 text-xs text-muted-foreground">
+                Agent:
+              </label>
               <div className="relative">
                 <select
+                  id="header-agent-select"
+                  name="active_agent_id"
                   value={activeAgentId ?? ""}
                   onChange={(e) => setActiveAgentId(e.target.value ? e.target.value : null)}
                   disabled={lockAgentSwitcher || isDeleting}
                   title={
                     lockAgentSwitcher
-                      ? "Agent locked to sealed replay — return to Assurance Runs to switch"
+                      ? "Agent locked to sealed replay. Return to Assurance Runs to switch."
                       : undefined
                   }
-                  className="appearance-none rounded-md border border-border bg-card py-1.5 pl-2.5 pr-7 font-mono text-xs font-medium text-foreground hover:border-border/80 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
+                  className="appearance-none rounded-md border border-border bg-card py-1.5 pl-2.5 pr-7 font-mono text-xs font-medium text-foreground hover:border-border/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
                 >
                   <option value="">New suite…</option>
                   {suites.map((s) => (
@@ -154,7 +175,7 @@ export const Header: React.FC<HeaderProps> = ({
                     </option>
                   ))}
                 </select>
-                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+                <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" aria-hidden />
               </div>
               {activeAgentId && !lockAgentSwitcher && (
                 <Button
@@ -172,9 +193,36 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          <Badge variant="outline" className="font-normal text-xs text-muted-foreground">
-            {workspace.name}
-          </Badge>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 max-w-[200px] gap-1.5 px-2.5 text-xs font-normal text-muted-foreground"
+            onClick={() => setIsWorkspaceDialogOpen(true)}
+            title="Switch workspace"
+          >
+            <span className="truncate">{workspace?.name ?? "Workspace"}</span>
+            {workspace?.slug && (
+              <Badge variant="secondary" className="hidden sm:inline-flex px-1 py-0 text-[9px] font-mono shrink-0">
+                {workspace.slug}
+              </Badge>
+            )}
+          </Button>
+
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="relative h-8 w-8 text-muted-foreground"
+            onClick={() => setIsApiKeyDialogOpen(true)}
+            title="Engine API key for this workspace"
+            aria-label="Engine API key"
+          >
+            <KeyRound className="h-3.5 w-3.5" aria-hidden />
+            {engineApiKeyConfigured && (
+              <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+            )}
+          </Button>
 
           {/* Sun / Moon Theme Toggle */}
           <Button
@@ -182,9 +230,10 @@ export const Header: React.FC<HeaderProps> = ({
             size="icon"
             onClick={() => setIsDark(!isDark)}
             title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+            aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
             className="h-8 w-8 text-muted-foreground hover:text-foreground border border-border bg-card"
           >
-            {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+            {isDark ? <Sun className="h-4 w-4" aria-hidden /> : <Moon className="h-4 w-4" aria-hidden />}
           </Button>
 
           {/* Live Engine Pulse + persistence mode (from /health) */}
@@ -195,11 +244,14 @@ export const Header: React.FC<HeaderProps> = ({
                 ? `SQLite: ${engineHealth.persistence.database_path ?? "enabled"}`
                 : "Runs stored as JSON under .agenteval/suites"
             }
+            role="status"
+            aria-live="polite"
           >
             <span
               className={`h-1.5 w-1.5 rounded-full ${
                 engineHealth?.status === "ok" ? "bg-emerald-500" : "bg-amber-500"
               }`}
+              aria-hidden
             />
             <span className="font-mono text-[11px]">
               {engineHealth?.status === "ok" ? "Engine 8766" : "Offline"}
@@ -216,12 +268,22 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </div>
 
+      <WorkspaceSwitcherDialog open={isWorkspaceDialogOpen} onOpenChange={setIsWorkspaceDialogOpen} />
+
+      <EngineApiKeyDialog
+        open={isApiKeyDialogOpen}
+        onOpenChange={setIsApiKeyDialogOpen}
+        onSaved={() => {
+          refreshEngineConnection();
+        }}
+      />
+
       {/* Delete Agent Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <div className="flex items-center gap-2 text-destructive mb-1">
-              <AlertTriangle className="h-5 w-5 shrink-0" />
+              <AlertTriangle className="h-5 w-5 shrink-0" aria-hidden />
               <DialogTitle>Delete Agent Suite</DialogTitle>
             </div>
             <DialogDescription className="text-muted-foreground text-xs leading-relaxed pt-1">

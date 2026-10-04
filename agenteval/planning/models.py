@@ -7,6 +7,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agenteval.planning.scenario_spec import ScenarioSpec
+
 
 class ProvenanceLayer(StrEnum):
     """How a fact in the Agent Test Model was obtained."""
@@ -71,7 +73,7 @@ class FailureHypothesis(BaseModel):
     mandatory_categories: list[MandatoryCategory] = Field(default_factory=list)
     expected_behavior: str
     task_prompt: str = Field(
-        description="Capability-specific user message body (persona framing applied in B2)"
+        description="Seed intent text; B2′ maps to scenario goal, not necessarily final user_prompt"
     )
     provenance: ProvenanceLayer = Field(default=ProvenanceLayer.HYPOTHESIZED)
 
@@ -142,6 +144,10 @@ class CandidateTest(BaseModel):
     steps: list[str] = Field(
         default_factory=list,
         description="Optional sequential prompts for multi-turn conversational evaluations",
+    )
+    scenario_spec: ScenarioSpec | None = Field(
+        default=None,
+        description="B2′ scenario metadata when generated via scenario-first compiler",
     )
 
 

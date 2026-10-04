@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -12,7 +12,6 @@ import {
   Play,
   Plus,
   RefreshCw,
-  Save,
   Shield,
   Sparkles,
   Terminal,
@@ -24,7 +23,6 @@ import {
   fetchDemoInfo,
   getSuiteDetail,
   initSuite,
-  listDomainPacks,
   previewSuite,
   probeAgentEndpoint,
   syncSuite,
@@ -37,6 +35,7 @@ import {
   SuiteDetailResult,
   SuitePreviewResult,
   TargetConnectionProfile,
+  WorkflowActivityEntry,
 } from "../types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -49,6 +48,33 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatTestTabLabel } from "@/lib/format-test-label";
 import { EMPTY_PRD_TEMPLATE, SAMPLE_AGENT_ENDPOINT_PLACEHOLDER } from "@/lib/mvp-defaults";
 import { navigateConsoleView } from "@/lib/console-route";
+import { ConsoleBuilderJourney } from "@/components/ConsoleBuilderJourney";
+import { StudioAdvancedDrawer } from "@/components/studio/StudioAdvancedDrawer";
+import { StudioStepUsefulPanel } from "@/components/studio/StudioStepUsefulPanel";
+import {
+  buildStudioChecklist,
+  primaryActionBlocker,
+  suggestedStudioStep,
+} from "@/lib/studio-builder-useful";
+import {
+  type BuilderStep,
+  canOpenBuilderStep,
+  deriveBuilderCompletion,
+  inferInitialBuilderStep,
+  navigateStudioBuilderStep,
+  readStudioBuilderStepFromHash,
+} from "@/lib/studio-builder";
+import {
+  inspectorEmptyCopy,
+  STUDIO_ADVANCED_UX,
+  studioStepUx,
+} from "@/lib/studio-ux-config";
+import { cn } from "@/lib/utils";
+import { StudioFreezeSummary, studioCardTitleForStep } from "@/components/studio/StudioFreezeSummary";
+import { StudioRunStepCard } from "@/components/studio/StudioRunStepCard";
+import { StudioBuilderFooter } from "@/components/studio/StudioBuilderFooter";
+import { StudioEngineActivity } from "@/components/motion/StudioEngineActivity";
+import { StudioEngineActivityLog } from "@/components/studio/StudioEngineActivityLog";
 import {
   PRD_FILE_ACCEPT,
   agentIdFromPrdFilename,
@@ -56,7 +82,7 @@ import {
 } from "@/lib/read-prd-file";
 
 export const Studio: React.FC = () => {
-  const { addToast, refreshSuites, setActiveAgentId, activeAgentId } = useWorkspace();
+  const { addToast, refreshSuites, setActiveAgentId, activeAgentId, suites } = useWorkspace();
 
   const [agentId, setAgentId] = useState("");
   const [endpointUrl, setEndpointUrl] = useState("");
@@ -65,6 +91,9 @@ export const Studio: React.FC = () => {
   const [selectedTier, setSelectedTier] = useState<"ALL" | "P0" | "P1" | "P2">("ALL");
   const [selectedTestIds, setSelectedTestIds] = useState<string[]>([]);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
+  const [previewActivityLog, setPreviewActivityLog] = useState<WorkflowActivityEntry[]>([]);
+  const [previewWaitSeconds, setPreviewWaitSeconds] = useState(0);
+  const previewWaitStartedRef = useRef<number | null>(null);
   const [isLoadingFrozen, setIsLoadingFrozen] = useState(false);
   const [isSavingSuite, setIsSavingSuite] = useState(false);
   const [isExtendingGaps, setIsExtendingGaps] = useState(false);
@@ -77,11 +106,6 @@ export const Studio: React.FC = () => {
   const [terminalViewMode, setTerminalViewMode] = useState<"cards" | "monaco">("cards");
   const prdFileInputRef = useRef<HTMLInputElement>(null);
   const [justCreatedPack, setJustCreatedPack] = useState(false);
-  const [availablePacks, setAvailablePacks] = useState<{ id: string; display_name: string }[]>(
-    [],
-  );
-  const [enabledDomainPacks, setEnabledDomainPacks] = useState<string[]>([]);
-
   // Outbound target auth and connection profile state
   const [authType, setAuthType] = useState<AuthType>("none");
   const [bearerToken, setBearerToken] = useState("");
@@ -93,6 +117,9 @@ export const Studio: React.FC = () => {
   const [newHeaderKey, setNewHeaderKey] = useState("");
   const [newHeaderValue, setNewHeaderValue] = useState("");
   const [isAuthDrawerOpen, setIsAuthDrawerOpen] = useState(false);
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [builderStep, setBuilderStep] = useState<BuilderStep>(1);
+  const defaultOptimizerCeiling = 10;
 
   const buildConnectionProfile = useCallback((): TargetConnectionProfile | undefined => {
     const customHeaderMap: Record<string, string> = {};
@@ -152,16 +179,6 @@ export const Studio: React.FC = () => {
       });
     }
   };
-
-  useEffect(() => {
-    listDomainPacks()
-      .then((body) => {
-        setAvailablePacks(
-          body.packs.map((p) => ({ id: p.id, display_name: p.display_name || p.name })),
-        );
-      })
-      .catch(() => setAvailablePacks([]));
-  }, []);
 
   const loadFrozenSuite = useCallback(async (id: string) => {
     if (!id.trim()) {
@@ -261,6 +278,68 @@ export const Studio: React.FC = () => {
       ? `frozen v${frozenDetail.manifest.version}`
       : null;
 
+  const builderCompletion = useMemo(
+    () =>
+      deriveBuilderCompletion({
+        agentId,
+        endpointUrl,
+        requirementsText,
+        hasPreview: Boolean(previewData?.optimized_pack?.tests?.length),
+        hasFrozenManifest: Boolean(frozenDetail?.manifest),
+        hasAssuranceRun: Boolean(frozenDetail?.latest_run),
+      }),
+    [
+      agentId,
+      endpointUrl,
+      requirementsText,
+      previewData,
+      frozenDetail,
+    ],
+  );
+
+  const goToBuilderStep = useCallback(
+    (step: BuilderStep, options?: { force?: boolean }) => {
+      if (!options?.force && !canOpenBuilderStep(step, builderCompletion)) return;
+      setBuilderStep(step);
+      navigateStudioBuilderStep(step);
+    },
+    [builderCompletion],
+  );
+
+  useEffect(() => {
+    setBuilderStep(inferInitialBuilderStep(builderCompletion));
+  }, [activeAgentId]);
+
+  useEffect(() => {
+    const syncStepFromHash = () => {
+      const fromHash = readStudioBuilderStepFromHash();
+      if (fromHash && canOpenBuilderStep(fromHash, builderCompletion)) {
+        setBuilderStep(fromHash);
+      }
+    };
+    syncStepFromHash();
+    window.addEventListener("hashchange", syncStepFromHash);
+    return () => window.removeEventListener("hashchange", syncStepFromHash);
+  }, [builderCompletion]);
+
+  const advancedActiveCount = maxTests !== defaultOptimizerCeiling ? 1 : 0;
+
+  useEffect(() => {
+    if (!isLoadingPreview) {
+      previewWaitStartedRef.current = null;
+      setPreviewWaitSeconds(0);
+      return;
+    }
+    previewWaitStartedRef.current = Date.now();
+    const tick = window.setInterval(() => {
+      const started = previewWaitStartedRef.current;
+      if (started) {
+        setPreviewWaitSeconds(Math.floor((Date.now() - started) / 1000));
+      }
+    }, 1000);
+    return () => window.clearInterval(tick);
+  }, [isLoadingPreview]);
+
   const handlePreview = async () => {
     if (!requirementsText.trim() || !agentId.trim()) {
       addToast({
@@ -271,6 +350,22 @@ export const Studio: React.FC = () => {
       return;
     }
 
+    const startedAt = new Date().toISOString();
+    const clientLog: WorkflowActivityEntry[] = [
+      {
+        ts: startedAt,
+        level: "info",
+        message: "POST /v1/suites/preview",
+      },
+      {
+        ts: startedAt,
+        level: "info",
+        message: `agent_id=${agentId.trim()} · prd_chars=${requirementsText.length} · max_tests=${maxTests}${
+          endpointUrl.trim() ? ` · probe=${Boolean(endpointUrl.trim())}` : ""
+        }`,
+      },
+    ];
+    setPreviewActivityLog(clientLog);
     setIsLoadingPreview(true);
     try {
       const data = await previewSuite({
@@ -282,6 +377,19 @@ export const Studio: React.FC = () => {
         target_tier: selectedTier !== "ALL" ? selectedTier : undefined,
         selected_test_ids: selectedTestIds.length > 0 ? selectedTestIds : undefined,
       });
+      const finishedAt = new Date().toISOString();
+      const serverLog = data.activity_log ?? [];
+      setPreviewActivityLog([
+        ...clientLog,
+        ...serverLog,
+        {
+          ts: finishedAt,
+          level: "ok",
+          message: `Preview complete · pool ${data.candidate_pool?.length ?? 0} → pack ${
+            data.optimized_pack?.tests?.length ?? 0
+          }${data.preview_id ? " · session ready for freeze" : ""}`,
+        },
+      ]);
       setPreviewData(data);
       setActiveTestIndex(0);
       setFrozenDetail(null);
@@ -293,8 +401,17 @@ export const Studio: React.FC = () => {
         title: "Preview Synthesized",
         message: `Generated ${data.candidate_pool?.length ?? 0} candidate tests, optimized to ${data.optimized_pack?.tests?.length ?? 0}.`,
       });
+      goToBuilderStep(3, { force: true });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
+      setPreviewActivityLog((prev) => [
+        ...prev,
+        {
+          ts: new Date().toISOString(),
+          level: "error",
+          message: msg,
+        },
+      ]);
       addToast({
         type: "error",
         title: "Preview Failed",
@@ -388,13 +505,16 @@ export const Studio: React.FC = () => {
       const authProfile = buildConnectionProfile();
       const targetTier = selectedTier !== "ALL" ? selectedTier : undefined;
       const selectedIds = selectedTestIds.length > 0 ? selectedTestIds : undefined;
-      if (frozenDetail?.manifest) {
-        const sync = await syncSuite(agentId, {
+      const trimmedAgentId = agentId.trim();
+      const persistedSuite = suites.some((s) => s.agent_id === trimmedAgentId);
+      const useSync = Boolean(frozenDetail?.manifest) || persistedSuite;
+
+      const applySync = async () => {
+        const sync = await syncSuite(trimmedAgentId, {
           requirements_text: requirementsText,
           endpoint_url: endpoint,
           auth_profile: authProfile,
           max_tests: maxTests,
-          enabled_domain_packs: enabledDomainPacks,
           target_tier: targetTier,
           selected_test_ids: selectedIds,
         });
@@ -419,30 +539,43 @@ export const Studio: React.FC = () => {
             message: `v${sync.previous_version} → v${sync.new_version} (${sync.pack_size} tests).${removed}${added}`,
           });
         }
+      };
+
+      if (useSync) {
+        await applySync();
       } else {
-        const result = await initSuite({
-          requirements_text: requirementsText,
-          agent_id: agentId,
-          endpoint_url: endpoint,
-          auth_profile: authProfile,
-          max_tests: maxTests,
-          force_new_version: false,
-          enabled_domain_packs: enabledDomainPacks,
-          target_tier: targetTier,
-          selected_test_ids: selectedIds,
-        });
-        createdNewSuite = true;
-        addToast({
-          type: "success",
-          title: "Suite created",
-          message: `${result.agent_id} frozen with ${result.optimized_pack_size} tests. Review the pack, then run assurance.`,
-        });
+        try {
+          const result = await initSuite({
+            requirements_text: requirementsText,
+            agent_id: trimmedAgentId,
+            endpoint_url: endpoint,
+            auth_profile: authProfile,
+            max_tests: maxTests,
+            force_new_version: false,
+            target_tier: targetTier,
+            selected_test_ids: selectedIds,
+            preview_id: previewData?.preview_id ?? undefined,
+          });
+          createdNewSuite = true;
+          addToast({
+            type: "success",
+            title: "Suite created",
+            message: `${result.agent_id} frozen with ${result.optimized_pack_size} tests. Review the pack, then run assurance.`,
+          });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          if (!msg.toLowerCase().includes("already exists")) {
+            throw err;
+          }
+          await applySync();
+        }
       }
       await refreshSuites();
       setActiveAgentId(agentId);
       setPreviewData(null);
       await loadFrozenSuite(agentId);
       setJustCreatedPack(createdNewSuite);
+      goToBuilderStep(5, { force: true });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       addToast({
@@ -457,6 +590,47 @@ export const Studio: React.FC = () => {
 
   const [isProbing, setIsProbing] = useState(false);
   const [probeStatus, setProbeStatus] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const usefulContext = useMemo(
+    () => ({
+      agentId,
+      endpointUrl,
+      requirementsText,
+      hasPreview: Boolean(previewData?.optimized_pack?.tests?.length),
+      hasFrozenManifest: Boolean(frozenDetail?.manifest),
+      probeOk: probeStatus?.ok,
+    }),
+    [agentId, endpointUrl, requirementsText, previewData, frozenDetail, probeStatus],
+  );
+
+  const stepChecklist = useMemo(
+    () => buildStudioChecklist(builderStep, usefulContext),
+    [builderStep, usefulContext],
+  );
+
+  const stepBlocker = useMemo(
+    () => primaryActionBlocker(builderStep, builderCompletion, usefulContext),
+    [builderStep, builderCompletion, usefulContext],
+  );
+
+  const previewGateBlocker = useMemo(
+    () => primaryActionBlocker(2, builderCompletion, usefulContext),
+    [builderCompletion, usefulContext],
+  );
+
+  const stepSuggestion = useMemo(
+    () => suggestedStudioStep(builderStep, builderCompletion),
+    [builderStep, builderCompletion],
+  );
+
+  const goToConnectStep = useCallback(() => {
+    const id = agentId.trim();
+    if (id) {
+      setActiveAgentId(id);
+      loadFrozenSuite(id);
+    }
+    goToBuilderStep(2, { force: true });
+  }, [agentId, goToBuilderStep, loadFrozenSuite, setActiveAgentId]);
 
   const handleCopyPrompt = () => {
     if (!currentTest) return;
@@ -528,13 +702,73 @@ export const Studio: React.FC = () => {
 
   const packTestCount = optimizedPack?.tests?.length ?? 0;
 
+  const optimizerSlider = (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-foreground">
+          {STUDIO_ADVANCED_UX.sections.optimizer.title}
+        </span>
+        <span className="font-mono text-xs font-bold text-primary tabular-nums">
+          {maxTests} tests
+        </span>
+      </div>
+      <p className="text-[10px] text-muted-foreground">{STUDIO_ADVANCED_UX.sections.optimizer.hint}</p>
+      <Slider
+        min={3}
+        max={Math.max(25, Math.min(100, candidatePoolSize || 25))}
+        step={1}
+        value={[maxTests]}
+        onValueChange={(vals) => {
+          setMaxTests(vals[0]);
+          if (selectedTier !== "ALL") setSelectedTier("ALL");
+        }}
+        className="py-1"
+      />
+      <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
+        <span>Fast (3)</span>
+        <span>Target ({maxTests})</span>
+        <span>Max ({Math.max(25, Math.min(100, candidatePoolSize || 25))})</span>
+      </div>
+    </div>
+  );
+
+  const showInspector =
+    builderStep >= 3 && (Boolean(previewData) || Boolean(frozenDetail?.optimized_pack?.tests?.length));
+
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6">
-      {justCreatedPack && frozenDetail && (
+    <div
+      className={cn(
+        "mx-auto max-w-7xl px-4 py-6 sm:px-6",
+        builderStep !== 5 && "pb-[calc(5.5rem+env(safe-area-inset-bottom))]",
+      )}
+    >
+      <div className="mb-3">
+        <h1 className="text-xl font-bold tracking-tight text-foreground">Studio & Planner</h1>
+        <p className="mt-0.5 text-xs text-muted-foreground">{studioStepUx(builderStep).headline}</p>
+      </div>
+      <ConsoleBuilderJourney
+        mode="studio"
+        studioStep={builderStep}
+        completion={builderCompletion}
+        onStudioStepChange={goToBuilderStep}
+      />
+      <StudioStepUsefulPanel
+        step={builderStep}
+        checklist={stepChecklist}
+        blocker={stepBlocker}
+        suggestedStep={stepSuggestion}
+        onGoToSuggested={
+          stepSuggestion
+            ? () => goToBuilderStep(stepSuggestion, { force: true })
+            : undefined
+        }
+        onLoadDemo={builderStep === 1 ? handleLoadDemoAgent : undefined}
+      />
+      {justCreatedPack && frozenDetail && builderStep !== 5 && (
         <div className="mb-5 flex flex-col gap-3 rounded-md border border-primary/30 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold text-foreground">
-              Suite frozen — {packTestCount} test{packTestCount === 1 ? "" : "s"}
+              Suite frozen: {packTestCount} test{packTestCount === 1 ? "" : "s"}
             </p>
             <p className="mt-1 text-xs text-muted-foreground">
               Review each case in the inspector, then run them against your agent in Assurance.
@@ -550,7 +784,22 @@ export const Studio: React.FC = () => {
           </Button>
         </div>
       )}
-      {/* Two Balanced Columns matching Shadcn Dashboard Cards Layout */}
+      {builderStep === 5 ? (
+        <StudioRunStepCard
+          agentId={agentId}
+          packTestCount={packTestCount}
+          frozenDetail={frozenDetail}
+          endpointUrl={endpointUrl}
+          onOpenAssurance={() => navigateConsoleView("assurance")}
+          onEditFrozenPack={() => goToBuilderStep(4, { force: true })}
+        />
+      ) : (
+      <>
+      <StudioEngineActivity
+        mode={isSavingSuite ? "freeze" : "preview"}
+        active={isLoadingPreview || isSavingSuite}
+        className="mb-3"
+      />
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column (5 Cols): Specification & Settings */}
         <div className="lg:col-span-5 flex flex-col gap-5">
@@ -558,8 +807,9 @@ export const Studio: React.FC = () => {
           <Card className="border border-border bg-card shadow-xs">
             <CardHeader className="p-4 pb-2 border-b border-border/50 flex flex-row items-center justify-between">
               <CardTitle className="text-xs font-semibold text-foreground">
-                Agent Specification & Ceiling
+                {studioCardTitleForStep(builderStep)}
               </CardTitle>
+              {(builderStep === 1 || builderStep === 2) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -567,18 +817,35 @@ export const Studio: React.FC = () => {
                 onClick={handleLoadDemoAgent}
                 title="Load built-in Customer Support Demo Agent & PRD"
               >
-                <Sparkles className="h-3 w-3" />
+                <Sparkles className="h-3 w-3" aria-hidden />
                 Demo Agent
               </Button>
+              )}
             </CardHeader>
             <CardContent className="flex flex-col gap-4 p-4">
+              {builderStep === 4 && (
+                <StudioFreezeSummary
+                  agentId={agentId}
+                  packTestCount={packTestCount}
+                  endpoint={frozenDetail?.manifest?.endpoint_profile || endpointUrl}
+                  frozenVersion={frozenDetail?.manifest?.version}
+                  packProvenance={packProvenance}
+                  previewTestCount={previewData?.optimized_pack?.tests?.length}
+                  onEditConnection={() => goToBuilderStep(2, { force: true })}
+                  onEditPreview={() => goToBuilderStep(3, { force: true })}
+                />
+              )}
+              {(builderStep === 1 || builderStep === 2) && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="min-w-0">
-                  <label className="mb-1.5 block text-xs font-medium text-foreground">
+                  <label htmlFor="studio-agent-id" className="mb-1.5 block text-xs font-medium text-foreground">
                     Agent ID
                   </label>
                   <Input
+                    id="studio-agent-id"
+                    name="agent_id"
                     type="text"
+                    autoComplete="off"
                     value={agentId}
                     onChange={(e) => setAgentId(e.target.value)}
                     onBlur={() => {
@@ -588,13 +855,14 @@ export const Studio: React.FC = () => {
                       setActiveAgentId(id);
                       loadFrozenSuite(id);
                     }}
-                    placeholder="e.g. refund-agent"
+                    placeholder="e.g. refund-agent…"
                     className="font-mono text-xs w-full"
                   />
                 </div>
+                {builderStep === 2 && (
                 <div className="min-w-0 sm:col-span-2">
                   <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <label className="text-xs font-medium text-foreground shrink-0">
+                    <label htmlFor="studio-endpoint-url" className="text-xs font-medium text-foreground shrink-0">
                       Target Endpoint
                     </label>
                     {probeStatus && (
@@ -609,7 +877,10 @@ export const Studio: React.FC = () => {
                   </div>
                   <div className="flex gap-1.5 min-w-0">
                     <Input
+                      id="studio-endpoint-url"
+                      name="endpoint_url"
                       type="url"
+                      autoComplete="off"
                       value={endpointUrl}
                       onChange={(e) => setEndpointUrl(e.target.value)}
                       placeholder={SAMPLE_AGENT_ENDPOINT_PLACEHOLDER}
@@ -628,17 +899,22 @@ export const Studio: React.FC = () => {
                     </Button>
                   </div>
                 </div>
+                )}
               </div>
+              )}
 
+              {builderStep === 2 && (
+              <>
               {/* Target Authentication & Headers Drawer */}
-              <div className="rounded-lg border border-border/80 bg-card/60 overflow-hidden shadow-xs transition-all">
+              <div className="rounded-lg border border-border/80 bg-card/60 overflow-hidden shadow-xs transition-[border-color,box-shadow]">
                 <button
                   type="button"
                   onClick={() => setIsAuthDrawerOpen(!isAuthDrawerOpen)}
+                  aria-expanded={isAuthDrawerOpen}
                   className="w-full flex items-center justify-between px-3 py-2 bg-muted/20 hover:bg-muted/40 text-left transition-colors cursor-pointer"
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-wrap">
-                    <Shield className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <Shield className="h-3.5 w-3.5 text-primary shrink-0" aria-hidden />
                     <span className="text-xs font-medium text-foreground">
                       Target Authentication & Headers
                     </span>
@@ -672,9 +948,9 @@ export const Studio: React.FC = () => {
                       {isAuthDrawerOpen ? "Hide" : "Configure"}
                     </span>
                     {isAuthDrawerOpen ? (
-                      <ChevronDown className="h-3.5 w-3.5" />
+                      <ChevronDown className="h-3.5 w-3.5" aria-hidden />
                     ) : (
-                      <ChevronRight className="h-3.5 w-3.5" />
+                      <ChevronRight className="h-3.5 w-3.5" aria-hidden />
                     )}
                   </div>
                 </button>
@@ -701,7 +977,7 @@ export const Studio: React.FC = () => {
                               key={mode.id}
                               type="button"
                               onClick={() => setAuthType(mode.id)}
-                              className={`px-2 py-1.5 text-xs rounded-md border font-medium transition-all text-center cursor-pointer ${
+                              className={`px-2 py-1.5 text-xs rounded-md border font-medium transition-[color,background-color,border-color,box-shadow] text-center cursor-pointer ${
                                 isActive
                                   ? "bg-primary text-primary-foreground border-primary shadow-xs"
                                   : "bg-background text-muted-foreground hover:text-foreground border-border hover:border-border/80"
@@ -717,7 +993,10 @@ export const Studio: React.FC = () => {
                     {/* Conditional Auth Inputs */}
                     {authType === "bearer" && (
                       <div className="space-y-1.5">
-                        <label className="text-[11px] font-medium text-foreground flex items-center justify-between">
+                        <label
+                          htmlFor="studio-bearer-token"
+                          className="text-[11px] font-medium text-foreground flex items-center justify-between"
+                        >
                           <span>Bearer Token / Secret</span>
                           <span className="text-[10px] text-muted-foreground font-mono">
                             Authorization: Bearer &lt;token&gt;
@@ -725,23 +1004,27 @@ export const Studio: React.FC = () => {
                         </label>
                         <div className="relative">
                           <Input
+                            id="studio-bearer-token"
+                            name="bearer_token"
                             type={showBearerToken ? "text" : "password"}
                             value={bearerToken}
                             onChange={(e) => setBearerToken(e.target.value)}
                             placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... or secret-token"
                             className="font-mono text-xs pr-9 h-8"
                             spellCheck={false}
+                            autoComplete="off"
                           />
                           <button
                             type="button"
                             onClick={() => setShowBearerToken(!showBearerToken)}
                             className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded cursor-pointer"
                             title={showBearerToken ? "Hide secret" : "Reveal secret"}
+                            aria-label={showBearerToken ? "Hide bearer token" : "Show bearer token"}
                           >
                             {showBearerToken ? (
-                              <EyeOff className="h-3.5 w-3.5" />
+                              <EyeOff className="h-3.5 w-3.5" aria-hidden />
                             ) : (
-                              <Eye className="h-3.5 w-3.5" />
+                              <Eye className="h-3.5 w-3.5" aria-hidden />
                             )}
                           </button>
                         </div>
@@ -755,41 +1038,54 @@ export const Studio: React.FC = () => {
                       <div className="space-y-1.5">
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                           <div className="sm:col-span-1">
-                            <label className="text-[11px] font-medium text-foreground block mb-1">
+                            <label
+                              htmlFor="studio-api-key-header"
+                              className="text-[11px] font-medium text-foreground block mb-1"
+                            >
                               Header Name
                             </label>
                             <Input
+                              id="studio-api-key-header"
+                              name="api_key_header"
                               type="text"
                               value={apiKeyHeader}
                               onChange={(e) => setApiKeyHeader(e.target.value)}
                               placeholder="X-API-Key"
                               className="font-mono text-xs h-8"
                               spellCheck={false}
+                              autoComplete="off"
                             />
                           </div>
                           <div className="sm:col-span-2">
-                            <label className="text-[11px] font-medium text-foreground block mb-1">
+                            <label
+                              htmlFor="studio-api-key-value"
+                              className="text-[11px] font-medium text-foreground block mb-1"
+                            >
                               API Key / Secret Value
                             </label>
                             <div className="relative">
                               <Input
+                                id="studio-api-key-value"
+                                name="api_key_value"
                                 type={showApiKeyValue ? "text" : "password"}
                                 value={apiKeyValue}
                                 onChange={(e) => setApiKeyValue(e.target.value)}
                                 placeholder="sk-... or api-secret"
                                 className="font-mono text-xs pr-9 h-8"
                                 spellCheck={false}
+                                autoComplete="off"
                               />
                               <button
                                 type="button"
                                 onClick={() => setShowApiKeyValue(!showApiKeyValue)}
                                 className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded cursor-pointer"
                                 title={showApiKeyValue ? "Hide secret" : "Reveal secret"}
+                                aria-label={showApiKeyValue ? "Hide API key" : "Show API key"}
                               >
                                 {showApiKeyValue ? (
-                                  <EyeOff className="h-3.5 w-3.5" />
+                                  <EyeOff className="h-3.5 w-3.5" aria-hidden />
                                 ) : (
-                                  <Eye className="h-3.5 w-3.5" />
+                                  <Eye className="h-3.5 w-3.5" aria-hidden />
                                 )}
                               </button>
                             </div>
@@ -825,6 +1121,7 @@ export const Studio: React.FC = () => {
                           value={newHeaderKey}
                           onChange={(e) => setNewHeaderKey(e.target.value)}
                           placeholder="Header (e.g. X-Tenant-Id)"
+                          aria-label="Custom header name"
                           className="font-mono text-xs h-8 flex-1"
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
@@ -838,6 +1135,7 @@ export const Studio: React.FC = () => {
                           value={newHeaderValue}
                           onChange={(e) => setNewHeaderValue(e.target.value)}
                           placeholder="Value (e.g. tenant-corp-42)"
+                          aria-label="Custom header value"
                           className="font-mono text-xs h-8 flex-1"
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
@@ -876,8 +1174,9 @@ export const Studio: React.FC = () => {
                                 onClick={() => handleRemoveHeader(idx)}
                                 className="text-muted-foreground hover:text-rose-500 transition-colors ml-0.5 p-0.5 rounded cursor-pointer"
                                 title="Remove header"
+                                aria-label={`Remove header ${h.key}`}
                               >
-                                <Trash2 className="h-3 w-3" />
+                                <Trash2 className="h-3 w-3" aria-hidden />
                               </button>
                             </span>
                           ))}
@@ -891,16 +1190,18 @@ export const Studio: React.FC = () => {
               {/* PRD Editor */}
               <div>
                 <div className="mb-1.5 flex items-center justify-between gap-2">
-                  <label className="text-xs font-medium text-foreground">
+                  <label htmlFor="studio-prd-text" className="text-xs font-medium text-foreground">
                     PRD / Capabilities Markdown
                   </label>
                   <div className="flex items-center gap-2">
                     <input
                       ref={prdFileInputRef}
+                      id="studio-prd-file"
                       type="file"
                       accept={PRD_FILE_ACCEPT}
                       className="hidden"
                       onChange={handlePrdFileSelected}
+                      aria-label="Import PRD markdown file"
                     />
                     <Button
                       type="button"
@@ -923,45 +1224,53 @@ export const Studio: React.FC = () => {
                   </div>
                 </div>
                 <Textarea
+                  id="studio-prd-text"
+                  name="requirements_text"
                   value={requirementsText}
                   onChange={(e) => setRequirementsText(e.target.value)}
-                  rows={11}
-                  className="font-mono text-xs leading-relaxed"
-                  placeholder="# Paste Agent PRD or Capability Manifest..."
+                  rows={6}
+                  className="font-mono text-xs leading-relaxed max-h-[min(38vh,300px)] min-h-[140px] resize-y overflow-y-auto"
+                  placeholder="# Paste Agent PRD or Capability Manifest…"
                 />
               </div>
 
-              {availablePacks.length > 0 && (
-                <div className="space-y-2 pt-1 border-t border-border pt-3">
-                  <span className="text-xs font-medium text-foreground">Domain packs</span>
-                  <div className="flex flex-col gap-2">
-                    {availablePacks.map((pack) => (
-                      <label
-                        key={pack.id}
-                        className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer"
-                      >
-                        <input
-                          type="checkbox"
-                          className="rounded border-border"
-                          checked={enabledDomainPacks.includes(pack.id)}
-                          onChange={(e) => {
-                            setEnabledDomainPacks((prev) =>
-                              e.target.checked
-                                ? [...prev, pack.id]
-                                : prev.filter((id) => id !== pack.id),
-                            );
-                          }}
-                        />
-                        <span>{pack.display_name}</span>
-                        <span className="font-mono text-[10px] opacity-70">({pack.id})</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+              {builderStep >= 2 && builderStep <= 4 && (
+                <StudioAdvancedDrawer
+                  open={isAdvancedOpen}
+                  onOpenChange={setIsAdvancedOpen}
+                  activeCount={advancedActiveCount}
+                >
+                  {builderStep === 2 && optimizerSlider}
+                  {builderStep >= 4 &&
+                    frozenDetail?.latest_run &&
+                    (coverageReport?.critical_uncovered?.length ?? 0) > 0 && (
+                      <div className="space-y-2 pt-2 border-t border-border/50">
+                        <p className="text-xs font-medium text-foreground">
+                          {STUDIO_ADVANCED_UX.sections.gapLoop.title}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground">
+                          {STUDIO_ADVANCED_UX.sections.gapLoop.hint}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-fit text-xs"
+                          disabled={isExtendingGaps}
+                          onClick={handleExtendGaps}
+                        >
+                          {isExtendingGaps ? (
+                            <RefreshCw className="h-3.5 w-3.5 animate-spin mr-1.5" />
+                          ) : null}
+                          {STUDIO_ADVANCED_UX.sections.gapLoop.action}
+                        </Button>
+                      </div>
+                    )}
+                </StudioAdvancedDrawer>
               )}
 
               {/* Assurance Budget & Priority Tiers */}
-              {previewData?.marginal_curve && previewData.marginal_curve.length > 0 && (
+              {builderStep >= 3 && previewData?.marginal_curve && previewData.marginal_curve.length > 0 && (
                 <div className="space-y-2 pt-2 border-t border-border">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-semibold text-foreground">
@@ -987,7 +1296,7 @@ export const Studio: React.FC = () => {
                           key={proj.tier}
                           type="button"
                           onClick={() => handleSelectTier(proj.tier)}
-                          className={`flex flex-col text-left p-2.5 rounded-lg border transition-all cursor-pointer ${
+                          className={`flex flex-col text-left p-2.5 rounded-lg border transition-[border-color,background-color,box-shadow] cursor-pointer ${
                             isSelected
                               ? "border-primary bg-primary/10 shadow-xs ring-1 ring-primary/40"
                               : "border-border bg-card/60 hover:bg-muted/40 hover:border-border/80"
@@ -1025,70 +1334,47 @@ export const Studio: React.FC = () => {
                 </div>
               )}
 
-              {/* Optimizer Slider */}
-              <div className="space-y-2 pt-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-foreground">
-                    Optimizer Ceiling (k tests)
-                  </span>
-                  <span className="font-mono text-xs font-bold text-primary">
-                    {maxTests} tests
-                  </span>
-                </div>
-                <Slider
-                  min={3}
-                  max={Math.max(25, Math.min(100, candidatePoolSize || 25))}
-                  step={1}
-                  value={[maxTests]}
-                  onValueChange={(vals) => {
-                    setMaxTests(vals[0]);
-                    if (selectedTier !== "ALL") setSelectedTier("ALL");
-                  }}
-                  className="py-1"
-                />
-                <div className="flex justify-between text-[10px] text-muted-foreground font-mono">
-                  <span>Fast (3)</span>
-                  <span>Target ({maxTests})</span>
-                  <span>Max ({Math.max(25, Math.min(100, candidatePoolSize || 25))})</span>
-                </div>
-              </div>
-
-              {/* Actions */}
-              <div className="mt-2 flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={handlePreview}
-                  disabled={isLoadingPreview}
-                  className="flex-1 h-10 text-xs"
-                >
-                  {isLoadingPreview ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
-                  ) : (
-                    <Eye className="h-3.5 w-3.5 mr-2" />
-                  )}
-                  <span>Preview Pack</span>
-                </Button>
-
-                <Button
-                  variant="default"
-                  onClick={handleSaveSuite}
-                  disabled={isSavingSuite}
-                  className="flex-1 h-10 text-xs shadow-xs"
-                >
-                  {isSavingSuite ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" />
-                  ) : (
-                    <Save className="h-3.5 w-3.5 mr-2" />
-                  )}
-                  <span>{frozenDetail ? "Update pack" : "Create suite"}</span>
-                </Button>
-              </div>
+              {builderStep >= 3 && <div className="pt-1 border-t border-border">{optimizerSlider}</div>}
+              </>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Right Column (7 Cols): The Code & Verification Terminal */}
         <div className="lg:col-span-7 flex flex-col gap-5">
+          {previewActivityLog.length > 0 ? (
+            <StudioEngineActivityLog
+              entries={previewActivityLog}
+              loading={isLoadingPreview}
+              waitingSeconds={previewWaitSeconds}
+              className={showInspector ? "max-h-[200px]" : undefined}
+            />
+          ) : null}
+          {!showInspector ? (
+            previewActivityLog.length > 0 ? null : (
+              <Card className="border border-dashed border-border bg-muted/20 shadow-none">
+                <CardContent className="p-8 text-center text-sm text-muted-foreground space-y-4">
+                  <p>{inspectorEmptyCopy(builderStep)}</p>
+                  {builderStep === 3 && !previewGateBlocker && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={handlePreview}
+                      disabled={isLoadingPreview}
+                    >
+                      {isLoadingPreview ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin mr-2" aria-hidden />
+                      ) : (
+                        <Eye className="h-3.5 w-3.5 mr-2" aria-hidden />
+                      )}
+                      Preview pack
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            )
+          ) : (
           <Card className="border border-border bg-card shadow-xs flex flex-col overflow-hidden">
             {/* Terminal Top Window Bar */}
             <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-3">
@@ -1106,6 +1392,7 @@ export const Studio: React.FC = () => {
                 {/* View Mode Toggle */}
                 <div className="flex items-center gap-1 rounded-md border border-border bg-card p-0.5">
                   <button
+                    type="button"
                     onClick={() => setTerminalViewMode("cards")}
                     className={`flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
                       terminalViewMode === "cards"
@@ -1113,11 +1400,14 @@ export const Studio: React.FC = () => {
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                     title="Structured Assertion Cards View"
+                    aria-label="Card view"
+                    aria-pressed={terminalViewMode === "cards"}
                   >
                     <LayoutTemplate className="h-3 w-3" />
                     <span>Card View</span>
                   </button>
                   <button
+                    type="button"
                     onClick={() => setTerminalViewMode("monaco")}
                     className={`flex items-center gap-1.5 rounded px-2 py-0.5 text-[11px] font-medium transition-colors cursor-pointer ${
                       terminalViewMode === "monaco"
@@ -1125,6 +1415,8 @@ export const Studio: React.FC = () => {
                         : "text-muted-foreground hover:text-foreground"
                     }`}
                     title="Raw CandidateTest JSON from API"
+                    aria-label="JSON view"
+                    aria-pressed={terminalViewMode === "monaco"}
                   >
                     <Code2 className="h-3 w-3" />
                     <span>JSON</span>
@@ -1156,7 +1448,11 @@ export const Studio: React.FC = () => {
             </div>
 
             {/* Test pack: vertical list + detail (Card View) or Monaco */}
-            <div className="flex min-h-[420px] max-h-[min(72vh,640px)] flex-col bg-card">
+            <div
+              className={`relative flex min-h-[420px] max-h-[min(72vh,640px)] flex-col bg-card transition-opacity duration-300 ${
+                isLoadingPreview || isSavingSuite ? "opacity-60 pointer-events-none" : ""
+              }`}
+            >
               {optimizedPack?.tests && optimizedPack.tests.length > 0 ? (
                 <>
                   <div
@@ -1467,6 +1763,17 @@ export const Studio: React.FC = () => {
                           </div>
                         )}
 
+                        {currentTest.scenario_spec?.goal && (
+                          <div>
+                            <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
+                              Scenario goal
+                            </div>
+                            <div className="rounded-lg border border-border/60 bg-muted/10 p-3 text-xs text-foreground leading-relaxed">
+                              {currentTest.scenario_spec.goal}
+                            </div>
+                          </div>
+                        )}
+
                         <div>
                           <div className="mb-1 text-[11px] font-mono uppercase tracking-wider text-muted-foreground">
                             Input Prompt (Sent to Target Agent Endpoint)
@@ -1554,7 +1861,7 @@ export const Studio: React.FC = () => {
                             </div>
                             <div className="mt-1.5 h-1.5 w-full rounded-full bg-muted overflow-hidden">
                               <div
-                                className="h-full rounded-full bg-primary transition-all duration-300"
+                                className="h-full rounded-full bg-primary transition-[width] duration-300"
                                 style={{ width: `${Math.round(ratio * 100)}%` }}
                               />
                             </div>
@@ -1635,8 +1942,28 @@ export const Studio: React.FC = () => {
               </Tabs>
             </div>
           </Card>
+          )}
         </div>
       </div>
+
+      <StudioBuilderFooter
+        builderStep={builderStep}
+        builderCompletion={builderCompletion}
+        stepBlocker={stepBlocker}
+        agentId={agentId}
+        isLoadingPreview={isLoadingPreview}
+        isSavingSuite={isSavingSuite}
+        previewData={previewData}
+        frozenDetail={frozenDetail}
+        previewGateBlocker={previewGateBlocker}
+        onBack={() => goToBuilderStep((builderStep - 1) as BuilderStep, { force: true })}
+        onContinueStep1={goToConnectStep}
+        onPreview={handlePreview}
+        onContinueToFreeze={() => goToBuilderStep(4, { force: true })}
+        onFreeze={handleSaveSuite}
+      />
+      </>
+      )}
     </div>
   );
 };

@@ -21,3 +21,16 @@ export function hashForConsoleView(view: ConsoleView): string {
 export function navigateConsoleView(view: ConsoleView): void {
   window.location.hash = hashForConsoleView(view);
 }
+
+export type AssuranceTab = "runs" | "signoff";
+
+export function readAssuranceTab(): AssuranceTab {
+  const hash = window.location.hash.replace(/^#/, "");
+  if (hash.includes("/assurance/signoff")) return "signoff";
+  return "runs";
+}
+
+export function navigateAssuranceTab(tab: AssuranceTab): void {
+  window.location.hash =
+    tab === "signoff" ? "#/console/assurance/signoff" : "#/console/assurance";
+}

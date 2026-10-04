@@ -8,7 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from agenteval.core.manifest import AgentCard
 from agenteval.core.requirement_ids import requirement_stable_id
 from agenteval.planning._utils import slugify
-from agenteval.planning.bootstrap import DEFAULT_PERSONAS, SuiteBootstrap
+from agenteval.planning.bootstrap import SuiteBootstrap
+from agenteval.planning.generator import DEFAULT_PERSONAS
 from agenteval.planning.coverage import CoverageMapper
 from agenteval.planning.generator import CandidatePoolGenerator
 from agenteval.planning.hypothesis_templates import FailureHypothesisGenerator

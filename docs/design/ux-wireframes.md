@@ -76,6 +76,8 @@ AgentEval is a **Production-Grade AI Agent Assurance & Evaluation Platform**. It
 
 ## 3. Information Architecture & Navigation Flow
 
+> **Implemented builder flow (Studio + Assurance):** see **[ux-studio-builder.md](ux-studio-builder.md)** — stepper copy lives in `web/src/lib/studio-ux-config.ts`.
+
 ```mermaid
 graph TD
     App[AgentEval Console] --> Header[Global App Header]

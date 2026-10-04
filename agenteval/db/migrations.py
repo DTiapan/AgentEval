@@ -264,6 +264,23 @@ def _migration_v005(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migration_v006(conn: sqlite3.Connection) -> None:
+    """Additive v6: short-lived suite preview sessions for freeze-without-regen."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS preview_sessions (
+            id            TEXT PRIMARY KEY,
+            created_at    TEXT NOT NULL,
+            expires_at    TEXT NOT NULL,
+            binding_json  TEXT NOT NULL,
+            payload_json  TEXT NOT NULL,
+            consumed_at   TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_preview_sessions_expires ON preview_sessions(expires_at);
+        """
+    )
+
+
 def apply_migrations(conn: sqlite3.Connection) -> None:
     """Apply pending migrations in order."""
     conn.execute(
@@ -308,5 +325,13 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             (5, datetime.now(UTC).isoformat()),
+        )
+        conn.commit()
+
+    if current < 6:
+        _migration_v006(conn)
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (6, datetime.now(UTC).isoformat()),
         )
         conn.commit()

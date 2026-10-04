@@ -232,6 +232,42 @@ def test_init_persists_requirements_text_sqlite(tmp_path: Path) -> None:
     assert len(detail.optimized_pack.tests) >= 1
 
 
+def test_preview_returns_activity_log(tmp_path: Path) -> None:
+    workflow = SuiteWorkflow(suite_root=tmp_path / "suites", db_path=tmp_path / "test.db")
+    preview = workflow.preview_from_prd_text(SAMPLE_PRD, agent_id="log-agent")
+    assert preview.activity_log
+    messages = " ".join(e.message for e in preview.activity_log)
+    assert "Capabilities" in messages
+    assert "Candidate pool" in messages
+    assert "Optimized pack" in messages
+    assert preview.preview_id
+
+
+def test_init_with_preview_id_skips_regeneration(tmp_path: Path) -> None:
+    workflow = SuiteWorkflow(suite_root=tmp_path / "suites", db_path=tmp_path / "test.db", max_tests=8)
+    endpoint = "http://127.0.0.1:9/chat"
+    preview = workflow.preview_from_prd_text(
+        SAMPLE_PRD,
+        agent_id="freeze-fast",
+        endpoint_url=endpoint,
+        probe_endpoint=False,
+    )
+    assert preview.preview_id
+
+    with patch("agenteval.planning.bootstrap.SuiteBootstrap.build") as mock_build:
+        frozen = workflow.init_from_prd_text(
+            SAMPLE_PRD,
+            agent_id="freeze-fast",
+            endpoint_url=endpoint,
+            probe_endpoint=False,
+            preview_id=preview.preview_id,
+        )
+        mock_build.assert_not_called()
+
+    assert frozen.optimized_pack_size >= 1
+    assert frozen.agent_id == "freeze-fast"
+
+
 def test_delete_suite_sqlite(tmp_path: Path) -> None:
     suite_root = tmp_path / "suites"
     db_path = tmp_path / "test.db"

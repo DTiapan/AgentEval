@@ -9,7 +9,7 @@
 
 AgentEval is an open-source **agent assurance platform**: it ingests requirements, generates and optimizes tests, runs them against your agent over HTTP (or harness/sandbox profiles), and records **PASS / FAIL / UNVERIFIABLE** with sealed evidence. The Web Console, REST API, and SQLite persistence share one engine — no parallel “demo” data paths.
 
-Built as a **production-ready, portfolio-grade system**: domain model, ADRs, migration plan, cloud-native deployment pipeline (Google Cloud Run Gen2, GCS persistent volume mount, Secret Manager), and a deliberate wedge for **small teams in regulated industries** (fintech → insurance → health) who need proof, not just dashboards.
+Built as a **production-ready, portfolio-grade system**: domain model, ADRs, migration plan, cloud-native deployment pipeline (Google Cloud Run Gen2, GCS persistent volume mount, Secret Manager), and a **backbone-first** assurance path (requirements → realistic scenarios → evidence). Domain packs plug in later as adapters ([ADR-005](docs/decisions/ADR-005-backbone-domain-packs-source-of-truth.md)).
 
 ---
 
@@ -79,7 +79,7 @@ AgentEval exists to close that gap: **requirements-first assurance** with honest
 1. **Requirements → frozen suite** — Ingest markdown PRD; generate candidate pool; optimize pack (set cover + mandatory floors); **freeze** version in SQLite.
 2. **Evidence-backed verdicts** — Black-box runs store HTTP observations, rationales, and execution steps; harness path can assert **state diffs** (ΔS) where sandbox is available.
 3. **Spec drift** — Explicit **suite sync**: removed capabilities prune tests; fingerprint and changelog are persisted ([ADR-003](docs/decisions/ADR-003-black-box-test-intelligence-pipeline.md)).
-4. **Pluggable domain** — Packs add mandatory requirements, compliance mappings, scenarios, and checks without changing backbone code (design complete; first fintech pack in progress).
+4. **Pluggable domain (later)** — Packs add mandatory requirements, compliance mappings, and checks without changing backbone code (contract defined; adapters dormant until backbone B2′ is stable).
 5. **One stack, three surfaces** — `agenteval/` library + Pydantic → **FastAPI `/v1/suites/*`** → **React console**; Typer CLI for `serve`, engineering, and CI.
 
 ---
@@ -438,7 +438,7 @@ Phases are **shippable slices**, not “foundation only” releases ([ROADMAP](d
 |-------|--------|---------------------------|
 | **Now (v0.2.x)** | Honest console, SQLite SoT, PRD→suite→run, reports, stable requirement IDs | Shipped / polishing |
 | **Next** | Normalized requirements & per-criterion verdicts in DB; runner writes evidence rows | Weeks |
-| **Then** | Inspect AI wiring + EvalLog mirror; fintech pack v1 | Weeks–months |
+| **Then** | Inspect AI wiring + EvalLog mirror; domain pack adapters | Weeks–months |
 | **v1** | Insurance pack; compliance-grouped reports; CI templates | Months |
 | **v1.x** | Auth, workspaces, API keys (SaaS PRD) | Months |
 | **Later** | Health pack; harness chaos + ΔS for in-process agents; OTel alignment | Quarters |

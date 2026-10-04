@@ -35,6 +35,17 @@ class PersonaRef(BaseModel):
     framing: str = Field(description="Short role description for prompt prefix")
 
 
+DEFAULT_PERSONAS = [
+    PersonaRef(slug="frequent-user", name="Frequent User", framing="a regular customer"),
+    PersonaRef(slug="adversary", name="Adversary", framing="a potentially malicious user"),
+    PersonaRef(
+        slug="security-auditor",
+        name="Security Auditor",
+        framing="a compliance reviewer testing boundaries",
+    ),
+]
+
+
 class CandidatePoolGenerator:
     """Builds a deterministic candidate pool without executing tests."""
 
@@ -46,6 +57,8 @@ class CandidatePoolGenerator:
         agent_id: str,
         capabilities: list[AgentCapability],
         personas: list[PersonaRef],
+        *,
+        legacy_meta_persona: bool = True,
     ) -> list[CandidateTest]:
         """Cross-product of capabilities, applicable hypotheses, and personas."""
         if not capabilities or not personas:
@@ -57,10 +70,13 @@ class CandidatePoolGenerator:
             for hyp in self._hypotheses.generate_for_capability(cap):
                 for persona in personas:
                     test_id = f"{cap_id}-{hyp.template_id}-{persona.slug}"
-                    user_prompt = (
-                        f"You are acting as {persona.name} ({persona.framing}).\n\n"
-                        f"{hyp.task_prompt}"
-                    )
+                    if legacy_meta_persona:
+                        user_prompt = (
+                            f"You are acting as {persona.name} ({persona.framing}).\n\n"
+                            f"{hyp.task_prompt}"
+                        )
+                    else:
+                        user_prompt = hyp.task_prompt.strip()
                     tags = list(hyp.coverage_tags)
                     tags.append(f"persona:{persona.slug}")
                     pool.append(

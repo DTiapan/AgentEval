@@ -31,6 +31,10 @@ class SuiteInitRequest(PrdBootstrapRequest):
 
     force_new_version: bool = False
     enabled_domain_packs: list[str] = Field(default_factory=list)
+    preview_id: str | None = Field(
+        default=None,
+        description="Preview session from POST /v1/suites/preview; freezes that pack without regenerating",
+    )
 
 
 class EndpointProbeRequest(BaseModel):

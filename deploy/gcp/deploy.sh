@@ -205,6 +205,7 @@ bind_secret_if_exists() {
 }
 
 info "Scanning Google Cloud Secret Manager for evaluator keys..."
+bind_secret_if_exists "desingularity-infer-api-key" "AGENTEVAL_PRIMARY_LLM_API_KEY"
 bind_secret_if_exists "openrouter-api-key" "OPENROUTER_API_KEY"
 bind_secret_if_exists "deepseek-api-key" "DEEPSEEK_API_KEY"
 bind_secret_if_exists "openai-api-key" "OPENAI_API_KEY"
@@ -214,6 +215,9 @@ bind_secret_if_exists "inspect-eval-key" "INSPECT_EVAL_KEY"
 
 # Fallback secrets from env if not bound from Secret Manager
 FALLBACK_ENV_VARS=""
+if [[ -n "${AGENTEVAL_PRIMARY_LLM_API_KEY:-}" && ! " ${SECRET_FLAGS[*]:-} " =~ "AGENTEVAL_PRIMARY_LLM_API_KEY=" ]]; then
+    FALLBACK_ENV_VARS="${FALLBACK_ENV_VARS},AGENTEVAL_PRIMARY_LLM_API_KEY=${AGENTEVAL_PRIMARY_LLM_API_KEY}"
+fi
 if [[ -n "${OPENROUTER_API_KEY:-}" && ! " ${SECRET_FLAGS[*]:-} " =~ "OPENROUTER_API_KEY=" ]]; then
     FALLBACK_ENV_VARS="${FALLBACK_ENV_VARS},OPENROUTER_API_KEY=${OPENROUTER_API_KEY}"
 fi
@@ -244,8 +248,13 @@ fi
 # 8. Environment Variables
 DEFAULT_MODEL="${AGENTEVAL_REAL_AGENT_MODEL:-deepseek/deepseek-v4-flash-0731}"
 ENABLED_PACKS="${AGENTEVAL_ENABLED_DOMAIN_PACKS:-fintech}"
+PRIMARY_LLM_BASE="${AGENTEVAL_PRIMARY_LLM_API_BASE:-}"
+PRIMARY_LLM_MODEL="${AGENTEVAL_PRIMARY_LLM_MODEL:-benius1}"
 
 ENV_VARS="AGENTEVAL_DATA_DIR=${AGENTEVAL_DATA_DIR},AGENTEVAL_USE_SQLITE=1,AGENTEVAL_SERVE_UI=1,AGENTEVAL_UI_DIST=/app/web/dist,AGENTEVAL_REAL_AGENT_MODEL=${DEFAULT_MODEL},AGENTEVAL_ENABLED_DOMAIN_PACKS=${ENABLED_PACKS}"
+if [[ -n "${PRIMARY_LLM_BASE}" ]]; then
+    ENV_VARS="${ENV_VARS},AGENTEVAL_PRIMARY_LLM_API_BASE=${PRIMARY_LLM_BASE},AGENTEVAL_PRIMARY_LLM_MODEL=${PRIMARY_LLM_MODEL}"
+fi
 if [[ -n "${AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS:-}" ]]; then
     ENV_VARS="${ENV_VARS},AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=${AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS}"
 fi

@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from agenteval.core.manifest import AgentCard
 from agenteval.introspect.persona import PersonaIntrospector
 from agenteval.personas.registry import PersonaRegistry
+from agenteval.planning.litellm_routing import any_llm_route_available, completion_with_fallback
 from agenteval.recommender.persona_selector import JevPersonaSelector
 
 logger = logging.getLogger(__name__)
@@ -89,7 +90,7 @@ class DynamicPersonaGenerator:
             "AWS_ACCESS_KEY_ID",
             "LITELLM_API_KEY",
         ]
-        return any(os.getenv(k) for k in keys)
+        return any(os.getenv(k) for k in keys) or any_llm_route_available()
 
     def discover_and_rank_personas(
         self,
@@ -118,8 +119,6 @@ class DynamicPersonaGenerator:
         customer_context: str | None = None,
     ) -> list[RankedPersonaCandidate]:
         """Prompt LiteLLM to analyze agent and return structured stack-ranked personas."""
-        import litellm  # lazy import to avoid overhead if unused
-
         tools_summary = ", ".join(t.name for t in agent_card.tools_required) or "None declared"
         caps_summary = (
             "; ".join(f"{c.name}: {c.description}" for c in agent_card.capabilities)
@@ -167,15 +166,17 @@ class DynamicPersonaGenerator:
             f"Formulate and stack-rank the top {max(top_k, 5)} personas to test this agent."
         )
 
-        response = litellm.completion(
-            model=self.model,
+        response, _route = completion_with_fallback(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             response_format={"type": "json_object"},
             temperature=0.3,
-            api_key=self.api_key,
+            max_tokens=4096,
+            timeout=60.0,
+            explicit_api_key=self.api_key,
+            explicit_model=self.model,
         )
 
         content = response.choices[0].message.content

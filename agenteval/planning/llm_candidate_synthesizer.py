@@ -15,6 +15,9 @@ from agenteval.planning.models import (
     CandidateTest,
     PriorityTier,
 )
+from agenteval.planning.scenario_spec import DialogueMode, ScenarioOracle, ScenarioSpec, UserProfile
+from agenteval.planning.user_simulator import stable_seed_for
+from agenteval.planning.litellm_routing import any_llm_route_available, completion_with_fallback
 from agenteval.telemetry import start_span
 
 load_env()
@@ -53,11 +56,7 @@ class LLMCandidateSynthesizer:
     def _resolve_api_key(self) -> str | None:
         if self.api_key is not None:
             return self.api_key
-        return (
-            os.environ.get("OPENROUTER_API_KEY")
-            or os.environ.get("DEEPSEEK_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-        )
+        return "configured" if any_llm_route_available() else None
 
     def _resolve_model(self) -> str:
         if self.model is not None:
@@ -90,7 +89,7 @@ class LLMCandidateSynthesizer:
 
                     executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
                     try:
-                        future = executor.submit(self._synthesize_with_litellm, card, prd_text, key)
+                        future = executor.submit(self._synthesize_with_litellm, card, prd_text)
                         candidates = future.result(timeout=self.timeout)
                         if candidates:
                             synth_span.set_attribute("agenteval.candidates_count", len(candidates))
@@ -111,10 +110,7 @@ class LLMCandidateSynthesizer:
         self,
         card: AgentCard,
         prd_text: str | None,
-        api_key: str,
     ) -> list[CandidateTest]:
-        import litellm
-
         cap_list = [f"- {c.name}: {c.description}" for c in card.capabilities]
         tools_list = [f"- {t.name}: {t.description}" for t in card.tools_required]
         invariants_desc = (
@@ -154,17 +150,16 @@ class LLMCandidateSynthesizer:
             "Generate 4 to 8 high-leverage edge cases covering realistic subtle failures."
         )
 
-        resp = litellm.completion(
-            model=self._resolve_model(),
+        resp, _route = completion_with_fallback(
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_content},
             ],
-            api_key=api_key,
             temperature=0.2,
             max_tokens=4096,
             timeout=self.timeout,
-            num_retries=0,
+            explicit_api_key=self.api_key,
+            explicit_model=self.model,
         )
 
         raw_content = resp.choices[0].message.content or ""
@@ -215,6 +210,20 @@ class LLMCandidateSynthesizer:
             test_hash = hashlib.sha256(f"{name_raw}:{user_prompt}".encode()).hexdigest()[:8]
             test_id = f"llm-{cap_id}-{test_hash}"
 
+            spec = ScenarioSpec(
+                id=test_id,
+                title=name_raw,
+                capability_id=cap_id,
+                goal=user_prompt or name_raw,
+                user_profile=UserProfile(slug="frequent-user", tone="neutral", expertise="medium"),
+                dialogue_mode=DialogueMode.SCRIPTED,
+                oracle=ScenarioOracle(must=[expected] if expected else []),
+                sample_seed=stable_seed_for(test_id, user_prompt),
+                coverage_tags=[f"cap:{cap_id}", "source:llm_synthesizer"],
+                category=category,
+                failure_mode="llm_synthesized_edge_case",
+                template_id="llm_synthesized",
+            )
             candidates.append(
                 CandidateTest(
                     id=test_id,
@@ -237,6 +246,7 @@ class LLMCandidateSynthesizer:
                     execution_cost=1.2,
                     is_mandatory=False,
                     priority_tier=priority_tier,
+                    scenario_spec=spec,
                 )
             )
 
