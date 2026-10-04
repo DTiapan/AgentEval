@@ -17,6 +17,9 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 | LL-009 | Serverless Ingress Timeouts vs. Synchronous AI Trajectory Runs: Deployment Drift and Incomplete Assurance | logged | project | architecture / deployment |
 | LL-010 | Out-of-Order Test Completion and Deterministic Suite Report Invariants | logged | project | architecture / testing |
 | LL-011 | HTTP Transport Migration: Event Hooks for Redirect-Resistant SSRF and Connection Pool Sizing | logged | project | security / performance |
+| LL-012 | In-Process Background Task Traps: SQLite Thread Affinity and FastAPI Route Masking | logged | project | architecture / threading |
+| LL-013 | Streaming Persistence Prevents Catastrophic Test Preemption in Containerized Runtimes | logged | project | architecture / database |
+| LL-014 | Structured JSON Logging in Containerized Cloud Runtimes: Severity Mappings, Contextvars, and Evaluator Attribution | logged | project | observability / architecture |
 
 ---
 
@@ -154,6 +157,21 @@ Blameless capture of surprises, failed approaches, and reusable principles.
   2. Protect SQLite write operations with a re-entrant lock (`threading.RLock()`) to serialize concurrent thread flushes cleanly while allowing nested helper calls within the same thread.
   3. In `finalize_run`, check if the parent run row exists before writing results and initialize it on-demand to guarantee foreign key integrity even when third-party runners or test mocks supply custom run identifiers.
   4. Explicitly gate baseline lookups (`load_latest_run`) to filter for `(status IS NULL OR status = 'completed')` so that in-flight and failed runs are never mistaken for signed-off evaluation baselines.
+
+## LL-014: Structured JSON Logging in Containerized Cloud Runtimes: Severity Mappings, Contextvars, and Evaluator Attribution
+
+- **Date**: 2026-10-04
+- **Scope**: project
+- **Context**: In production cloud container environments (Google Cloud Run, GKE, AWS ECS, Datadog), application logs are ingested by automated log shippers that parse stdout/stderr as single-line JSON. Three critical observability requirements must be met: severity level recognition, request correlation, and evaluator fallback attribution.
+- **Root Cause**:
+  1. **Log Level Indexing Drift**: Standard Python logging and structlog emit log levels as lowercase strings under `"level"` (`"info"`, `"warning"`). Cloud log aggregators (specifically Google Cloud Logging) do not index `"level"`; they strictly require an uppercase `"severity"` field (`INFO`, `WARNING`, `ERROR`, `CRITICAL`). Without explicit severity mapping, critical warnings and exceptions are indexed as neutral informational entries and fail to trigger log-based alert metrics.
+  2. **Asynchronous Request Tracing Gap**: When an HTTP request triggers background worker execution or multi-threaded evaluations, tracing the lifecycle of a single request across interleaved concurrent logs is impossible without a unique correlation identifier (`X-Request-ID`). Passing request IDs through method signatures pollutes domain interfaces; using `contextvars` (`structlog.contextvars`) allows zero-boilerplate contextual propagation across async and threaded boundaries.
+  3. **Silent Evaluation Fallbacks (The "Phantom LLM" Problem)**: When an LLM judge encounters rate limits, timeouts, or API authentication failures and silently falls back to offline heuristic pattern matching, end users may mistakenly believe their agent was evaluated by a state-of-the-art LLM. Emitting an explicit `evaluator_provenance` tag and a structured `llm_judge_fallback_triggered` warning guarantees forensic transparency in production telemetry.
+- **Lesson / Rule**:
+  1. Always normalize log levels to GCP native `"severity"` field in JSON log processors (`add_gcp_severity`).
+  2. Inject and preserve `X-Request-ID` at HTTP boundary middlewares (`RequestIdMiddleware`), expose it in CORS allowlists, and bind it to thread/async contextvars so downstream execution traces inherit correlation automatically.
+  3. Never silently degrade evaluation engines; always stamp results with `evaluator_provenance` (`litellm-judge` vs `heuristic-fallback`) and emit structured warnings on fallback activation.
+  4. Detect terminal TTY vs container environments dynamically: render human-readable colorized logs when running interactively on a developer terminal, and switch to strict single-line JSON (`JSONRenderer`) when redirected to pipes, log files, or production container runtimes.
 
 <!-- New entries above ## Archive -->
 
