@@ -128,6 +128,18 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 - **Root Cause**: In standard `httpx.Client(follow_redirects=True)`, the initial request URL may be validated, but a malicious server responding with `302 Found -> Location: http://169.254.169.254` can cause the client to blindly follow the redirect to cloud metadata. Additionally, unit tests that previously patched `urllib.request.urlopen` will silently fail or make unwanted network calls when transports migrate to `httpx`.
 - **Lesson / Rule**: Use `httpx` request event hooks (`event_hooks={"request": [ssrf_hook]}`) to enforce security policies. Because `httpx` executes the `request` event hook for *every* outbound request—including each individual redirect hop—the hook intercepts and evaluates the new `Location` URL *before* any socket or TLS handshake is initiated. Sizing connection limits (`Limits(max_connections=50, max_keepalive_connections=20)`) to match or exceed the runner's worker pool ceiling prevents pool contention. In test suites, use `httpx.MockTransport` and client dependency injection rather than monkeypatching global network libraries.
 
+## LL-012: Multi-Threaded In-Process Background Jobs: SQLite Thread Affinity and FastAPI Route Precedence
+
+- **Date**: 2026-10-04
+- **Scope**: project
+- **Context**: Introducing in-process asynchronous task management (`RunJobManager` via `ThreadPoolExecutor`) decoupled long-running test suite runs from HTTP request lifecycles. However, two non-obvious architecture traps emerged during implementation: Python's standard `sqlite3.connect()` default thread affinity check, and Starlette/FastAPI route matching order for wildcard path parameters.
+- **Root Cause**:
+  1. **SQLite Thread Affinity Error**: `sqlite3.connect()` defaults to `check_same_thread=True`. When a `SuiteWorkflow` instance initialized on the main FastAPI request thread is passed to a background thread in `ThreadPoolExecutor`, saving the run report triggers `sqlite3.ProgrammingError: SQLite objects created in a thread can only be used in that same thread`. Under WAL mode, concurrent reads and serialized writes are safe across threads when configuring `sqlite3.connect(path, timeout=30.0, check_same_thread=False)`.
+  2. **FastAPI Route Masking**: Declaring `@app.get("/v1/suites/{agent_id}/runs/{run_id}")` before `@app.get("/v1/suites/{agent_id}/runs/latest")` causes FastAPI to route `/runs/latest` to the parameterized handler with `run_id="latest"`, returning an erroneous 404 because `"latest"` is treated as a literal run ID.
+- **Lesson / Rule**:
+  1. In multi-threaded Python applications using SQLite persistence, configure `check_same_thread=False` and a generous lock timeout (`timeout=30.0`) in the connection factory to support safe thread hand-offs under WAL mode.
+  2. In FastAPI / Starlette routing, always register literal static subpaths (such as `/latest`, `/status`, `/health`) *before* parameterized wildcard paths (such as `/{run_id}`) to prevent route shadowing.
+
 <!-- New entries above ## Archive -->
 
 ## Archive
