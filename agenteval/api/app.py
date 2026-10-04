@@ -209,6 +209,7 @@ def create_app() -> FastAPI:
                 endpoint_url=body.endpoint_url,
                 audit_log_db_path=body.audit_log_db_path,
                 judge_mode=body.judge_mode,
+                max_concurrency=body.max_concurrency,
             )
         except FileNotFoundError:
             raise HTTPException(

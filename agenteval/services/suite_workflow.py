@@ -348,6 +348,7 @@ class SuiteWorkflow:
         audit_log_db_path: str | None = None,
         judge_mode: str = "hybrid",
         force_offline_judge: bool | None = None,
+        max_concurrency: int | None = None,
     ) -> SuiteRunReport:
         store = self._store()
         manifest = self._load_manifest(store, agent_id)
@@ -363,8 +364,9 @@ class SuiteWorkflow:
             endpoint_url=url,
             judge_mode=judge_mode,
             force_offline_judge=force_offline_judge,
+            max_workers=max_concurrency,
         )
-        report = runner.run_pack(pack)
+        report = runner.run_pack(pack, max_workers=max_concurrency)
         pool = self._load_pool(store, agent_id)
         coverage = CoverageMapper().report(pool, pack.tests)
         report.coverage_report = coverage

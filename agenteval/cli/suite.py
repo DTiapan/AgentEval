@@ -153,11 +153,20 @@ def suite_run(
             "--judge-mode", "-j", help="Evaluation mode: hybrid | deterministic_only | llm_judge"
         ),
     ] = "hybrid",
+    concurrency: Annotated[
+        int | None,
+        typer.Option("--concurrency", "-c", help="Max concurrent test executions (default: 8)"),
+    ] = None,
 ) -> None:
     """Execute frozen test pack only (no generation)."""
     workflow = create_suite_workflow(suite_root)
     try:
-        report = workflow.run_suite(agent_id, endpoint_url=endpoint, judge_mode=judge_mode)
+        report = workflow.run_suite(
+            agent_id,
+            endpoint_url=endpoint,
+            judge_mode=judge_mode,
+            max_concurrency=concurrency,
+        )
     except FileNotFoundError:
         console.print(
             f"[bold red]No suite for '{agent_id}'. Run `agenteval suite init` first.[/bold red]"

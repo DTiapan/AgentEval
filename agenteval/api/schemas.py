@@ -43,6 +43,12 @@ class SuiteRunRequest(BaseModel):
         default="hybrid",
         description="Evaluation strategy: 'hybrid' (deterministic + LLM judge fallback), 'deterministic_only', or 'llm_judge'",
     )
+    max_concurrency: int = Field(
+        default=8,
+        ge=1,
+        le=50,
+        description="Maximum parallel test executions within a run (default: 8)",
+    )
 
 
 class SuiteGapExtendRequest(BaseModel):

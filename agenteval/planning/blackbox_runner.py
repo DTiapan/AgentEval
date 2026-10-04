@@ -1,6 +1,8 @@
 """Execute a frozen test pack against an HTTP endpoint (blackbox profile)."""
 
+import concurrent.futures
 import json
+import os
 import time
 import urllib.error
 import urllib.request
@@ -45,6 +47,7 @@ class BlackboxRunner:
         judge_scorer: LLMJudgeScorer | None = None,
         force_offline_judge: bool | None = None,
         allow_private: bool | None = None,
+        max_workers: int | None = None,
     ) -> None:
         self.allow_private = is_private_allowed() if allow_private is None else allow_private
         validate_endpoint_url(endpoint_url, allow_private=self.allow_private)
@@ -54,28 +57,72 @@ class BlackboxRunner:
         self.judge_mode = JudgeMode(judge_mode)
         self._scorer = ObservableScorer()
         self._judge_scorer = judge_scorer or LLMJudgeScorer(force_offline=force_offline_judge)
+        raw_workers = max_workers if max_workers is not None else os.environ.get("AGENTEVAL_MAX_CONCURRENT_TESTS")
+        try:
+            self.max_workers = int(raw_workers) if raw_workers else 8
+        except ValueError:
+            self.max_workers = 8
+        self.max_workers = max(1, min(50, self.max_workers))
 
-    def run_pack(self, pack: TestPack) -> SuiteRunReport:
+    def run_pack(self, pack: TestPack, *, max_workers: int | None = None) -> SuiteRunReport:
         run_id = uuid4().hex[:12]
-        results: list[TestCaseResult] = []
-        for test in pack.tests:
-            obs = self._invoke(test)
-            scored: TestCaseResult
-            if self.judge_mode == JudgeMode.LLM_JUDGE:
-                scored = self._judge_scorer.score(test, obs)
-            elif self.judge_mode == JudgeMode.DETERMINISTIC_ONLY:
-                scored = self._scorer.score(test, obs)
-            else:  # JudgeMode.HYBRID
-                scored = self._scorer.score(test, obs)
-                # Escalate to LLM judge if heuristic has no rule match
-                if (
-                    scored.verdict == "UNVERIFIABLE"
-                    and "external evaluator or llm judge required" in scored.rationale.lower()
-                ):
-                    scored = self._judge_scorer.score(test, obs)
+        effective_workers = max_workers if max_workers is not None else self.max_workers
+        effective_workers = max(1, min(50, effective_workers))
 
-            trajectory = build_blackbox_trajectory(obs, scored.verdict, scored.rationale)
-            results.append(scored.model_copy(update={"trajectory": trajectory}))
+        def _execute_one(test: CandidateTest) -> TestCaseResult:
+            try:
+                obs = self._invoke(test)
+                scored: TestCaseResult
+                if self.judge_mode == JudgeMode.LLM_JUDGE:
+                    scored = self._judge_scorer.score(test, obs)
+                elif self.judge_mode == JudgeMode.DETERMINISTIC_ONLY:
+                    scored = self._scorer.score(test, obs)
+                else:  # JudgeMode.HYBRID
+                    scored = self._scorer.score(test, obs)
+                    # Escalate to LLM judge if heuristic has no rule match
+                    if (
+                        scored.verdict == "UNVERIFIABLE"
+                        and "external evaluator or llm judge required" in scored.rationale.lower()
+                    ):
+                        scored = self._judge_scorer.score(test, obs)
+
+                trajectory = build_blackbox_trajectory(obs, scored.verdict, scored.rationale)
+                return scored.model_copy(update={"trajectory": trajectory})
+            except Exception as exc:
+                fallback_obs = ObservationBundle(
+                    test_id=test.id,
+                    user_prompt=test.user_prompt,
+                    response_text=f"Execution error: {exc}",
+                    http_status=0,
+                    latency_ms=0.0,
+                    raw_json={"error": str(exc)},
+                )
+                trajectory = build_blackbox_trajectory(
+                    fallback_obs, "UNVERIFIABLE", f"Runner execution exception: {exc}"
+                )
+                return TestCaseResult(
+                    test_id=test.id,
+                    verdict="UNVERIFIABLE",
+                    observation=fallback_obs,
+                    rationale=f"Runner execution exception: {exc}",
+                    trajectory=trajectory,
+                )
+
+        results: list[TestCaseResult] = []
+        if effective_workers <= 1 or len(pack.tests) <= 1:
+            for test in pack.tests:
+                results.append(_execute_one(test))
+        else:
+            with concurrent.futures.ThreadPoolExecutor(
+                max_workers=min(effective_workers, len(pack.tests))
+            ) as pool:
+                futures = [pool.submit(_execute_one, test) for test in pack.tests]
+                for future in concurrent.futures.as_completed(futures):
+                    results.append(future.result())
+
+        # Preserve canonical test pack ordering for deterministic reports and diffs
+        order = {test.id: i for i, test in enumerate(pack.tests)}
+        results.sort(key=lambda r: order.get(r.test_id, 0))
 
         passed = sum(1 for r in results if r.verdict == "PASS")
         failed = sum(1 for r in results if r.verdict == "FAIL")
