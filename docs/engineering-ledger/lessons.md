@@ -140,9 +140,25 @@ Blameless capture of surprises, failed approaches, and reusable principles.
   1. In multi-threaded Python applications using SQLite persistence, configure `check_same_thread=False` and a generous lock timeout (`timeout=30.0`) in the connection factory to support safe thread hand-offs under WAL mode.
   2. In FastAPI / Starlette routing, always register literal static subpaths (such as `/latest`, `/status`, `/health`) *before* parameterized wildcard paths (such as `/{run_id}`) to prevent route shadowing.
 
+## LL-013: Streaming Persistence Prevents Catastrophic Test Preemption in Containerized Runtimes
+
+- **Date**: 2026-10-04
+- **Scope**: project
+- **Context**: Accumulating batch test results exclusively in memory until runner completion creates a severe vulnerability in containerized serverless runtimes (Cloud Run, Kubernetes, AWS ECS Fargate, spot instances). When horizontal autoscalers scale down or worker nodes are preempted mid-suite, all progress and multi-step execution step trajectories are permanently destroyed.
+- **Root Cause**:
+  1. **All-or-Nothing Batch Persistence**: In a batch model, state transitions directly from 0% persisted to 100% persisted only after the final test completes. If a crash or SIGTERM occurs at 98% completion, 100% of the execution work is lost.
+  2. **Concurrent Write Collisions under ThreadPoolExecutor**: When streaming results as each test finishes across parallel worker threads (`max_workers=50`), multiple threads invoke the database simultaneously. Without serialization, SQLite under WAL mode can still encounter transient `busy` or `locked` conditions during concurrent write transactions.
+  3. **Foreign Key Integrity with Mocked Test Reports**: When test suites mock `BlackboxRunner.run_pack()`, mock return values may supply hardcoded run IDs (e.g. `run-db`) that differ from the auto-generated execution run ID. If streaming persistence writes child results before the parent run row is initialized, SQLite raises `sqlite3.IntegrityError: FOREIGN KEY constraint failed`.
+- **Lesson / Rule**:
+  1. Always stream state transitions incrementally: initialize the parent entity record with `status = 'running'` *before* starting workers, flush each result and its execution trace immediately upon completion, and update running tallies via atomic SQL subqueries.
+  2. Protect SQLite write operations with a re-entrant lock (`threading.RLock()`) to serialize concurrent thread flushes cleanly while allowing nested helper calls within the same thread.
+  3. In `finalize_run`, check if the parent run row exists before writing results and initialize it on-demand to guarantee foreign key integrity even when third-party runners or test mocks supply custom run identifiers.
+  4. Explicitly gate baseline lookups (`load_latest_run`) to filter for `(status IS NULL OR status = 'completed')` so that in-flight and failed runs are never mistaken for signed-off evaluation baselines.
+
 <!-- New entries above ## Archive -->
 
 ## Archive
+
 
 <!-- Resolved lessons optionally summarized here -->
 

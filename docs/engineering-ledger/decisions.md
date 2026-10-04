@@ -312,9 +312,33 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 - **Decision:** **Option 3.**
 - **Consequences:** Eliminates HTTP gateway timeouts entirely by decoupling request duration from test execution time. Users see sub-second real-time progress updates in the Web Console. Backward compatibility is preserved via `wait=True`. Total test suite passes with 278 tests at 87.53% coverage; 0 ruff or mypy errors.
 
+### DR-036 — Incremental Run Persistence: Streaming Flushes, Live Tallies, and Crash Recovery
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** Previously, test suite execution results and execution step trajectories were accumulated entirely in memory within `BlackboxRunner` and only flushed to SQLite in a single batch write at the very end of `run_pack()` via `repo.save_run()`. In modern containerized and autoscaling cloud platforms (Cloud Run, Kubernetes, AWS ECS, spot/preemptible instances), instances can be preempted, rescheduled, terminated by horizontal autoscalers, or killed by OOM or uncaught runtime panics. If a suite with 50 tests was preempted or crashed at test 49, all 49 completed test results and their multi-step trajectories were entirely lost, wasting API spend, execution time, and leaving zero diagnostic traces in the database.
+- **Alternatives considered:**
+  1. **Status Quo (Batch-Flush at Run Completion):** Keep all results in memory until `finalize_run`. (Rejected: zero crash resilience; total data loss on preemption; in-flight progress invisible to DB readers).
+  2. **External Transactional Outbox / Kafka Streaming:** Stream test result events to an external message queue. (Rejected: adds heavy operational dependencies, incompatible with single-node/local deployments and self-contained AgentEval principles).
+  3. **Streaming Granular Persistence with Re-Entrant Lock and Dynamic Tallies (Option 3):**
+     - Extend `BlackboxRunner.run_pack()` with `on_result: Callable[[TestCaseResult], None] | None` invoked immediately upon each test completion in both sequential and parallel worker pools.
+     - Add `agenteval.db.migrations._migration_v003` to introduce `error_message TEXT` on `assurance_runs`.
+     - Implement granular persistence primitives in `SuiteRepository`:
+       - `initialize_run(agent_id, run_id, suite_version, *, endpoint_url)`: stamps row as `status = 'running'` with 0 tallies.
+       - `save_partial_result(run_id, result)`: atomically flushes test case result and trajectory, updating live running tallies (`passed`, `failed`, `unverifiable`) via SQL subqueries.
+       - `finalize_run(agent_id, report, *, endpoint_url)`: marks `status = 'completed'`, stamps `finished_at`, records `run_diff_json`, and commits criteria verdicts and inspect sidecars.
+       - `mark_run_failed(run_id, error_message)`: marks `status = 'failed'`, records error trace.
+       - `get_run_record(run_id)`: returns raw row dict for live status queries.
+     - Protect all SQLite writes with `threading.RLock()` to guarantee thread safety when parallel worker threads flush partial results concurrently under `ThreadPoolExecutor`.
+     - Gated latest run lookup: update `load_latest_run()` to filter by `(status IS NULL OR status = 'completed')` so in-flight or failed runs are never treated as signed-off baselines.
+     - Fallback status polling: enhance `GET /v1/suites/{agent_id}/runs/{run_id}/status` to query SQLite when jobs are not in memory, returning accurate persistence state.
+- **Decision:** **Option 3.**
+- **Consequences:** Container preemption and runner crashes no longer cause data loss. Every completed test case and its multi-step trajectory are durably committed to disk seconds after execution. In-flight and failed runs are strictly partitioned from signed-off baselines. Full test suite passes with 282 tests at 87.33% coverage (exceeding 85% requirement); 0 ruff or mypy errors.
+
 <!-- New entries above ## Archive -->
 
 ## Archive
+
 
 <!-- Superseded decisions moved here with Superseded-by link -->
 
