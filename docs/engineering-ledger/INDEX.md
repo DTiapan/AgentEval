@@ -2,8 +2,8 @@
 
 > Read this file before non-trivial work. Update at end of each substantive session.
 
-**Active phase:** Build → Verify → Ship  
-**Last updated:** 2026-10-04 ([DR-045](decisions.md#dr-045--built-in-demo-agent-sequential-multi-turn-evaluation-api-rate-limiting--production-ci-pipeline) Built-in Demo Agent, Sequential Multi-Turn Evaluation, API Rate Limiting & Production CI Pipeline)
+**Active phase:** Complete → Production Verified  
+**Last updated:** 2026-10-04 ([DR-046](decisions.md#dr-046--end-to-end-workflow-verification-zero-config-turnkey-demo-ssrf-loopback-permissiveness-and-golden-dataset-gap-expansion) End-to-End Workflow Verification: Zero-Config Turnkey Demo, SSRF Loopback Permissiveness, and Golden Dataset Gap Expansion)
 
 ## Current focus
 
@@ -16,6 +16,8 @@
 - [AP-001: Platform Architecture, Pluggable BYOA Harness & Trajectory Assurance Engine](attack-plans.md#ap-001-platform-architecture-pluggable-byoa-harness--trajectory-assurance-engine) (completed)
 
 ## Recent sessions
+
+- **2026-10-04 (session 55)**: **End-to-End Live Workflow Verification & Zero-Config Demo Validation ([DR-046](decisions.md#active-index))** — Executed full end-to-end live assurance verification of the complete platform: (1) Added automatic loopback SSRF enablement in `is_private_allowed()` and `agenteval/cli/serve.py` when `--demo` or `AGENTEVAL_DEMO=1` is active, enabling zero-config out-of-the-box local evaluations; (2) Verified complete API assurance lifecycle against live daemon: `GET /health` (`demo_mode: true`), `GET /demo/info`, `POST /v1/endpoints/probe` (3.5ms latency), `POST /v1/suites/preview` (synthesized 378 candidates), `POST /v1/suites` (frozen v1 suite), `POST /v1/suites/{id}/runs` with non-blocking `202 Accepted` and real-time polling to `100% COMPLETED`; (3) Validated sealed multi-step trajectories in run results, including prompt, agent extracted thought, HTTP response, and invariant checks; (4) Validated Core Principle #4 via `POST /v1/suites/{id}/extend-gaps`: targeted uncovered failure axes, expanded test pack from 10 to 13, and surged covered tags from 29 to 37; (5) Validated self-contained Allure-class HTML report export (`GET /v1/suites/{id}/report`); (6) Verified Web Studio UI via automated browser subagent, recording full video walkthrough (`demo_web_e2e_verification_1791123606876.webp`) exercising Demo Agent button, connection probing, preview generation, execution tracking, and dark mode toggling. All 371 tests green at 88.58% coverage floor.
 
 - **2026-10-04 (session 54)**: **Time-to-Value & CI Readiness ([DR-045](decisions.md#active-index))** — Executed Slice 2 of the implementation plan: (1) Implemented built-in deterministic demo customer support agent (`agenteval/demo/mock_agent.py`) with order tracking, confirmation-gated refund processing, prompt injection refusal, credential protection, and tenant isolation; mounted `/demo/chat` and `/demo/info`, added `--demo` option to `agenteval serve`, and built interactive "Demo Agent" quick-action preset button in Web Studio UI; (2) Added sequential multi-turn conversational evaluation: added `steps: list[str]` to `CandidateTest`, `turn_observations` to `ObservationBundle`, enhanced `BlackboxRunner` with multi-turn loop and early 5xx exit, and extended `build_blackbox_trajectory` to derive multi-turn sealed execution steps; (3) Added in-memory sliding-window rate limiters (`agenteval/api/rate_limiter.py`) per client IP/key on compute-heavy routes (`/v1/endpoints/probe` at 60 RPM, `/v1/suites/preview` at 20 RPM) with `Retry-After` headers; (4) Created GitHub Actions CI workflow (`.github/workflows/ci.yml`) testing Python 3.11 & 3.12 matrices (`ruff`, `mypy`, `pytest --cov-fail-under=85`) and Node 20 Web Console build (`tsc`, `npm run build`). All 380 unit and integration tests passing at **89.46% coverage** (0 failures), clean `mypy --strict`, clean `ruff`, clean web build (847ms).
 

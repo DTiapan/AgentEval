@@ -505,6 +505,22 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 - **Decision:** **Option 3.**
 - **Consequences:** Eliminates onboarding friction with zero-key 30-second quickstarts, enables multi-turn conversation assurance, protects cloud deployments from runaway token drain, and automates repository quality enforcement. Verified across 380 passed tests with 89.46% code coverage, clean `mypy --strict`, clean `ruff`, and clean frontend production build.
 
+---
+
+### DR-046 — End-to-End Workflow Verification: Zero-Config Turnkey Demo, SSRF Loopback Permissiveness, and Golden Dataset Gap Expansion
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** Following the completion of Slice 1 (P0 critical blockers) and Slice 2 (P1 user experience & CI readiness), complete end-to-end verification of the platform was conducted against a live `agenteval serve --demo` instance. During probing against the built-in demo agent at `http://127.0.0.1:8766/demo/chat`, zero-trust SSRF validation rightly blocked loopback calls to `127.0.0.1` unless `AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=1` was explicitly defined.
+- **Alternatives considered:**
+  1. **Require manual environment variable:** Instruct users to always launch `AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=1 agenteval serve --demo`. (Rejected: friction-heavy and prone to user error during local evaluation).
+  2. **Disable SSRF protection globally in dev:** (Rejected: dangerous security posture violating [DR-030](decisions.md#dr-030--zero-trust-url-validation-ssrf-protection-architecture-and-private-endpoint-governance)).
+  3. **Automatic Loopback Authorization in Demo Mode (Option 3, Accepted):**
+     - Update `is_private_allowed()` in `agenteval/security/url_validator.py` and `agenteval/cli/serve.py` so that enabling `--demo` (or `AGENTEVAL_DEMO=1`) automatically grants loopback authorization to evaluate local endpoints like `/demo/chat`.
+     - Verify full end-to-end workflow live: (a) `GET /health` and `GET /demo/info`; (b) `POST /v1/endpoints/probe` with real 3.5ms latency; (c) `POST /v1/suites/preview` generating 378 candidate tests; (d) `POST /v1/suites` freezing version 1 of `customer-support-demo`; (e) `POST /v1/suites/{id}/runs` with decoupled `202 Accepted` and real-time polling to `COMPLETED`; (f) `GET /v1/suites/{id}/runs/{run_id}` extracting 4-step execution trajectories, real HTTP responses, extracted thoughts, and invariant checks; (g) `POST /v1/suites/{id}/extend-gaps` automatically targeting uncovered tags, expanding pack from 10 to 13 tests, and increasing coverage from 29 to 37 tags (Core Principle #4); (h) Full browser testing via DevTools recording live video walkthrough of Web Studio UI.
+- **Decision:** **Option 3.**
+- **Consequences:** The entire product loop works effortlessly out of the box with zero external keys and zero manual network configuration. Verified live in browser subagent (recording `demo_web_e2e_verification_1791123606876.webp`) and 371 green pytest unit and integration tests at 88.58% test coverage floor.
+
 <!-- New entries above ## Archive -->
 
 ## Archive
