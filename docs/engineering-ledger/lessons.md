@@ -15,6 +15,7 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 | LL-007 | SSRF Defense-in-Depth: DNS Resolution, 3xx Redirect Traps, and Mock Compatibility in Test Harnesses | logged | project | security / testing |
 | LL-008 | CORS Wildcard vs. Credentials Conflict and Drive-By Intranet Exploitation | logged | project | security / architecture |
 | LL-009 | Serverless Ingress Timeouts vs. Synchronous AI Trajectory Runs: Deployment Drift and Incomplete Assurance | logged | project | architecture / deployment |
+| LL-010 | Out-of-Order Test Completion and Deterministic Suite Report Invariants | logged | project | architecture / testing |
 
 ---
 
@@ -106,6 +107,15 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 - **Context**: In serverless container platforms such as Google Cloud Run, AWS App Runner, or Knative, the default HTTP request timeout is 300 seconds (5 minutes). While 300s is generous for standard microservices (REST CRUD APIs), AI agent evaluation workloads differ fundamentally: executing a 50-test assurance pack involves multi-turn agent network round-trips, tool execution latencies, and Tier-2 LLM judge completions (e.g. DeepSeek reasoning models), which cumulatively scale linearly to 10–25 minutes in synchronous execution mode.
 - **Root Cause**: Hardcoding `TIMEOUT=300` across deployment scripts (`deploy.sh`), Knative manifests (`service.yaml`), and CI/CD templates (`cloudbuild.yaml`) causes the infrastructure ingress proxy to drop requests at second 300 with an ungraceful HTTP 504 Gateway Timeout. This severs the client connection, aborts in-flight execution, leaves run states unsealed, and risks partial database corruption during container de-scheduling. Furthermore, configuring timeout in only one deployment path (e.g. `deploy.sh`) causes subtle deployment drift when deploying through declarative Knative manifests or automated CI/CD triggers.
 - **Lesson / Rule**: For platforms running synchronous long-duration evaluation workloads on Cloud Run Gen2, align all deployment channels to an explicit execution ceiling (`timeoutSeconds: 1800` / 30 minutes). Enforce cross-specification synchronization via automated unit tests (`test_cloud_deployment_config.py`) to prevent regressions until asynchronous background execution (e.g. `202 Accepted` job pools) can fully decouple the HTTP request lifecycle from batch evaluation runs.
+---
+
+## LL-010: Out-of-Order Test Completion and Deterministic Suite Report Invariants
+
+- **Date**: 2026-10-04
+- **Scope**: project
+- **Context**: When introducing concurrent execution in test runners (`concurrent.futures.ThreadPoolExecutor`), worker threads complete in non-deterministic order depending on variable agent response latencies and judge inference times. As tests finish, iterating through `as_completed(futures)` appends results in completion order rather than candidate test specification order.
+- **Root Cause**: Downstream consumers—including `diff_suite_runs`, git diffs of frozen test reports, console UI table listings, and Allure-class HTML report sections—rely on invariant canonical test ordering (`[test-0, test-1, test-2, ...]`). When tests complete out-of-order, sequential runs of the exact same suite produce diff churn, visual jumping in UI test lists, and false-positive ordering discrepancies in regression diffs.
+- **Lesson / Rule**: Always decouple the execution topology from the result presentation topology. In concurrent test runners, maintain a canonical index mapping from the source test pack (`order = {test.id: i for i, test in enumerate(pack.tests)}`) and explicitly sort the collected results by canonical index (`results.sort(key=lambda r: order.get(r.test_id, 0))`) before constructing the final `SuiteRunReport`. This guarantees 100% deterministic report outputs regardless of worker scheduling or completion jitter.
 
 <!-- New entries above ## Archive -->
 

@@ -40,6 +40,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-030 | **Zero-Trust URL Validation & SSRF Protection Architecture (Cloud Metadata Hard-Block, Private Subnet Gating, and Safe Redirect Interceptor):** Hardened AgentEval against Server-Side Request Forgery across all agent ingestion and execution paths (`EndpointProber`, `BlackboxRunner`, `HTTPAdapter`, and API `/v1/endpoints/probe`). Implemented centralized security module (`agenteval/security/url_validator.py`) with strict HTTP/HTTPS scheme allowlist, unconditional cloud metadata blocking (`169.254.169.254`, `metadata.google.internal`), dynamic DNS resolution with CIDR filtering against loopback and RFC 1918 subnets, IPv6 mapped IPv4 de-obfuscation (`::ffff:x.x.x.x`), and `SafeRedirectHandler` ensuring HTTP 3xx hops cannot pivot to internal resources. Default `allow_private=False` with explicit administrative opt-in via `AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=1` for internal VPC agent evaluation. | Accepted | 2026-10-04 |
 | DR-031 | **Configurable Origin Policy, W3C-Compliant Credential Gating, and Drive-By Intranet CORS Hardening:** Eliminated wildcard `allow_origins=["*"]` vulnerability in FastAPI application (`agenteval/api/app.py`). Enforced default allowlist restricted to local development origins (`localhost:5173`, `127.0.0.1:5173`, `localhost:8766`, `127.0.0.1:8766`), closing drive-by intranet cross-origin data exfiltration attacks. Added `AGENTEVAL_CORS_ORIGINS` environment variable and `--cors-origins` CLI flag for multi-tenant and staging deployment. Enforced strict W3C CORS compliance by dynamically disallowing credentials when wildcard `*` is explicitly enabled. Restricted permitted methods and headers to explicit allowlists. | Accepted | 2026-10-04 |
 | DR-032 | **Synchronized Cloud Run Request Timeout Baseline (1800s Execution Headroom for Synchronous Test Suites):** Expanded Cloud Run and deployment pipeline request timeouts from 300s (5 min) to 1800s (30 min) across `deploy/gcp/deploy.sh`, `deploy/gcp/service.yaml`, `cloudbuild.yaml` (via `_TIMEOUT: "1800"` substitution), and `.env.gcp.example`. Eliminates premature Cloud Run HTTP 504 Gateway Timeouts on synchronous evaluation runs (40-60 tests with LLM judge reasoning). Added automated configuration consistency unit test (`tests/unit/test_cloud_deployment_config.py`). | Accepted | 2026-10-04 |
+| DR-033 | **Bounded Parallel Test Execution via ThreadPoolExecutor (Deterministic Pack Ordering, Per-Test Exception Isolation, and Strict Concurrency Bounds):** Accelerated test execution by replacing sequential test iteration in `BlackboxRunner.run_pack()` with `concurrent.futures.ThreadPoolExecutor`. Added `max_workers` resolution (param > `AGENTEVAL_MAX_CONCURRENT_TESTS` > default 8, clamped 1..50). Preserved deterministic test ordering for report stability and regression diffs via pack index sorting. Isolated single-test execution errors as `UNVERIFIABLE` with trajectories rather than crashing the suite. Exposed `--concurrency` / `-c` CLI option and `SuiteRunRequest.max_concurrency`. | Accepted | 2026-10-04 |
 
 
 ---
@@ -250,6 +251,27 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
      - Add regression test `tests/unit/test_cloud_deployment_config.py` asserting that all four deployment definitions maintain `timeout >= 1800`.
 - **Decision:** **Option 3.**
 - **Consequences:** Eliminates premature 504 timeouts on Cloud Run for full test suites up to 60 tests. Serves as an immediate production-safe bridge until Slice 4 (parallel execution) and Slice 6 (async background jobs) land. Verified by 4 automated configuration unit tests and full test suite passing at 87.17% coverage.
+
+---
+
+### DR-033 — Bounded Parallel Test Execution via ThreadPoolExecutor: Deterministic Pack Ordering, Per-Test Exception Isolation, and Strict Concurrency Bounds
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** `BlackboxRunner.run_pack()` executed candidate tests in a purely sequential loop (`for test in pack.tests`). For suites containing 40–60 tests, sequential execution incurred severe linear latency: if each test took 5–15 seconds (agent endpoint round-trip + Tier-2 LLM judge evaluation), a single run took 5 to 15 minutes. This choked synchronous API clients, degraded developer iteration speed in the Web Console, and multiplied the risk of hitting Cloud Run gateway timeouts.
+- **Alternatives considered:**
+  1. **Full async/await rewrite (`asyncio` + `httpx.AsyncClient`):** Convert `BlackboxRunner`, `ObservableScorer`, `LLMJudgeScorer`, and `SuiteWorkflow` into async coroutines. (Deferred to Slice 5: requires migrating all HTTP transports, evaluators, and sync call sites simultaneously; high blast radius).
+  2. **Multiprocessing (`concurrent.futures.ProcessPoolExecutor`):** Run tests in separate OS processes. (Rejected: unnecessary CPU/memory overhead; candidate tests are network I/O-bound, and pickling Pydantic models across process boundaries adds significant serialization overhead).
+  3. **Bounded Parallelism with `ThreadPoolExecutor`, Pack Index Sorting, and Exception Containment (Option 3):**
+     - Use `concurrent.futures.ThreadPoolExecutor` within `BlackboxRunner.run_pack()`.
+     - When `workers > 1` and `len(pack.tests) > 1`, submit each `_execute_one(test)` to the worker pool.
+     - Fall back to clean sequential execution when `workers == 1` or test count == 1.
+     - Deterministic ordering invariant: Re-sort results based on canonical test pack index (`order = {test.id: i ...}; results.sort(key=lambda r: order.get(r.test_id, 0))`) so out-of-order completion never perturbs `diff_suite_runs` or report stability.
+     - Exception containment: Wrap `_execute_one` in `try/except Exception` to isolate unexpected test failures as `UNVERIFIABLE` with a synthetic `ObservationBundle` and recorded trajectory, ensuring a single transport panic or runtime error never crashes the entire suite run.
+     - Parameter hierarchy: `run_pack(max_workers=...)` > `runner.max_workers` > `AGENTEVAL_MAX_CONCURRENT_TESTS` envvar > default 8, strictly clamped between 1 and 50.
+     - Surface controls in `SuiteWorkflow.run_suite(max_concurrency=...)`, API `SuiteRunRequest.max_concurrency`, and CLI `agenteval suite run -c / --concurrency`.
+- **Decision:** **Option 3.**
+- **Consequences:** Decreases end-to-end evaluation time by 4x to 8x for typical suites. Preserves thread safety because SQLite persistence and filesystem exports occur after the thread pool terminates and returns the completed `SuiteRunReport`. All 264 unit tests pass with 87.23% coverage; 0 ruff or mypy errors.
 
 ---
 
