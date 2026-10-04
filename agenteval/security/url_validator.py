@@ -41,6 +41,8 @@ def _raise_unsafe(msg: str, url: str, host: str | None = None, ip: str | None = 
 
 def is_private_allowed() -> bool:
     """Check if private/loopback endpoint evaluation is permitted via environment."""
+    if os.environ.get("AGENTEVAL_DEMO", "").strip().lower() in ("1", "true", "yes"):
+        return True
     return os.environ.get("AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS", "").strip().lower() in (
         "1",
         "true",

@@ -75,6 +75,7 @@ def serve(
 
     if demo:
         os.environ["AGENTEVAL_DEMO"] = "1"
+        os.environ["AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS"] = "1"
         typer.echo(
             f"[agenteval] Demo agent active: http://{host}:{port}/demo/chat (built-in customer support agent)",
             err=False,
