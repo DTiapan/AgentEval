@@ -21,7 +21,6 @@ import {
 import {
   extendSuiteGaps,
   fetchDemoInfo,
-  getSuiteDetail,
   initSuite,
   previewSuite,
   probeAgentEndpoint,
@@ -48,6 +47,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatTestTabLabel } from "@/lib/format-test-label";
 import { EMPTY_PRD_TEMPLATE, SAMPLE_AGENT_ENDPOINT_PLACEHOLDER } from "@/lib/mvp-defaults";
 import { navigateConsoleView } from "@/lib/console-route";
+import {
+  fetchSuiteDetailCached,
+  invalidateSuiteDetailCache,
+} from "@/lib/suite-detail-cache";
 import { ConsoleBuilderJourney } from "@/components/ConsoleBuilderJourney";
 import { StudioAdvancedDrawer } from "@/components/studio/StudioAdvancedDrawer";
 import { StudioStepUsefulPanel } from "@/components/studio/StudioStepUsefulPanel";
@@ -180,14 +183,14 @@ export const Studio: React.FC = () => {
     }
   };
 
-  const loadFrozenSuite = useCallback(async (id: string) => {
+  const loadFrozenSuite = useCallback(async (id: string, force = false) => {
     if (!id.trim()) {
       setFrozenDetail(null);
       return;
     }
     setIsLoadingFrozen(true);
     try {
-      const detail = await getSuiteDetail(id);
+      const detail = await fetchSuiteDetailCached(id, { force });
       setFrozenDetail(detail);
       if (detail.manifest.endpoint_profile) {
         setEndpointUrl(detail.manifest.endpoint_profile);
@@ -570,10 +573,11 @@ export const Studio: React.FC = () => {
           await applySync();
         }
       }
+      invalidateSuiteDetailCache(trimmedAgentId);
       await refreshSuites();
       setActiveAgentId(agentId);
       setPreviewData(null);
-      await loadFrozenSuite(agentId);
+      await loadFrozenSuite(agentId, true);
       setJustCreatedPack(createdNewSuite);
       goToBuilderStep(5, { force: true });
     } catch (err: unknown) {

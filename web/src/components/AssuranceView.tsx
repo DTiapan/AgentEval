@@ -20,7 +20,6 @@ import {
 import {
   downloadSuiteReport,
   extendSuiteGaps,
-  getSuiteDetail,
   getSuiteReportUrl,
   runSuite,
 } from "../api";
@@ -67,6 +66,11 @@ import { AssuranceCIGateBanner } from "@/components/assurance/AssuranceCIGateBan
 import { ConsoleStickyActionBar } from "@/components/console/ConsoleStickyActionBar";
 import { ASSURANCE_JOURNEY_UX } from "@/lib/studio-ux-config";
 import { cn } from "@/lib/utils";
+import {
+  fetchSuiteDetailCached,
+  invalidateSuiteDetailCache,
+  peekSuiteDetailCache,
+} from "@/lib/suite-detail-cache";
 
 function useConsoleTheme(): "light" | "dark" {
   const [theme, setTheme] = useState<"light" | "dark">(() =>
@@ -107,10 +111,27 @@ export const AssuranceView: React.FC = () => {
     return () => window.removeEventListener("hashchange", sync);
   }, []);
 
-  const loadSuiteData = async (agentId: string) => {
+  const loadSuiteData = async (agentId: string, force = false) => {
+    const cached = !force ? peekSuiteDetailCache(agentId) : undefined;
+    if (cached) {
+      setSuiteDetail(cached);
+      if (cached.manifest.endpoint_profile?.trim()) {
+        setCustomEndpoint(cached.manifest.endpoint_profile);
+      }
+      if (cached.latest_run) {
+        setLatestRun(cached.latest_run);
+        if (cached.latest_run.results?.length > 0) {
+          setSelectedTest(cached.latest_run.results[0]);
+        }
+      } else {
+        setLatestRun(null);
+        setSelectedTest(null);
+      }
+      return;
+    }
     setIsLoadingDetail(true);
     try {
-      const detail = await getSuiteDetail(agentId);
+      const detail = await fetchSuiteDetailCached(agentId, { force });
       setSuiteDetail(detail);
       if (detail.manifest.endpoint_profile?.trim()) {
         setCustomEndpoint(detail.manifest.endpoint_profile);
@@ -134,7 +155,11 @@ export const AssuranceView: React.FC = () => {
 
   useEffect(() => {
     if (activeAgentId) {
-      loadSuiteData(activeAgentId);
+      void loadSuiteData(activeAgentId);
+    } else {
+      setSuiteDetail(null);
+      setLatestRun(null);
+      setSelectedTest(null);
     }
   }, [activeAgentId]);
 
@@ -171,7 +196,8 @@ export const AssuranceView: React.FC = () => {
           message: `v${result.previous_version} → v${result.new_version}: +${result.added_test_ids.length} tests.`,
         });
       }
-      await loadSuiteData(activeAgentId);
+      invalidateSuiteDetailCache(activeAgentId);
+      await loadSuiteData(activeAgentId, true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       addToast({ type: "error", title: "Extend gaps failed", message: msg });
@@ -208,7 +234,8 @@ export const AssuranceView: React.FC = () => {
         title: "Assurance Run Complete",
         message: `${report.passed} passed, ${report.failed} failed, ${report.unverifiable} unverifiable.`,
       });
-      await loadSuiteData(activeAgentId);
+      invalidateSuiteDetailCache(activeAgentId);
+      await loadSuiteData(activeAgentId, true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       addToast({
@@ -553,7 +580,18 @@ export const AssuranceView: React.FC = () => {
         </div>
       )}
 
-      {!showNoRunEmpty && (
+      {activeAgentId && isLoadingDetail && !suiteDetail && (
+        <div
+          className="mb-6 rounded-md border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground"
+          role="status"
+          aria-live="polite"
+        >
+          <RefreshCw className="inline h-3.5 w-3.5 animate-spin mr-2 align-[-2px]" aria-hidden />
+          Loading suite and latest run from the engine…
+        </div>
+      )}
+
+      {!showNoRunEmpty && !isLoadingDetail && suiteDetail && (
       <>
       {/* KPI Metric Strip - Styled matching Screenshots 2 & 3 */}
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -572,7 +610,7 @@ export const AssuranceView: React.FC = () => {
                   : "text-rose-500"
               }`}
             >
-              {totalTests > 0 ? `${passRate}%` : "n/a"}
+              {totalTests > 0 ? `${passRate}%` : "—"}
             </span>
             <span className="text-xs text-muted-foreground">
               {latestRun?.passed ?? 0}/{totalTests}

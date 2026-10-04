@@ -14,6 +14,7 @@ import {
   setActiveWorkspaceId,
   toWorkspaceView,
 } from "@/lib/workspace-session";
+import { invalidateSuiteDetailCache } from "@/lib/suite-detail-cache";
 import { SuiteListItem, Workspace } from "../types";
 
 export type ToastMessage = {
@@ -116,6 +117,7 @@ export const WorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ chi
   const deleteAgentSuite = async (agentId: string): Promise<boolean> => {
     try {
       await deleteSuite(agentId);
+      invalidateSuiteDetailCache(agentId);
       setSuites((prev) => prev.filter((s) => s.agent_id !== agentId));
       if (activeAgentId === agentId) {
         setActiveAgentId(null);
