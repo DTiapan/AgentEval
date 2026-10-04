@@ -16,6 +16,7 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 | LL-008 | CORS Wildcard vs. Credentials Conflict and Drive-By Intranet Exploitation | logged | project | security / architecture |
 | LL-009 | Serverless Ingress Timeouts vs. Synchronous AI Trajectory Runs: Deployment Drift and Incomplete Assurance | logged | project | architecture / deployment |
 | LL-010 | Out-of-Order Test Completion and Deterministic Suite Report Invariants | logged | project | architecture / testing |
+| LL-011 | HTTP Transport Migration: Event Hooks for Redirect-Resistant SSRF and Connection Pool Sizing | logged | project | security / performance |
 
 ---
 
@@ -116,6 +117,16 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 - **Context**: When introducing concurrent execution in test runners (`concurrent.futures.ThreadPoolExecutor`), worker threads complete in non-deterministic order depending on variable agent response latencies and judge inference times. As tests finish, iterating through `as_completed(futures)` appends results in completion order rather than candidate test specification order.
 - **Root Cause**: Downstream consumers—including `diff_suite_runs`, git diffs of frozen test reports, console UI table listings, and Allure-class HTML report sections—rely on invariant canonical test ordering (`[test-0, test-1, test-2, ...]`). When tests complete out-of-order, sequential runs of the exact same suite produce diff churn, visual jumping in UI test lists, and false-positive ordering discrepancies in regression diffs.
 - **Lesson / Rule**: Always decouple the execution topology from the result presentation topology. In concurrent test runners, maintain a canonical index mapping from the source test pack (`order = {test.id: i for i, test in enumerate(pack.tests)}`) and explicitly sort the collected results by canonical index (`results.sort(key=lambda r: order.get(r.test_id, 0))`) before constructing the final `SuiteRunReport`. This guarantees 100% deterministic report outputs regardless of worker scheduling or completion jitter.
+
+---
+
+## LL-011: HTTP Transport Migration: Event Hooks for Redirect-Resistant SSRF and Connection Pool Sizing
+
+- **Date**: 2026-10-04
+- **Scope**: project
+- **Context**: Migrating from standard library `urllib.request` to `httpx.Client` introduces connection pooling and Keep-Alive across concurrent worker threads, reducing TLS handshake latency. However, high-level HTTP client libraries typically follow HTTP 3xx redirects automatically (`follow_redirects=True`) without re-running application-level security policies against redirected destination URLs. Furthermore, if connection pool limits (`max_connections`) are set lower than worker pool concurrency, worker threads experience connection starvation and blocking pool queue timeouts.
+- **Root Cause**: In standard `httpx.Client(follow_redirects=True)`, the initial request URL may be validated, but a malicious server responding with `302 Found -> Location: http://169.254.169.254` can cause the client to blindly follow the redirect to cloud metadata. Additionally, unit tests that previously patched `urllib.request.urlopen` will silently fail or make unwanted network calls when transports migrate to `httpx`.
+- **Lesson / Rule**: Use `httpx` request event hooks (`event_hooks={"request": [ssrf_hook]}`) to enforce security policies. Because `httpx` executes the `request` event hook for *every* outbound request—including each individual redirect hop—the hook intercepts and evaluates the new `Location` URL *before* any socket or TLS handshake is initiated. Sizing connection limits (`Limits(max_connections=50, max_keepalive_connections=20)`) to match or exceed the runner's worker pool ceiling prevents pool contention. In test suites, use `httpx.MockTransport` and client dependency injection rather than monkeypatching global network libraries.
 
 <!-- New entries above ## Archive -->
 

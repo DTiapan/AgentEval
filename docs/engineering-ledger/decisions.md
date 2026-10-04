@@ -41,6 +41,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-031 | **Configurable Origin Policy, W3C-Compliant Credential Gating, and Drive-By Intranet CORS Hardening:** Eliminated wildcard `allow_origins=["*"]` vulnerability in FastAPI application (`agenteval/api/app.py`). Enforced default allowlist restricted to local development origins (`localhost:5173`, `127.0.0.1:5173`, `localhost:8766`, `127.0.0.1:8766`), closing drive-by intranet cross-origin data exfiltration attacks. Added `AGENTEVAL_CORS_ORIGINS` environment variable and `--cors-origins` CLI flag for multi-tenant and staging deployment. Enforced strict W3C CORS compliance by dynamically disallowing credentials when wildcard `*` is explicitly enabled. Restricted permitted methods and headers to explicit allowlists. | Accepted | 2026-10-04 |
 | DR-032 | **Synchronized Cloud Run Request Timeout Baseline (1800s Execution Headroom for Synchronous Test Suites):** Expanded Cloud Run and deployment pipeline request timeouts from 300s (5 min) to 1800s (30 min) across `deploy/gcp/deploy.sh`, `deploy/gcp/service.yaml`, `cloudbuild.yaml` (via `_TIMEOUT: "1800"` substitution), and `.env.gcp.example`. Eliminates premature Cloud Run HTTP 504 Gateway Timeouts on synchronous evaluation runs (40-60 tests with LLM judge reasoning). Added automated configuration consistency unit test (`tests/unit/test_cloud_deployment_config.py`). | Accepted | 2026-10-04 |
 | DR-033 | **Bounded Parallel Test Execution via ThreadPoolExecutor (Deterministic Pack Ordering, Per-Test Exception Isolation, and Strict Concurrency Bounds):** Accelerated test execution by replacing sequential test iteration in `BlackboxRunner.run_pack()` with `concurrent.futures.ThreadPoolExecutor`. Added `max_workers` resolution (param > `AGENTEVAL_MAX_CONCURRENT_TESTS` > default 8, clamped 1..50). Preserved deterministic test ordering for report stability and regression diffs via pack index sorting. Isolated single-test execution errors as `UNVERIFIABLE` with trajectories rather than crashing the suite. Exposed `--concurrency` / `-c` CLI option and `SuiteRunRequest.max_concurrency`. | Accepted | 2026-10-04 |
+| DR-034 | **Connection-Pooled HTTP Transport Migration (`httpx`) with SSRF Event Hooks and Client Injection:** Migrated `BlackboxRunner`, `EndpointProber`, and `HTTPAdapter` from standard library `urllib.request` to `httpx.Client`. Promoted `httpx>=0.27.0` to core dependencies in `pyproject.toml`. Built centralized `create_safe_client()` factory equipping `httpx.Client` with request event hooks that validate initial URLs and every 3xx redirect hop against cloud metadata and private subnets. Bounded connection limits (`max_connections=50, max_keepalive=20`) to eliminate socket exhaustion and reduce TCP/TLS latency via Keep-Alive. Enabled client dependency injection for fast, hermetic mock testing. | Accepted | 2026-10-04 |
 
 
 ---
@@ -272,8 +273,24 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
      - Surface controls in `SuiteWorkflow.run_suite(max_concurrency=...)`, API `SuiteRunRequest.max_concurrency`, and CLI `agenteval suite run -c / --concurrency`.
 - **Decision:** **Option 3.**
 - **Consequences:** Decreases end-to-end evaluation time by 4x to 8x for typical suites. Preserves thread safety because SQLite persistence and filesystem exports occur after the thread pool terminates and returns the completed `SuiteRunReport`. All 264 unit tests pass with 87.23% coverage; 0 ruff or mypy errors.
-
 ---
+
+### DR-034 — Connection-Pooled HTTP Transport Migration (`httpx`) with SSRF Event Hooks and Client Injection
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** AgentEval's blackbox evaluation and ingestion stack (`BlackboxRunner`, `EndpointProber`, `HTTPAdapter`) previously made outbound HTTP calls using standard library `urllib.request`. While functional, `urllib.request` establishes a brand-new TCP socket and TLS handshake for every single request, adding 100–300ms latency overhead per test. Under parallel execution (up to 50 workers, introduced in DR-033), rapid creation and destruction of sockets risks ephemeral port exhaustion (`TIME_WAIT` buildup) and file descriptor exhaustion in container environments like Cloud Run. Furthermore, `urllib` lacks an async counterpart, posing an architectural blocker for Slice 6 (Async Background Runs).
+- **Alternatives considered:**
+  1. **Migrate to `requests`:** Popular Python HTTP library. (Rejected: `requests` is strictly synchronous, does not have an async twin, has legacy connection pooling via urllib3, and lacks modern type annotations).
+  2. **Migrate only during Slice 6 (Async Runs):** Keep `urllib` for now and introduce async HTTP only in worker tasks. (Rejected: creates double refactoring debt, duplicates transport security rules, and maintains high TLS handshake overhead during Slice 4 parallel runs).
+  3. **Standardize on `httpx.Client` with `create_safe_client` and request event hooks (Option 3):**
+     - Promote `httpx>=0.27.0` from optional `dev` dependencies to core `dependencies` in `pyproject.toml`.
+     - Implement `create_safe_client()` in `agenteval.security.url_validator` equipping `httpx.Client` with a request event hook that validates initial URLs and all 3xx redirect hops against SSRF policies (blocking cloud metadata and private subnets before socket connection).
+     - Configure connection limits (`max_connections=50, max_keepalive_connections=20, keepalive_expiry=30.0`) matching the concurrency ceiling of 50.
+     - Add client dependency injection (`client: httpx.Client | None = None`) to `BlackboxRunner`, `EndpointProber`, and `HTTPAdapter` enabling hermetic, ultra-fast tests using `httpx.MockTransport` without monkeypatching globals.
+     - Standardize error handling: non-200 responses do not raise exceptions by default, preserving JSON error bodies and status codes for evaluation scoring.
+- **Decision:** **Option 3.**
+- **Consequences:** Eliminates TLS connection churn via HTTP Keep-Alive, guarantees zero-trust SSRF protection across all redirect hops, unlocks hermetic mock testing, and creates the direct synchronous/asynchronous dual foundation required for Slice 6 background job queues. Verified by 272 passing unit tests at 87.53% coverage; 0 ruff or mypy errors.
 
 <!-- New entries above ## Archive -->
 
