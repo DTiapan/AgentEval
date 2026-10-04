@@ -32,7 +32,7 @@ steps:
       - "--cpu=2"
       - "--cpu-boost"
       - "--execution-environment=gen2"
-      - "--timeout=300"
+      - "--timeout=${_TIMEOUT}"
       - "--concurrency=20"
       - "--add-volume=name=agenteval-data,type=cloud-storage,bucket=${PROJECT_ID}-agenteval-data"
       - "--add-volume-mount=volume=agenteval-data,mount-path=/app/data"
@@ -46,6 +46,7 @@ substitutions:
   _REGION: "us-central1"
   _REPO_NAME: "agenteval-repo"
   _SERVICE_NAME: "agenteval-service"
+  _TIMEOUT: "1800"
 
 options:
   logging: CLOUD_LOGGING_ONLY

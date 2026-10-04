@@ -15,7 +15,7 @@ spec:
         autoscaling.knative.dev/maxScale: "10"
     spec:
       containerConcurrency: 20
-      timeoutSeconds: 300
+      timeoutSeconds: 1800
       volumes:
         - name: agenteval-data
           csi:
