@@ -47,12 +47,23 @@ def serve(
             help="Persist suites, tests, and runs to SQLite (default on; ADR-004)",
         ),
     ] = True,
+    cors_origins: Annotated[
+        str | None,
+        typer.Option(
+            "--cors-origins",
+            envvar=["AGENTEVAL_CORS_ORIGINS"],
+            help="Comma-separated allowed CORS origins (default: Vite dev & localhost)",
+        ),
+    ] = None,
 ) -> None:
     """Listen for REST requests under /v1/suites/*."""
     if sqlite:
         os.environ["AGENTEVAL_USE_SQLITE"] = "1"
     else:
         os.environ["AGENTEVAL_USE_SQLITE"] = "0"
+
+    if cors_origins is not None:
+        os.environ["AGENTEVAL_CORS_ORIGINS"] = cors_origins
 
     serve_ui = with_ui if with_ui is not None else _UI_DIST.is_dir()
 

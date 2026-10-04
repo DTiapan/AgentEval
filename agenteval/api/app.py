@@ -25,6 +25,21 @@ from agenteval.services.workflow_factory import create_suite_workflow, persisten
 _REPO_UI_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
 
 
+def get_allowed_cors_origins() -> list[str]:
+    """Resolve allowed CORS origins from environment, defaulting to local dev frontends."""
+    raw = os.environ.get("AGENTEVAL_CORS_ORIGINS", "").strip()
+    if not raw:
+        return [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8766",
+            "http://127.0.0.1:8766",
+        ]
+    if raw == "*":
+        return ["*"]
+    return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="AgentEval API",
@@ -32,12 +47,15 @@ def create_app() -> FastAPI:
         description="HTTP façade over black-box suite services (DR-012).",
     )
 
+    origins = get_allowed_cors_origins()
+    is_wildcard = origins == ["*"]
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=origins,
+        allow_credentials=not is_wildcard,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
+        allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
     )
 
     @app.get("/health")
@@ -102,6 +120,8 @@ def create_app() -> FastAPI:
     def probe_agent_endpoint(body: EndpointProbeRequest) -> JSONResponse:
         """Probe target agent from the engine (avoids browser CORS to user endpoints)."""
         result = EndpointProber().probe(body.endpoint_url)
+        if result.error and "SSRF protection" in result.error:
+            raise HTTPException(status_code=422, detail=result.error)
         return JSONResponse(content=result.model_dump(mode="json"))
 
     @app.post("/v1/suites/preview")
