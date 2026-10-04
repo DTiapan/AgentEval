@@ -28,7 +28,11 @@ if str(_ROOT) not in sys.path:
 
 def _load_dotenv() -> None:
     """Minimal .env loader: KEY=value lines, no override."""
-    for candidate in (_ROOT / ".env", Path.cwd() / "examples" / "real-agent" / ".env", Path.cwd() / ".env"):
+    for candidate in (
+        _ROOT / ".env",
+        Path.cwd() / "examples" / "real-agent" / ".env",
+        Path.cwd() / ".env",
+    ):
         try:
             text = candidate.read_text(encoding="utf-8")
         except OSError:
@@ -186,7 +190,11 @@ def run_litellm_turn(user_text: str) -> dict[str, Any]:
     db_path = _db_path()
     raw_model = os.environ.get("AGENTEVAL_REAL_AGENT_MODEL", "deepseek/deepseek-v4-flash-0731")
     model = raw_model
-    api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    api_key = (
+        os.environ.get("OPENROUTER_API_KEY")
+        or os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
 
     # If OpenRouter key is provided and model does not specify provider, prefix openrouter/
     if os.environ.get("OPENROUTER_API_KEY") and not model.startswith("openrouter/"):
@@ -231,27 +239,37 @@ def run_litellm_turn(user_text: str) -> dict[str, Any]:
                 except json.JSONDecodeError:
                     fn_args = {}
 
-                all_tool_calls.append({
-                    "call_id": call_id,
-                    "tool_name": fn_name,
-                    "arguments": fn_args,
-                })
+                all_tool_calls.append(
+                    {
+                        "call_id": call_id,
+                        "tool_name": fn_name,
+                        "arguments": fn_args,
+                    }
+                )
 
                 # Execute real tool against SQLite
                 result = execute_tool_call(fn_name, fn_args, db_path)
 
                 # Return tool output to model
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call_id,
-                    "name": fn_name,
-                    "content": json.dumps(result),
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "name": fn_name,
+                        "content": json.dumps(result),
+                    }
+                )
         else:
             # Model finished and gave a final textual response
             final_content = msg.content or ""
-            thought_text = " ".join(thoughts) if thoughts else (
-                f"Agent processed request with {len(all_tool_calls)} tool calls." if all_tool_calls else "Direct response"
+            thought_text = (
+                " ".join(thoughts)
+                if thoughts
+                else (
+                    f"Agent processed request with {len(all_tool_calls)} tool calls."
+                    if all_tool_calls
+                    else "Direct response"
+                )
             )
             return {
                 "thought": thought_text,
@@ -277,7 +295,11 @@ def extract_prompt(data: dict[str, Any]) -> str:
 
 
 def main() -> None:
-    api_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    api_key = (
+        os.environ.get("OPENROUTER_API_KEY")
+        or os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
     if not api_key:
         print(
             "Set OPENROUTER_API_KEY, DEEPSEEK_API_KEY, or OPENAI_API_KEY in the environment or in "

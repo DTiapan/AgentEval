@@ -150,7 +150,9 @@ class LLMJudgeScorer:
                         )
                         judge_span.set_attribute("agenteval.verdict", res.verdict)
                         judge_span.set_attribute("agenteval.score", res.score)
-                        judge_span.set_attribute("agenteval.evaluator_provenance", res.evaluator_provenance)
+                        judge_span.set_attribute(
+                            "agenteval.evaluator_provenance", res.evaluator_provenance
+                        )
                         return res
                     except Exception as exc:
                         logger.warning(
@@ -170,7 +172,9 @@ class LLMJudgeScorer:
                         fallback.rationale = f"{fallback.rationale} (LiteLLM judge fallback: {exc})"
                         judge_span.set_attribute("agenteval.verdict", fallback.verdict)
                         judge_span.set_attribute("agenteval.score", fallback.score)
-                        judge_span.set_attribute("agenteval.evaluator_provenance", fallback.evaluator_provenance)
+                        judge_span.set_attribute(
+                            "agenteval.evaluator_provenance", fallback.evaluator_provenance
+                        )
                         return fallback
 
             res = self._evaluate_with_heuristics(

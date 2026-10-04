@@ -167,4 +167,3 @@ def test_suite_run_request_schema_concurrency() -> None:
 
     with pytest.raises(ValidationError):
         SuiteRunRequest(max_concurrency=100)
-

@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS suite_versions (
     requirements_fingerprint TEXT NOT NULL,
     requirements_text        TEXT NOT NULL,
     endpoint_profile         TEXT NOT NULL DEFAULT '',
+    connection_profile_json  JSONB,
     pack_json                JSONB NOT NULL,
     candidate_pool_json      JSONB,
     agent_card_json          JSONB,
@@ -58,21 +59,22 @@ CREATE TABLE IF NOT EXISTS suite_versions (
 );
 
 CREATE TABLE IF NOT EXISTS assurance_runs (
-    run_id           TEXT PRIMARY KEY,
-    agent_id         TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    suite_version_id TEXT NOT NULL REFERENCES suite_versions(id),
-    environment_id   TEXT REFERENCES environments(id),
-    endpoint_url     TEXT NOT NULL,
-    started_at       TEXT NOT NULL,
-    finished_at      TEXT NOT NULL,
-    passed           INTEGER NOT NULL DEFAULT 0,
-    failed           INTEGER NOT NULL DEFAULT 0,
-    unverifiable     INTEGER NOT NULL DEFAULT 0,
-    run_diff_json    JSONB,
-    triggered_by     TEXT,
-    status           TEXT,
-    error_message    TEXT,
-    target_id        TEXT
+    run_id                  TEXT PRIMARY KEY,
+    agent_id                TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    suite_version_id        TEXT NOT NULL REFERENCES suite_versions(id),
+    environment_id          TEXT REFERENCES environments(id),
+    endpoint_url            TEXT NOT NULL,
+    connection_profile_json JSONB,
+    started_at              TEXT NOT NULL,
+    finished_at             TEXT NOT NULL,
+    passed                  INTEGER NOT NULL DEFAULT 0,
+    failed                  INTEGER NOT NULL DEFAULT 0,
+    unverifiable            INTEGER NOT NULL DEFAULT 0,
+    run_diff_json           JSONB,
+    triggered_by            TEXT,
+    status                  TEXT,
+    error_message           TEXT,
+    target_id               TEXT
 );
 
 CREATE TABLE IF NOT EXISTS test_case_results (
@@ -272,3 +274,19 @@ CREATE INDEX IF NOT EXISTS idx_requirements_suite ON requirements(suite_version_
 CREATE INDEX IF NOT EXISTS idx_criteria_requirement ON acceptance_criteria(requirement_id);
 CREATE INDEX IF NOT EXISTS idx_test_cases_suite ON test_cases(suite_version_id);
 CREATE INDEX IF NOT EXISTS idx_verdicts_run ON criterion_verdicts(run_id);
+
+CREATE TABLE IF NOT EXISTS run_jobs (
+    run_id       TEXT PRIMARY KEY,
+    agent_id     TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    started_at   TEXT,
+    completed_at TEXT,
+    completed    INTEGER NOT NULL DEFAULT 0,
+    total        INTEGER NOT NULL DEFAULT 0,
+    percent      DOUBLE PRECISION NOT NULL DEFAULT 0.0,
+    error        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_jobs_agent ON run_jobs(agent_id, created_at DESC);
+

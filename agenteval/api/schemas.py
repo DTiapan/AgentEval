@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from agenteval.targets import TargetConnectionProfile
+
 
 class PrdBootstrapRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -16,6 +18,12 @@ class PrdBootstrapRequest(BaseModel):
         default=None, description="Explicit test IDs selected by user"
     )
     suite_root: str = ".agenteval/suites"
+    headers: dict[str, str] = Field(
+        default_factory=dict, description="Custom HTTP headers to send with probe"
+    )
+    auth_profile: TargetConnectionProfile | None = Field(
+        default=None, description="Target connection auth profile"
+    )
 
 
 class SuiteInitRequest(PrdBootstrapRequest):
@@ -30,6 +38,12 @@ class EndpointProbeRequest(BaseModel):
 
     endpoint_url: str = Field(
         min_length=1, description="Agent HTTP URL to POST (server-side probe)"
+    )
+    headers: dict[str, str] = Field(
+        default_factory=dict, description="Custom HTTP headers to send with probe"
+    )
+    auth_profile: TargetConnectionProfile | None = Field(
+        default=None, description="Target connection auth profile"
     )
 
 
@@ -52,6 +66,12 @@ class SuiteRunRequest(BaseModel):
     wait: bool = Field(
         default=False,
         description="Whether to block synchronously until the run finishes (default: False)",
+    )
+    headers: dict[str, str] = Field(
+        default_factory=dict, description="Custom HTTP headers to forward to agent"
+    )
+    auth_profile: TargetConnectionProfile | None = Field(
+        default=None, description="Target connection auth profile"
     )
 
 

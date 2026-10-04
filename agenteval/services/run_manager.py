@@ -14,8 +14,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from agenteval.logging import bind_contextvars, clear_contextvars, get_logger
 
 if TYPE_CHECKING:
+    from agenteval.db.protocol import SuiteRepositoryProtocol
     from agenteval.planning.models import SuiteRunReport
     from agenteval.services.suite_workflow import SuiteWorkflow
+    from agenteval.targets import TargetConnectionProfile
 
 logger = get_logger("agenteval.services.run_manager")
 
@@ -47,9 +49,7 @@ class RunJobInfo(BaseModel):
     run_id: str
     agent_id: str
     status: JobStatus
-    created_at: str = Field(
-        default_factory=lambda: datetime.now(UTC).isoformat()
-    )
+    created_at: str = Field(default_factory=lambda: datetime.now(UTC).isoformat())
     started_at: str | None = None
     completed_at: str | None = None
     progress: RunProgress = Field(default_factory=RunProgress)
@@ -77,6 +77,8 @@ class RunJobManager:
         audit_log_db_path: str | None = None,
         judge_mode: str = "hybrid",
         max_concurrency: int | None = None,
+        headers: dict[str, str] | None = None,
+        connection_profile: TargetConnectionProfile | None = None,
     ) -> RunJobInfo:
         """Submit a suite run for asynchronous background execution and return job info."""
         run_id = uuid4().hex[:12]
@@ -91,6 +93,12 @@ class RunJobManager:
 
         with self._lock:
             self._jobs[run_id] = job
+
+        try:
+            repo = workflow._repository()
+            repo.save_run_job(job)
+        except Exception as exc:
+            logger.warning("save_run_job_failed", run_id=run_id, error=str(exc))
 
         logger.info(
             "job_submitted",
@@ -108,6 +116,8 @@ class RunJobManager:
             audit_log_db_path=audit_log_db_path,
             judge_mode=judge_mode,
             max_concurrency=max_concurrency,
+            headers=headers,
+            connection_profile=connection_profile,
         )
         return job
 
@@ -120,6 +130,8 @@ class RunJobManager:
         audit_log_db_path: str | None,
         judge_mode: str,
         max_concurrency: int | None,
+        headers: dict[str, str] | None = None,
+        connection_profile: TargetConnectionProfile | None = None,
     ) -> None:
         clear_contextvars()
         bind_contextvars(run_id=run_id, agent_id=agent_id)
@@ -130,6 +142,10 @@ class RunJobManager:
                 self._jobs[run_id] = current_job.model_copy(
                     update={"status": JobStatus.RUNNING, "started_at": started_str}
                 )
+                try:
+                    workflow._repository().save_run_job(self._jobs[run_id])
+                except Exception as exc:
+                    logger.warning("save_run_job_failed", run_id=run_id, error=str(exc))
 
         logger.info("job_started", run_id=run_id, agent_id=agent_id)
 
@@ -140,11 +156,13 @@ class RunJobManager:
                     cur = self._jobs[run_id]
                     self._jobs[run_id] = cur.model_copy(
                         update={
-                            "progress": RunProgress(
-                                completed=completed, total=total, percent=pct
-                            )
+                            "progress": RunProgress(completed=completed, total=total, percent=pct)
                         }
                     )
+                    try:
+                        workflow._repository().save_run_job(self._jobs[run_id])
+                    except Exception:
+                        pass
 
         try:
             report = workflow.run_suite(
@@ -155,6 +173,8 @@ class RunJobManager:
                 judge_mode=judge_mode,
                 max_concurrency=max_concurrency,
                 on_progress=on_progress,
+                headers=headers,
+                connection_profile=connection_profile,
             )
             completed_str = datetime.now(UTC).isoformat()
             total_tests = len(report.results)
@@ -173,6 +193,10 @@ class RunJobManager:
                             ),
                         }
                     )
+                    try:
+                        workflow._repository().save_run_job(self._jobs[run_id])
+                    except Exception as exc:
+                        logger.warning("save_run_job_failed", run_id=run_id, error=str(exc))
             logger.info(
                 "job_completed",
                 run_id=run_id,
@@ -191,6 +215,10 @@ class RunJobManager:
                             "error": str(exc),
                         }
                     )
+                    try:
+                        workflow._repository().save_run_job(self._jobs[run_id])
+                    except Exception:
+                        pass
             logger.error(
                 "job_failed",
                 run_id=run_id,
@@ -200,10 +228,20 @@ class RunJobManager:
         finally:
             clear_contextvars()
 
-    def get_job(self, run_id: str) -> RunJobInfo | None:
+    def get_job(
+        self, run_id: str, repo: SuiteRepositoryProtocol | None = None
+    ) -> RunJobInfo | None:
         """Retrieve job metadata and progress by run_id."""
         with self._lock:
-            return self._jobs.get(run_id)
+            job = self._jobs.get(run_id)
+            if job is not None:
+                return job
+        if repo is not None:
+            try:
+                return repo.get_run_job(run_id)
+            except Exception:
+                return None
+        return None
 
     def get_report(self, run_id: str) -> SuiteRunReport | None:
         """Retrieve completed in-memory report by run_id."""

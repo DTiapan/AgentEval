@@ -25,7 +25,7 @@ def test_service_yaml_timeout_baseline() -> None:
     assert service_yaml.is_file(), f"Missing {service_yaml}"
     content = service_yaml.read_text(encoding="utf-8")
 
-    match = re.search(r'timeoutSeconds:\s*(\d+)', content)
+    match = re.search(r"timeoutSeconds:\s*(\d+)", content)
     assert match is not None, "service.yaml missing spec.template.spec.timeoutSeconds"
     timeout_val = int(match.group(1))
     assert timeout_val >= 1800, (
@@ -41,7 +41,9 @@ def test_cloudbuild_yaml_timeout_baseline() -> None:
     # Either a direct flag or a substitution variable must enforce >= 1800
     sub_match = re.search(r'_TIMEOUT:\s*"?(\d+)"?', content)
     flag_match = re.search(r'--timeout="?(\d+)"?', content)
-    timeout_val = int(sub_match.group(1)) if sub_match else (int(flag_match.group(1)) if flag_match else 0)
+    timeout_val = (
+        int(sub_match.group(1)) if sub_match else (int(flag_match.group(1)) if flag_match else 0)
+    )
 
     assert timeout_val >= 1800, (
         f"cloudbuild.yaml deployment step timeout is {timeout_val}s; must be >= 1800s."
@@ -53,12 +55,10 @@ def test_env_gcp_example_timeout_baseline() -> None:
     assert env_example.is_file(), f"Missing {env_example}"
     content = env_example.read_text(encoding="utf-8")
 
-    match = re.search(r'^TIMEOUT=(\d+)', content, re.MULTILINE)
+    match = re.search(r"^TIMEOUT=(\d+)", content, re.MULTILINE)
     assert match is not None, ".env.gcp.example missing TIMEOUT setting"
     timeout_val = int(match.group(1))
-    assert timeout_val >= 1800, (
-        f".env.gcp.example TIMEOUT is {timeout_val}; must be >= 1800."
-    )
+    assert timeout_val >= 1800, f".env.gcp.example TIMEOUT is {timeout_val}; must be >= 1800."
 
 
 def test_sqlite_gcs_max_instances_guardrail_in_deploy_sh() -> None:
@@ -99,7 +99,7 @@ def test_sqlite_gcs_max_instances_in_env_gcp_example() -> None:
     env_example = REPO_ROOT / ".env.gcp.example"
     content = env_example.read_text(encoding="utf-8")
 
-    match = re.search(r'^MAX_INSTANCES=(\d+)', content, re.MULTILINE)
+    match = re.search(r"^MAX_INSTANCES=(\d+)", content, re.MULTILINE)
     assert match is not None, ".env.gcp.example missing MAX_INSTANCES setting"
     max_val = int(match.group(1))
     assert max_val == 1, (
@@ -115,7 +115,7 @@ def test_deploy_sh_postgres_horizontal_scaling_unlocked() -> None:
     assert "PostgreSQL backend detected (DATABASE_URL configured)" in content, (
         "deploy.sh must log when PostgreSQL backend is detected"
     )
-    assert 'POSTGRES_MAX_INSTANCES:-10' in content, (
+    assert "POSTGRES_MAX_INSTANCES:-10" in content, (
         "deploy.sh must default MAX_INSTANCES to at least 10 when PostgreSQL is active"
     )
     assert "--add-cloudsql-instances" in content, (
@@ -139,4 +139,3 @@ def test_service_yaml_documents_cloud_sql_instances() -> None:
     content = service_yaml.read_text(encoding="utf-8")
 
     assert "run.googleapis.com/cloudsql-instances" in content
-

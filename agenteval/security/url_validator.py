@@ -34,9 +34,7 @@ class UnsafeURLError(ValueError):
     """Raised when an endpoint URL targets an internal, link-local, or forbidden resource."""
 
 
-def _raise_unsafe(
-    msg: str, url: str, host: str | None = None, ip: str | None = None
-) -> NoReturn:
+def _raise_unsafe(msg: str, url: str, host: str | None = None, ip: str | None = None) -> NoReturn:
     logger.warning("ssrf_blocked", url=url, hostname=host, ip=ip, reason=msg)
     raise UnsafeURLError(msg)
 
@@ -265,4 +263,3 @@ def create_safe_client(
         event_hooks={"request": [ssrf_hook]},
         transport=transport,
     )
-

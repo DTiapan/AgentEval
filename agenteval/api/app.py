@@ -14,6 +14,7 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 
 from agenteval import __version__
 from agenteval.api.auth import get_api_key
+from agenteval.api.rate_limiter import preview_limiter, probe_limiter
 from agenteval.api.schemas import (
     EndpointProbeRequest,
     PrdBootstrapRequest,
@@ -23,6 +24,7 @@ from agenteval.api.schemas import (
     SuiteSyncRequest,
 )
 from agenteval.core.telemetry import configure_telemetry, telemetry_status
+from agenteval.demo import DEMO_AGENT_PRD, handle_demo_chat
 from agenteval.ingest.endpoint_probe import EndpointProber
 from agenteval.logging import (
     bind_contextvars,
@@ -114,12 +116,23 @@ def create_app() -> FastAPI:
         allow_origins=origins,
         allow_credentials=not is_wildcard,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-        allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin", "X-Request-ID"],
+        allow_headers=[
+            "Content-Type",
+            "Authorization",
+            "X-Requested-With",
+            "Accept",
+            "Origin",
+            "X-Request-ID",
+        ],
         expose_headers=["X-Request-ID"],
     )
     app.add_middleware(RequestIdMiddleware)
 
     api_router = APIRouter(prefix="/v1", dependencies=[Depends(get_api_key)])
+
+    @app.exception_handler(ValueError)
+    async def value_error_handler(request: Request, exc: ValueError) -> JSONResponse:
+        return JSONResponse(status_code=400, content={"error": str(exc)})
 
     @app.get("/health")
     def health() -> dict[str, Any]:
@@ -128,6 +141,40 @@ def create_app() -> FastAPI:
             "version": __version__,
             "persistence": persistence_status(),
             "telemetry": telemetry_status(),
+            "demo_mode": os.getenv("AGENTEVAL_DEMO", "0") in ("1", "true", "True"),
+        }
+
+    @app.post("/demo/chat")
+    async def demo_chat(request: Request) -> JSONResponse:
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        prompt = body.get("prompt") or ""
+        messages = body.get("messages") or []
+        history = body.get("history") or []
+        if not prompt and messages:
+            for m in reversed(messages):
+                if m.get("role") == "user":
+                    prompt = m.get("content", "")
+                    break
+        reply = handle_demo_chat(prompt=prompt, messages=messages, history=history)
+        return JSONResponse(content=reply)
+
+    @app.get("/demo/info")
+    def demo_info() -> dict[str, Any]:
+        return {
+            "name": "Customer Support & Order Assistant (Demo)",
+            "endpoint": "/demo/chat",
+            "prd": DEMO_AGENT_PRD,
+        }
+
+    @api_router.get("/demo/info")
+    def api_demo_info() -> dict[str, Any]:
+        return {
+            "name": "Customer Support & Order Assistant (Demo)",
+            "endpoint": "/demo/chat",
+            "prd": DEMO_AGENT_PRD,
         }
 
     @api_router.get("/packs")
@@ -180,15 +227,19 @@ def create_app() -> FastAPI:
             ) from None
         return JSONResponse(content={"deleted": True, "agent_id": agent_id})
 
-    @api_router.post("/endpoints/probe")
+    @api_router.post("/endpoints/probe", dependencies=[Depends(probe_limiter)])
     def probe_agent_endpoint(body: EndpointProbeRequest) -> JSONResponse:
         """Probe target agent from the engine (avoids browser CORS to user endpoints)."""
-        result = EndpointProber().probe(body.endpoint_url)
+        result = EndpointProber().probe(
+            body.endpoint_url,
+            headers=body.headers or None,
+            profile=body.auth_profile,
+        )
         if result.error and "SSRF protection" in result.error:
             raise HTTPException(status_code=422, detail=result.error)
         return JSONResponse(content=result.model_dump(mode="json"))
 
-    @api_router.post("/suites/preview")
+    @api_router.post("/suites/preview", dependencies=[Depends(preview_limiter)])
     def preview_suite(body: PrdBootstrapRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root, max_tests=body.max_tests)
         tier = PriorityTier(body.target_tier) if body.target_tier else None
@@ -200,6 +251,8 @@ def create_app() -> FastAPI:
                 probe_endpoint=body.probe_endpoint,
                 max_tier=tier,
                 selected_test_ids=body.selected_test_ids,
+                headers=body.headers or None,
+                connection_profile=body.auth_profile,
             )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from None
@@ -219,6 +272,8 @@ def create_app() -> FastAPI:
                 enabled_domain_packs=body.enabled_domain_packs or None,
                 max_tier=tier,
                 selected_test_ids=body.selected_test_ids,
+                headers=body.headers or None,
+                connection_profile=body.auth_profile,
             )
         except SuiteExistsError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from None
@@ -283,6 +338,8 @@ def create_app() -> FastAPI:
                     audit_log_db_path=body.audit_log_db_path,
                     judge_mode=body.judge_mode,
                     max_concurrency=body.max_concurrency,
+                    headers=body.headers or None,
+                    connection_profile=body.auth_profile,
                 )
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from None
@@ -296,6 +353,8 @@ def create_app() -> FastAPI:
             audit_log_db_path=body.audit_log_db_path,
             judge_mode=body.judge_mode,
             max_concurrency=body.max_concurrency,
+            headers=body.headers or None,
+            connection_profile=body.auth_profile,
         )
         return JSONResponse(
             status_code=202,
@@ -316,12 +375,12 @@ def create_app() -> FastAPI:
         run_id: str,
         suite_root: str = ".agenteval/suites",
     ) -> JSONResponse:
-        manager = get_run_job_manager()
-        job = manager.get_job(run_id)
-        if job is not None:
-            return JSONResponse(content=job.model_dump(mode="json"))
         workflow = create_suite_workflow(suite_root=suite_root)
         repo = workflow._repository()
+        manager = get_run_job_manager()
+        job = manager.get_job(run_id, repo=repo)
+        if job is not None:
+            return JSONResponse(content=job.model_dump(mode="json"))
         run_record = repo.get_run_record(run_id) if repo is not None else None
         report = workflow.get_run(agent_id, run_id)
         if report is not None or run_record is not None:
@@ -344,8 +403,10 @@ def create_app() -> FastAPI:
             except Exception:
                 pass
 
-            percent = 100.0 if status == "completed" else (
-                (completed_count / total_count * 100.0) if total_count > 0 else 0.0
+            percent = (
+                100.0
+                if status == "completed"
+                else ((completed_count / total_count * 100.0) if total_count > 0 else 0.0)
             )
 
             return JSONResponse(

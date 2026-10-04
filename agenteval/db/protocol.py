@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from agenteval.services.requirement_run_status import AssuranceSignoffContext
+    from agenteval.services.run_manager import RunJobInfo
 
 from agenteval.domain.models import FrozenTestCaseRecord, RequirementRecord
 from agenteval.planning.models import (
@@ -36,6 +37,7 @@ class SuiteRepositoryProtocol(Protocol):
         agent_card_json: str | None = None,
         requirements_text: str = "",
         enabled_domain_packs: list[str] | None = None,
+        connection_profile_json: str | None = None,
     ) -> None: ...
 
     def load_manifest(self, agent_id: str) -> SuiteManifest: ...
@@ -67,6 +69,7 @@ class SuiteRepositoryProtocol(Protocol):
         suite_version: int,
         *,
         endpoint_url: str,
+        connection_profile_json: str | None = None,
     ) -> str: ...
 
     def save_partial_result(
@@ -81,6 +84,7 @@ class SuiteRepositoryProtocol(Protocol):
         report: SuiteRunReport,
         *,
         endpoint_url: str,
+        connection_profile_json: str | None = None,
     ) -> None: ...
 
     def mark_run_failed(
@@ -114,3 +118,6 @@ class SuiteRepositoryProtocol(Protocol):
 
     def ensure_default_target(self, agent_id: str, endpoint_url: str) -> str | None: ...
 
+    def save_run_job(self, job: "RunJobInfo") -> None: ...
+
+    def get_run_job(self, run_id: str) -> "RunJobInfo | None": ...

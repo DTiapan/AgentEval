@@ -17,6 +17,7 @@ from agenteval.security.url_validator import (
     is_private_allowed,
     validate_endpoint_url,
 )
+from agenteval.targets import TargetConnectionProfile
 
 
 class EndpointProbeResult(BaseModel):
@@ -55,15 +56,28 @@ class EndpointProber:
             )
             self._owns_client = True
 
-    def probe(self, endpoint_url: str) -> EndpointProbeResult:
+    def probe(
+        self,
+        endpoint_url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        profile: TargetConnectionProfile | None = None,
+    ) -> EndpointProbeResult:
+        effective_url = profile.endpoint_url if profile and profile.endpoint_url else endpoint_url
         try:
-            validate_endpoint_url(endpoint_url, allow_private=self.allow_private)
+            validate_endpoint_url(effective_url, allow_private=self.allow_private)
         except UnsafeURLError as exc:
             return EndpointProbeResult(
-                endpoint_url=endpoint_url,
+                endpoint_url=effective_url,
                 reachable=False,
                 error=f"SSRF protection: {exc}",
             )
+
+        effective_headers: dict[str, str] = {"Content-Type": "application/json"}
+        if profile is not None:
+            effective_headers.update(profile.resolve_headers())
+        if headers is not None:
+            effective_headers.update(headers)
 
         payload = {
             "prompt": "AgentEval connectivity probe. Reply briefly.",
@@ -72,23 +86,23 @@ class EndpointProber:
         }
         start = time.perf_counter()
         try:
-            resp = self._client.post(endpoint_url, json=payload)
+            resp = self._client.post(effective_url, json=payload, headers=effective_headers)
             status = resp.status_code
         except UnsafeURLError as exc:
             return EndpointProbeResult(
-                endpoint_url=endpoint_url,
+                endpoint_url=effective_url,
                 reachable=False,
                 error=f"SSRF protection: {exc}",
             )
         except httpx.HTTPError as exc:
             return EndpointProbeResult(
-                endpoint_url=endpoint_url,
+                endpoint_url=effective_url,
                 reachable=False,
                 error=str(exc),
             )
         except Exception as exc:
             return EndpointProbeResult(
-                endpoint_url=endpoint_url,
+                endpoint_url=effective_url,
                 reachable=False,
                 error=str(exc),
             )
@@ -97,32 +111,51 @@ class EndpointProber:
         try:
             data = resp.json()
         except Exception:
+            error_msg = ""
+            if not (200 <= status < 300):
+                error_msg = f"HTTP {status}"
+            else:
+                error_msg = "Response was not JSON"
             return EndpointProbeResult(
-                endpoint_url=endpoint_url,
+                endpoint_url=effective_url,
                 reachable=200 <= status < 300,
                 http_status=status,
                 latency_ms=latency_ms,
-                error="Response was not JSON",
+                error=error_msg,
             )
 
         if not isinstance(data, dict):
+            error_msg = ""
+            if not (200 <= status < 300):
+                error_msg = f"HTTP {status}"
+            else:
+                error_msg = "JSON root was not an object"
             return EndpointProbeResult(
-                endpoint_url=endpoint_url,
+                endpoint_url=effective_url,
                 reachable=200 <= status < 300,
                 http_status=status,
                 latency_ms=latency_ms,
-                error="JSON root was not an object",
+                error=error_msg,
             )
 
         tools = self._infer_tools(data)
+        error_msg = ""
+        if not (200 <= status < 300):
+            error_msg = f"HTTP {status}"
+            if "detail" in data:
+                error_msg += f": {data['detail']}"
+            elif "error" in data:
+                error_msg += f": {data['error']}"
+
         return EndpointProbeResult(
-            endpoint_url=endpoint_url,
+            endpoint_url=effective_url,
             reachable=200 <= status < 300,
             http_status=status,
             latency_ms=latency_ms,
             response_keys=sorted(data.keys()),
             inferred_tool_names=tools,
             raw_sample=self._redact_sample(data),
+            error=error_msg,
         )
 
     @staticmethod
@@ -179,7 +212,12 @@ class EndpointProber:
             )
         return card.model_copy(update={"tools_required": merged})
 
-    def try_fetch_openapi_tools(self, endpoint_url: str) -> list[str]:
+    def try_fetch_openapi_tools(
+        self,
+        endpoint_url: str,
+        *,
+        headers: dict[str, str] | None = None,
+    ) -> list[str]:
         """Best-effort OpenAPI discovery at common paths (optional enrich)."""
         parsed = urlparse(endpoint_url)
         base = f"{parsed.scheme}://{parsed.netloc}"
@@ -190,7 +228,7 @@ class EndpointProber:
         names: list[str] = []
         for url in candidates:
             try:
-                resp = self._client.get(url, timeout=5.0)
+                resp = self._client.get(url, timeout=5.0, headers=headers)
                 if resp.status_code != 200:
                     continue
                 text = resp.text

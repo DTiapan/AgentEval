@@ -88,6 +88,17 @@ export type CoverageReport = {
   metadata?: Record<string, unknown>;
 };
 
+export type AuthType = "none" | "bearer" | "api_key" | "custom";
+
+export type TargetConnectionProfile = {
+  auth_type: AuthType;
+  bearer_token?: string | null;
+  api_key_header?: string;
+  api_key_value?: string | null;
+  custom_headers?: Record<string, string>;
+  timeout_seconds?: number;
+};
+
 export type EndpointProbeResult = {
   endpoint_url: string;
   status: "OK" | "UNREACHABLE" | "INVALID_FORMAT" | "AUTH_REQUIRED";
@@ -290,6 +301,7 @@ export type SuiteDetailResult = {
     requirements_fingerprint: string;
     created_at: string;
     endpoint_profile: string;
+    connection_profile?: TargetConnectionProfile | null;
   };
   optimized_pack: TestPack;
   candidate_pool_size: number;

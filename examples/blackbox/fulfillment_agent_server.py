@@ -90,8 +90,7 @@ def handle_fulfillment_agent(prompt: str) -> dict[str, Any]:
 
     return {
         "thought": (
-            f"I can allocate_stock or create_shipment for {order_id}. "
-            "Which action should I take?"
+            f"I can allocate_stock or create_shipment for {order_id}. Which action should I take?"
         ),
         "tool_calls": [],
         "is_finished": True,

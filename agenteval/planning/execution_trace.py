@@ -5,30 +5,28 @@ from uuid import uuid4
 from agenteval.planning.models import ExecutionStep, ObservationBundle
 
 
-def build_blackbox_trajectory(
-    observation: ObservationBundle,
-    verdict: str,
-    rationale: str,
+def _build_steps_for_bundle(
+    obs: ObservationBundle,
+    turn_suffix: str = "",
 ) -> list[ExecutionStep]:
-    """Derive replay steps only from observable run artifacts."""
     steps: list[ExecutionStep] = []
     steps.append(
         ExecutionStep(
             step_id=_sid(),
             kind="user_message",
-            label="User message",
-            observation=observation.user_prompt,
+            label=f"User message{turn_suffix}",
+            observation=obs.user_prompt,
         )
     )
 
-    data = observation.raw_json if isinstance(observation.raw_json, dict) else {}
+    data = obs.raw_json if isinstance(obs.raw_json, dict) else {}
     thought = data.get("thought")
     if thought is not None and str(thought).strip():
         steps.append(
             ExecutionStep(
                 step_id=_sid(),
                 kind="agent_thought",
-                label="Agent thought (response payload)",
+                label=f"Agent thought{turn_suffix} (response payload)",
                 thought=str(thought),
             )
         )
@@ -46,22 +44,22 @@ def build_blackbox_trajectory(
                 ExecutionStep(
                     step_id=_sid(),
                     kind="tool_call",
-                    label=f"Tool call {idx + 1}",
+                    label=f"Tool call {idx + 1}{turn_suffix}",
                     action_tool=tool_name,
                     action_args=args,
                 )
             )
 
-    response_body = observation.response_text or ""
+    response_body = obs.response_text or ""
     if not thought and not tool_calls:
         steps.append(
             ExecutionStep(
                 step_id=_sid(),
                 kind="http_response",
-                label="HTTP response body",
+                label=f"HTTP response body{turn_suffix}",
                 observation=response_body,
-                http_status=observation.http_status,
-                latency_ms=observation.latency_ms,
+                http_status=obs.http_status,
+                latency_ms=obs.latency_ms,
             )
         )
     elif response_body.strip():
@@ -69,12 +67,27 @@ def build_blackbox_trajectory(
             ExecutionStep(
                 step_id=_sid(),
                 kind="http_response",
-                label="HTTP response (aggregated text)",
+                label=f"HTTP response{turn_suffix} (aggregated text)",
                 observation=response_body,
-                http_status=observation.http_status,
-                latency_ms=observation.latency_ms,
+                http_status=obs.http_status,
+                latency_ms=obs.latency_ms,
             )
         )
+    return steps
+
+
+def build_blackbox_trajectory(
+    observation: ObservationBundle,
+    verdict: str,
+    rationale: str,
+) -> list[ExecutionStep]:
+    """Derive replay steps only from observable run artifacts (single or multi-turn)."""
+    steps: list[ExecutionStep] = []
+    if observation.turn_observations:
+        for turn_idx, turn_obs in enumerate(observation.turn_observations, 1):
+            steps.extend(_build_steps_for_bundle(turn_obs, turn_suffix=f" (Turn {turn_idx})"))
+    else:
+        steps.extend(_build_steps_for_bundle(observation, turn_suffix=""))
 
     steps.append(
         ExecutionStep(

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from agenteval.services.requirement_run_status import AssuranceSignoffContext
+    from agenteval.services.run_manager import RunJobInfo
 
 from agenteval.db.config import (
     DEFAULT_WORKSPACE_ID,
@@ -92,6 +93,12 @@ class PostgresSuiteRepository:
         ddl = postgres_schema_sql_path().read_text(encoding="utf-8")
         with self._pool.connection() as conn:
             conn.execute(ddl)
+            conn.execute(
+                "ALTER TABLE suite_versions ADD COLUMN IF NOT EXISTS connection_profile_json JSONB;"
+            )
+            conn.execute(
+                "ALTER TABLE assurance_runs ADD COLUMN IF NOT EXISTS connection_profile_json JSONB;"
+            )
             conn.commit()
 
     def _ensure_default_workspace(self) -> None:
@@ -132,7 +139,9 @@ class PostgresSuiteRepository:
 
     def delete_agent(self, agent_id: str) -> bool:
         with self._pool.connection() as conn:
-            exists = self._fetch_one(conn.execute("SELECT 1 FROM agents WHERE id = %s", (agent_id,)))
+            exists = self._fetch_one(
+                conn.execute("SELECT 1 FROM agents WHERE id = %s", (agent_id,))
+            )
             if exists is None:
                 return False
             # ON DELETE CASCADE handles child suite_versions, assurance_runs, test_cases, etc.
@@ -150,6 +159,7 @@ class PostgresSuiteRepository:
         agent_card_json: str | None = None,
         requirements_text: str = "",
         enabled_domain_packs: list[str] | None = None,
+        connection_profile_json: str | None = None,
     ) -> None:
         with start_span(
             "db.postgres.operation",
@@ -163,7 +173,9 @@ class PostgresSuiteRepository:
             agent_id = manifest.agent_id
             now = datetime.now(UTC).isoformat()
             with self._pool.connection() as conn:
-                exists = self._fetch_one(conn.execute("SELECT 1 FROM agents WHERE id = %s", (agent_id,)))
+                exists = self._fetch_one(
+                    conn.execute("SELECT 1 FROM agents WHERE id = %s", (agent_id,))
+                )
                 if exists is not None and not force:
                     raise SuiteExistsError(
                         f"Suite already exists for agent '{agent_id}' in database. Use force to replace."
@@ -183,13 +195,14 @@ class PostgresSuiteRepository:
                     """
                     INSERT INTO suite_versions (
                         id, agent_id, version, requirements_fingerprint,
-                        requirements_text, endpoint_profile, pack_json,
+                        requirements_text, endpoint_profile, connection_profile_json, pack_json,
                         candidate_pool_json, agent_card_json, created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (agent_id, version) DO UPDATE SET
                         requirements_fingerprint = EXCLUDED.requirements_fingerprint,
                         requirements_text = EXCLUDED.requirements_text,
                         endpoint_profile = EXCLUDED.endpoint_profile,
+                        connection_profile_json = EXCLUDED.connection_profile_json,
                         pack_json = EXCLUDED.pack_json,
                         candidate_pool_json = EXCLUDED.candidate_pool_json,
                         agent_card_json = EXCLUDED.agent_card_json,
@@ -202,6 +215,7 @@ class PostgresSuiteRepository:
                         manifest.requirements_fingerprint,
                         requirements_text,
                         manifest.endpoint_profile,
+                        connection_profile_json,
                         pack.model_dump_json(),
                         json.dumps([t.model_dump() for t in pool]),
                         agent_card_json,
@@ -297,7 +311,13 @@ class PostgresSuiteRepository:
                 VALUES (%s, %s, %s, 'http_transport', %s, %s)
                 ON CONFLICT (id) DO NOTHING
                 """,
-                (connector_id, self.workspace_id, f"{agent_id}-http", json.dumps({"url": endpoint_url}), now),
+                (
+                    connector_id,
+                    self.workspace_id,
+                    f"{agent_id}-http",
+                    json.dumps({"url": endpoint_url}),
+                    now,
+                ),
             )
             conn.execute(
                 """
@@ -317,6 +337,7 @@ class PostgresSuiteRepository:
         suite_version: int,
         *,
         endpoint_url: str,
+        connection_profile_json: str | None = None,
     ) -> str:
         with start_span(
             "db.postgres.operation",
@@ -335,7 +356,9 @@ class PostgresSuiteRepository:
                     )
                 )
                 if suite_row is None:
-                    raise FileNotFoundError(f"No suite version {suite_version} for agent '{agent_id}'")
+                    raise FileNotFoundError(
+                        f"No suite version {suite_version} for agent '{agent_id}'"
+                    )
 
                 suite_version_id = str(suite_row["id"])
                 target_id = self.ensure_default_target(agent_id, endpoint_url)
@@ -344,18 +367,20 @@ class PostgresSuiteRepository:
                     """
                     INSERT INTO assurance_runs (
                         run_id, agent_id, suite_version_id, environment_id,
-                        endpoint_url, started_at, finished_at, passed, failed,
+                        endpoint_url, connection_profile_json, started_at, finished_at, passed, failed,
                         unverifiable, status, target_id
-                    ) VALUES (%s, %s, %s, NULL, %s, %s, %s, 0, 0, 0, 'running', %s)
+                    ) VALUES (%s, %s, %s, NULL, %s, %s, %s, %s, 0, 0, 0, 'running', %s)
                     ON CONFLICT (run_id) DO UPDATE SET
                         status = 'running',
-                        endpoint_url = EXCLUDED.endpoint_url
+                        endpoint_url = EXCLUDED.endpoint_url,
+                        connection_profile_json = COALESCE(EXCLUDED.connection_profile_json, assurance_runs.connection_profile_json)
                     """,
                     (
                         run_id,
                         agent_id,
                         suite_version_id,
                         endpoint_url,
+                        connection_profile_json,
                         now,
                         now,
                         target_id,
@@ -454,6 +479,7 @@ class PostgresSuiteRepository:
         report: SuiteRunReport,
         *,
         endpoint_url: str,
+        connection_profile_json: str | None = None,
     ) -> None:
         with start_span(
             "db.postgres.operation",
@@ -479,6 +505,7 @@ class PostgresSuiteRepository:
                         report.run_id,
                         report.suite_version,
                         endpoint_url=endpoint_url,
+                        connection_profile_json=connection_profile_json,
                     )
 
                 for result in report.results:
@@ -619,7 +646,9 @@ class PostgresSuiteRepository:
                 trajectory: list[ExecutionStep] = []
                 for s in step_rows:
                     args_raw = s["action_args_json"]
-                    args_dict = args_raw if isinstance(args_raw, dict) else json.loads(args_raw or "{}")
+                    args_dict = (
+                        args_raw if isinstance(args_raw, dict) else json.loads(args_raw or "{}")
+                    )
                     trajectory.append(
                         ExecutionStep(
                             step_id=str(s["step_id"]),
@@ -702,3 +731,63 @@ class PostgresSuiteRepository:
             requirements_text=requirements_text,
             enabled_domain_packs=enabled_domain_packs,
         )
+
+    def save_run_job(self, job: "RunJobInfo") -> None:
+        """Persist or update background run job state in PostgreSQL."""
+        with self._pool.connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO run_jobs (
+                    run_id, agent_id, status, created_at, started_at, completed_at,
+                    completed, total, percent, error
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (run_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    started_at = COALESCE(EXCLUDED.started_at, run_jobs.started_at),
+                    completed_at = COALESCE(EXCLUDED.completed_at, run_jobs.completed_at),
+                    completed = EXCLUDED.completed,
+                    total = EXCLUDED.total,
+                    percent = EXCLUDED.percent,
+                    error = EXCLUDED.error
+                """,
+                (
+                    job.run_id,
+                    job.agent_id,
+                    str(job.status),
+                    job.created_at,
+                    job.started_at,
+                    job.completed_at,
+                    job.progress.completed,
+                    job.progress.total,
+                    job.progress.percent,
+                    job.error,
+                ),
+            )
+
+    def get_run_job(self, run_id: str) -> "RunJobInfo | None":
+        """Retrieve background run job state by run_id from PostgreSQL."""
+        from agenteval.services.run_manager import JobStatus, RunJobInfo, RunProgress
+
+        with self._pool.connection() as conn:
+            row = self._fetch_one(
+                conn.execute(
+                    "SELECT * FROM run_jobs WHERE run_id = %s",
+                    (run_id,),
+                )
+            )
+            if row is None:
+                return None
+            return RunJobInfo(
+                run_id=str(row["run_id"]),
+                agent_id=str(row["agent_id"]),
+                status=JobStatus(str(row["status"])),
+                created_at=str(row["created_at"]),
+                started_at=str(row["started_at"]) if row["started_at"] is not None else None,
+                completed_at=str(row["completed_at"]) if row["completed_at"] is not None else None,
+                progress=RunProgress(
+                    completed=int(row["completed"]),
+                    total=int(row["total"]),
+                    percent=float(row["percent"]),
+                ),
+                error=str(row["error"]) if row["error"] is not None else None,
+            )

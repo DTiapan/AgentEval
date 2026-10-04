@@ -2,19 +2,26 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
+  ChevronRight,
   Code2,
   Copy,
   Eye,
+  EyeOff,
   LayoutTemplate,
   Play,
+  Plus,
   RefreshCw,
   Save,
+  Shield,
   Sparkles,
   Terminal,
+  Trash2,
   Upload,
 } from "lucide-react";
 import {
   extendSuiteGaps,
+  fetchDemoInfo,
   getSuiteDetail,
   initSuite,
   listDomainPacks,
@@ -23,7 +30,14 @@ import {
   syncSuite,
 } from "../api";
 import { useWorkspace } from "../context/WorkspaceContext";
-import { CandidateTest, CoverageReport, SuiteDetailResult, SuitePreviewResult } from "../types";
+import {
+  AuthType,
+  CandidateTest,
+  CoverageReport,
+  SuiteDetailResult,
+  SuitePreviewResult,
+  TargetConnectionProfile,
+} from "../types";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
@@ -68,6 +82,77 @@ export const Studio: React.FC = () => {
   );
   const [enabledDomainPacks, setEnabledDomainPacks] = useState<string[]>([]);
 
+  // Outbound target auth and connection profile state
+  const [authType, setAuthType] = useState<AuthType>("none");
+  const [bearerToken, setBearerToken] = useState("");
+  const [showBearerToken, setShowBearerToken] = useState(false);
+  const [apiKeyHeader, setApiKeyHeader] = useState("X-API-Key");
+  const [apiKeyValue, setApiKeyValue] = useState("");
+  const [showApiKeyValue, setShowApiKeyValue] = useState(false);
+  const [customHeaders, setCustomHeaders] = useState<Array<{ key: string; value: string }>>([]);
+  const [newHeaderKey, setNewHeaderKey] = useState("");
+  const [newHeaderValue, setNewHeaderValue] = useState("");
+  const [isAuthDrawerOpen, setIsAuthDrawerOpen] = useState(false);
+
+  const buildConnectionProfile = useCallback((): TargetConnectionProfile | undefined => {
+    const customHeaderMap: Record<string, string> = {};
+    for (const h of customHeaders) {
+      const k = h.key.trim();
+      if (k) customHeaderMap[k] = h.value;
+    }
+    const hasCustomHeaders = Object.keys(customHeaderMap).length > 0;
+    if (authType === "none" && !hasCustomHeaders) {
+      return undefined;
+    }
+    return {
+      auth_type: authType,
+      bearer_token: authType === "bearer" ? bearerToken.trim() || null : null,
+      api_key_header: apiKeyHeader.trim() || "X-API-Key",
+      api_key_value: authType === "api_key" ? apiKeyValue.trim() || null : null,
+      custom_headers: hasCustomHeaders ? customHeaderMap : undefined,
+    };
+  }, [authType, bearerToken, apiKeyHeader, apiKeyValue, customHeaders]);
+
+  const handleAddHeader = () => {
+    const k = newHeaderKey.trim();
+    if (!k) return;
+    setCustomHeaders((prev) => [...prev, { key: k, value: newHeaderValue.trim() }]);
+    setNewHeaderKey("");
+    setNewHeaderValue("");
+  };
+
+  const handleRemoveHeader = (index: number) => {
+    setCustomHeaders((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const handleLoadDemoAgent = async () => {
+    try {
+      const info = await fetchDemoInfo();
+      setAgentId("customer-support-demo");
+      setActiveAgentId("customer-support-demo");
+      const host = window.location.hostname || "127.0.0.1";
+      const port = window.location.port ? `:${window.location.port}` : "";
+      const fullUrl = `${window.location.protocol}//${host}${port}${info.endpoint}`;
+      setEndpointUrl(fullUrl);
+      setRequirementsText(info.prd);
+      setAuthType("none");
+      addToast({
+        title: "Demo Agent Preset Loaded",
+        message: "Built-in Customer Support agent & PRD loaded. Ready to preview and run without external keys!",
+        type: "info",
+      });
+    } catch {
+      setAgentId("customer-support-demo");
+      setActiveAgentId("customer-support-demo");
+      setEndpointUrl("http://127.0.0.1:8766/demo/chat");
+      addToast({
+        title: "Demo Agent Preset Loaded",
+        message: "Endpoint set to http://127.0.0.1:8766/demo/chat",
+        type: "info",
+      });
+    }
+  };
+
   useEffect(() => {
     listDomainPacks()
       .then((body) => {
@@ -89,6 +174,18 @@ export const Studio: React.FC = () => {
       setFrozenDetail(detail);
       if (detail.manifest.endpoint_profile) {
         setEndpointUrl(detail.manifest.endpoint_profile);
+      }
+      if (detail.manifest.connection_profile) {
+        const cp = detail.manifest.connection_profile;
+        setAuthType(cp.auth_type || "none");
+        if (cp.bearer_token) setBearerToken(cp.bearer_token);
+        if (cp.api_key_header) setApiKeyHeader(cp.api_key_header);
+        if (cp.api_key_value) setApiKeyValue(cp.api_key_value);
+        if (cp.custom_headers) {
+          setCustomHeaders(
+            Object.entries(cp.custom_headers).map(([key, value]) => ({ key, value }))
+          );
+        }
       }
       if (detail.requirements_text?.trim()) {
         setRequirementsText(detail.requirements_text);
@@ -134,6 +231,15 @@ export const Studio: React.FC = () => {
       setJustCreatedPack(false);
       setAgentId("");
       setEndpointUrl("");
+      setAuthType("none");
+      setBearerToken("");
+      setShowBearerToken(false);
+      setApiKeyHeader("X-API-Key");
+      setApiKeyValue("");
+      setShowApiKeyValue(false);
+      setCustomHeaders([]);
+      setNewHeaderKey("");
+      setNewHeaderValue("");
       setRequirementsText(EMPTY_PRD_TEMPLATE);
       setSelectedTestIds([]);
       setActiveTestIndex(0);
@@ -171,6 +277,7 @@ export const Studio: React.FC = () => {
         requirements_text: requirementsText,
         agent_id: agentId,
         endpoint_url: endpointUrl.trim() || undefined,
+        auth_profile: buildConnectionProfile(),
         max_tests: maxTests,
         target_tier: selectedTier !== "ALL" ? selectedTier : undefined,
         selected_test_ids: selectedTestIds.length > 0 ? selectedTestIds : undefined,
@@ -278,12 +385,14 @@ export const Studio: React.FC = () => {
     let createdNewSuite = false;
     try {
       const endpoint = endpointUrl.trim() || undefined;
+      const authProfile = buildConnectionProfile();
       const targetTier = selectedTier !== "ALL" ? selectedTier : undefined;
       const selectedIds = selectedTestIds.length > 0 ? selectedTestIds : undefined;
       if (frozenDetail?.manifest) {
         const sync = await syncSuite(agentId, {
           requirements_text: requirementsText,
           endpoint_url: endpoint,
+          auth_profile: authProfile,
           max_tests: maxTests,
           enabled_domain_packs: enabledDomainPacks,
           target_tier: targetTier,
@@ -315,6 +424,7 @@ export const Studio: React.FC = () => {
           requirements_text: requirementsText,
           agent_id: agentId,
           endpoint_url: endpoint,
+          auth_profile: authProfile,
           max_tests: maxTests,
           force_new_version: false,
           enabled_domain_packs: enabledDomainPacks,
@@ -371,7 +481,8 @@ export const Studio: React.FC = () => {
     setIsProbing(true);
     setProbeStatus(null);
     try {
-      const result = await probeAgentEndpoint(url);
+      const profile = buildConnectionProfile();
+      const result = await probeAgentEndpoint(url, { authProfile: profile });
       const latency = Math.round(result.latency_ms);
       if (result.reachable) {
         setProbeStatus({ ok: true, text: `HTTP ${result.http_status} (${latency}ms)` });
@@ -382,10 +493,13 @@ export const Studio: React.FC = () => {
         });
       } else {
         const detail = result.error || `HTTP ${result.http_status}`;
-        setProbeStatus({ ok: false, text: "Unreachable" });
+        setProbeStatus({
+          ok: false,
+          text: result.http_status > 0 ? `HTTP ${result.http_status} (${latency}ms)` : "Unreachable",
+        });
         addToast({
           type: "error",
-          title: "Probe failed",
+          title: result.http_status === 401 ? "Authentication Required (401)" : "Probe failed",
           message: detail,
         });
       }
@@ -442,10 +556,20 @@ export const Studio: React.FC = () => {
         <div className="lg:col-span-5 flex flex-col gap-5">
           {/* Core Configuration & Requirements Card */}
           <Card className="border border-border bg-card shadow-xs">
-            <CardHeader className="p-4 pb-2 border-b border-border/50">
+            <CardHeader className="p-4 pb-2 border-b border-border/50 flex flex-row items-center justify-between">
               <CardTitle className="text-xs font-semibold text-foreground">
                 Agent Specification & Ceiling
               </CardTitle>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-[11px] gap-1.5 border-purple-500/30 text-purple-600 dark:text-purple-400 hover:bg-purple-500/10"
+                onClick={handleLoadDemoAgent}
+                title="Load built-in Customer Support Demo Agent & PRD"
+              >
+                <Sparkles className="h-3 w-3" />
+                Demo Agent
+              </Button>
             </CardHeader>
             <CardContent className="flex flex-col gap-4 p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -504,6 +628,264 @@ export const Studio: React.FC = () => {
                     </Button>
                   </div>
                 </div>
+              </div>
+
+              {/* Target Authentication & Headers Drawer */}
+              <div className="rounded-lg border border-border/80 bg-card/60 overflow-hidden shadow-xs transition-all">
+                <button
+                  type="button"
+                  onClick={() => setIsAuthDrawerOpen(!isAuthDrawerOpen)}
+                  className="w-full flex items-center justify-between px-3 py-2 bg-muted/20 hover:bg-muted/40 text-left transition-colors cursor-pointer"
+                >
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <Shield className="h-3.5 w-3.5 text-primary shrink-0" />
+                    <span className="text-xs font-medium text-foreground">
+                      Target Authentication & Headers
+                    </span>
+                    <Badge
+                      variant="outline"
+                      className={`text-[10px] px-1.5 py-0 font-mono ${
+                        authType === "none" && customHeaders.length === 0
+                          ? "text-muted-foreground border-border"
+                          : "bg-primary/10 text-primary border-primary/30 font-semibold"
+                      }`}
+                    >
+                      {authType === "none"
+                        ? "Public (No Auth)"
+                        : authType === "bearer"
+                          ? "Bearer Token"
+                          : authType === "api_key"
+                            ? `API Key (${apiKeyHeader})`
+                            : "Custom"}
+                    </Badge>
+                    {customHeaders.length > 0 && (
+                      <Badge
+                        variant="secondary"
+                        className="text-[10px] px-1.5 py-0 font-mono text-muted-foreground"
+                      >
+                        +{customHeaders.length} header{customHeaders.length > 1 ? "s" : ""}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 text-muted-foreground shrink-0 ml-2">
+                    <span className="text-[11px] hidden sm:inline">
+                      {isAuthDrawerOpen ? "Hide" : "Configure"}
+                    </span>
+                    {isAuthDrawerOpen ? (
+                      <ChevronDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    )}
+                  </div>
+                </button>
+
+                {isAuthDrawerOpen && (
+                  <div className="p-3.5 space-y-3.5 border-t border-border/70 bg-muted/5">
+                    {/* Auth Scheme Selection */}
+                    <div>
+                      <label className="text-[11px] font-medium text-muted-foreground mb-1.5 block">
+                        Authentication Scheme
+                      </label>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                        {(
+                          [
+                            { id: "none", label: "None / Public" },
+                            { id: "bearer", label: "Bearer Token" },
+                            { id: "api_key", label: "API Key Header" },
+                            { id: "custom", label: "Custom Only" },
+                          ] as const
+                        ).map((mode) => {
+                          const isActive = authType === mode.id;
+                          return (
+                            <button
+                              key={mode.id}
+                              type="button"
+                              onClick={() => setAuthType(mode.id)}
+                              className={`px-2 py-1.5 text-xs rounded-md border font-medium transition-all text-center cursor-pointer ${
+                                isActive
+                                  ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                                  : "bg-background text-muted-foreground hover:text-foreground border-border hover:border-border/80"
+                              }`}
+                            >
+                              {mode.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Conditional Auth Inputs */}
+                    {authType === "bearer" && (
+                      <div className="space-y-1.5">
+                        <label className="text-[11px] font-medium text-foreground flex items-center justify-between">
+                          <span>Bearer Token / Secret</span>
+                          <span className="text-[10px] text-muted-foreground font-mono">
+                            Authorization: Bearer &lt;token&gt;
+                          </span>
+                        </label>
+                        <div className="relative">
+                          <Input
+                            type={showBearerToken ? "text" : "password"}
+                            value={bearerToken}
+                            onChange={(e) => setBearerToken(e.target.value)}
+                            placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9... or secret-token"
+                            className="font-mono text-xs pr-9 h-8"
+                            spellCheck={false}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowBearerToken(!showBearerToken)}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded cursor-pointer"
+                            title={showBearerToken ? "Hide secret" : "Reveal secret"}
+                          >
+                            {showBearerToken ? (
+                              <EyeOff className="h-3.5 w-3.5" />
+                            ) : (
+                              <Eye className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Masked in execution logs, database records, and trace reports.
+                        </p>
+                      </div>
+                    )}
+
+                    {authType === "api_key" && (
+                      <div className="space-y-1.5">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                          <div className="sm:col-span-1">
+                            <label className="text-[11px] font-medium text-foreground block mb-1">
+                              Header Name
+                            </label>
+                            <Input
+                              type="text"
+                              value={apiKeyHeader}
+                              onChange={(e) => setApiKeyHeader(e.target.value)}
+                              placeholder="X-API-Key"
+                              className="font-mono text-xs h-8"
+                              spellCheck={false}
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="text-[11px] font-medium text-foreground block mb-1">
+                              API Key / Secret Value
+                            </label>
+                            <div className="relative">
+                              <Input
+                                type={showApiKeyValue ? "text" : "password"}
+                                value={apiKeyValue}
+                                onChange={(e) => setApiKeyValue(e.target.value)}
+                                placeholder="sk-... or api-secret"
+                                className="font-mono text-xs pr-9 h-8"
+                                spellCheck={false}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowApiKeyValue(!showApiKeyValue)}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-0.5 rounded cursor-pointer"
+                                title={showApiKeyValue ? "Hide secret" : "Reveal secret"}
+                              >
+                                {showApiKeyValue ? (
+                                  <EyeOff className="h-3.5 w-3.5" />
+                                ) : (
+                                  <Eye className="h-3.5 w-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                        <p className="text-[10px] text-muted-foreground">
+                          Injected on outbound calls as <code className="text-primary font-mono">{apiKeyHeader || "X-API-Key"}: ***</code>.
+                        </p>
+                      </div>
+                    )}
+
+                    {authType === "none" && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Public target endpoint. Outbound calls will be made without authentication headers.
+                      </p>
+                    )}
+
+                    {/* Custom Request Headers */}
+                    <div className="pt-2 border-t border-border/50 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-medium text-foreground">
+                          Custom Request Headers (e.g. Tenant, Workspace, Routing)
+                        </label>
+                        <span className="text-[10px] text-muted-foreground font-mono">
+                          {customHeaders.length} configured
+                        </span>
+                      </div>
+
+                      {/* Header Inputs row */}
+                      <div className="flex gap-2 items-center">
+                        <Input
+                          type="text"
+                          value={newHeaderKey}
+                          onChange={(e) => setNewHeaderKey(e.target.value)}
+                          placeholder="Header (e.g. X-Tenant-Id)"
+                          className="font-mono text-xs h-8 flex-1"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddHeader();
+                            }
+                          }}
+                        />
+                        <Input
+                          type="text"
+                          value={newHeaderValue}
+                          onChange={(e) => setNewHeaderValue(e.target.value)}
+                          placeholder="Value (e.g. tenant-corp-42)"
+                          className="font-mono text-xs h-8 flex-1"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              handleAddHeader();
+                            }
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={handleAddHeader}
+                          disabled={!newHeaderKey.trim()}
+                          className="h-8 px-2.5 text-xs shrink-0"
+                        >
+                          <Plus className="h-3 w-3 mr-1" />
+                          Add
+                        </Button>
+                      </div>
+
+                      {/* Header List chips */}
+                      {customHeaders.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {customHeaders.map((h, idx) => (
+                            <span
+                              key={`${h.key}-${idx}`}
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-muted/60 border border-border text-[11px] font-mono text-foreground"
+                            >
+                              <span className="font-semibold text-primary">{h.key}:</span>
+                              <span className="text-muted-foreground truncate max-w-[140px]">
+                                {h.value}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveHeader(idx)}
+                                className="text-muted-foreground hover:text-rose-500 transition-colors ml-0.5 p-0.5 rounded cursor-pointer"
+                                title="Remove header"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* PRD Editor */}

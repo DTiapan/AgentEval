@@ -8,6 +8,7 @@ import {
   SuiteSyncResult,
   RunProgress,
   RunJobStatus,
+  TargetConnectionProfile,
 } from "./types";
 import { formatApiErrorBody } from "@/lib/api-error";
 
@@ -65,15 +66,26 @@ export type EngineEndpointProbeResult = {
   http_status: number;
   latency_ms: number;
   error?: string;
+  response_preview?: string;
 };
 
 export async function probeAgentEndpoint(
   endpointUrl: string,
+  options?: {
+    headers?: Record<string, string>;
+    authProfile?: TargetConnectionProfile | null;
+    timeoutSeconds?: number;
+  },
 ): Promise<EngineEndpointProbeResult> {
   const res = await authFetch(`${API_BASE}/v1/endpoints/probe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ endpoint_url: endpointUrl }),
+    body: JSON.stringify({
+      endpoint_url: endpointUrl,
+      headers: options?.headers ?? {},
+      auth_profile: options?.authProfile ?? null,
+      timeout_seconds: options?.timeoutSeconds ?? 5.0,
+    }),
   });
   return parseJson(res);
 }
@@ -94,6 +106,8 @@ export async function previewSuite(payload: {
   requirements_text: string;
   agent_id: string;
   endpoint_url?: string;
+  headers?: Record<string, string>;
+  auth_profile?: TargetConnectionProfile | null;
   max_tests?: number;
   target_tier?: string;
   selected_test_ids?: string[];
@@ -114,6 +128,8 @@ export async function initSuite(payload: {
   requirements_text: string;
   agent_id: string;
   endpoint_url?: string;
+  headers?: Record<string, string>;
+  auth_profile?: TargetConnectionProfile | null;
   max_tests?: number;
   force_new_version?: boolean;
   enabled_domain_packs?: string[];
@@ -156,6 +172,8 @@ export async function syncSuite(
   payload: {
     requirements_text: string;
     endpoint_url?: string;
+    headers?: Record<string, string>;
+    auth_profile?: TargetConnectionProfile | null;
     max_tests?: number;
     enabled_domain_packs?: string[];
     target_tier?: string;
@@ -199,6 +217,8 @@ export async function runSuite(
   endpointUrl?: string,
   auditLogDbPath?: string,
   options?: {
+    headers?: Record<string, string>;
+    authProfile?: TargetConnectionProfile | null;
     onProgress?: (progress: RunProgress, job: RunJobStatus) => void;
     pollIntervalMs?: number;
     wait?: boolean;
@@ -210,6 +230,8 @@ export async function runSuite(
     body: JSON.stringify({
       endpoint_url: endpointUrl || null,
       audit_log_db_path: auditLogDbPath || null,
+      headers: options?.headers ?? {},
+      auth_profile: options?.authProfile || null,
       wait: Boolean(options?.wait),
     }),
   });
@@ -287,5 +309,10 @@ export async function deleteSuite(
   const res = await authFetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}`, {
     method: "DELETE",
   });
+  return parseJson(res);
+}
+
+export async function fetchDemoInfo(): Promise<{ name: string; endpoint: string; prd: string }> {
+  const res = await authFetch(`${API_BASE}/demo/info`);
   return parseJson(res);
 }

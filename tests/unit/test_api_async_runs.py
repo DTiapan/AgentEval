@@ -112,7 +112,9 @@ def test_async_run_polling_flow(
         f"/v1/suites/async-agent/runs/{run_id}/status",
         params={"suite_root": suite_root},
     ).json()
-    assert final_status["status"] == "completed", f"Job failed with error: {final_status.get('error')}"
+    assert final_status["status"] == "completed", (
+        f"Job failed with error: {final_status.get('error')}"
+    )
     assert final_status["progress"]["completed"] == 1
     assert final_status["progress"]["percent"] == 100.0
 
@@ -161,3 +163,57 @@ def test_sync_run_fallback(
     )
     assert resp.status_code == 200
     assert resp.json()["agent_id"] == "sync-fallback-agent"
+
+
+def test_async_run_polling_from_db_when_memory_missing(
+    client: TestClient,
+    tmp_path: Path,
+) -> None:
+    from agenteval.services.run_manager import (
+        JobStatus,
+        RunJobInfo,
+        RunProgress,
+        get_run_job_manager,
+    )
+    from agenteval.services.workflow_factory import create_suite_workflow
+
+    suite_root = str(tmp_path / "suites")
+    # Initialize a suite
+    client.post(
+        "/v1/suites",
+        json={
+            "requirements_text": SAMPLE_PRD,
+            "agent_id": "db-poll-agent",
+            "endpoint_url": "http://127.0.0.1:9000/chat",
+            "suite_root": suite_root,
+            "force_new_version": True,
+        },
+    )
+
+    # Save a run job directly to repo (simulating instance A)
+    wf = create_suite_workflow(suite_root=suite_root)
+    repo = wf._repository()
+    job = RunJobInfo(
+        run_id="run-from-instance-a",
+        agent_id="db-poll-agent",
+        status=JobStatus.RUNNING,
+        progress=RunProgress(completed=7, total=10, percent=70.0),
+    )
+    repo.save_run_job(job)
+
+    # Ensure manager memory has no record of this job (simulating instance B)
+    manager = get_run_job_manager()
+    with manager._lock:
+        manager._jobs.pop("run-from-instance-a", None)
+
+    # Instance B queries /status
+    status_resp = client.get(
+        "/v1/suites/db-poll-agent/runs/run-from-instance-a/status",
+        params={"suite_root": suite_root},
+    )
+    assert status_resp.status_code == 200
+    data = status_resp.json()
+    assert data["run_id"] == "run-from-instance-a"
+    assert data["status"] == "running"
+    assert data["progress"]["completed"] == 7
+    assert data["progress"]["percent"] == 70.0

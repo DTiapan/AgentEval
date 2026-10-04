@@ -97,3 +97,27 @@ def test_run_job_manager_failure_lifecycle() -> None:
     assert failed_job.completed_at is not None
 
     manager.shutdown(wait=True)
+
+
+def test_run_job_manager_retrieves_from_repo() -> None:
+    from agenteval.services.run_manager import RunJobInfo, RunProgress
+
+    manager = RunJobManager(max_concurrent_jobs=1)
+    repo_mock = MagicMock()
+    stored_job = RunJobInfo(
+        run_id="run-remote-999",
+        agent_id="remote-agent",
+        status=JobStatus.RUNNING,
+        progress=RunProgress(completed=5, total=10, percent=50.0),
+    )
+    repo_mock.get_run_job.return_value = stored_job
+
+    # Query from manager with repo injection
+    result = manager.get_job("run-remote-999", repo=repo_mock)
+    assert result is not None
+    assert result.run_id == "run-remote-999"
+    assert result.status == JobStatus.RUNNING
+    assert result.progress.percent == 50.0
+    repo_mock.get_run_job.assert_called_once_with("run-remote-999")
+
+    manager.shutdown(wait=True)

@@ -146,7 +146,11 @@ class TestRequestIdMiddleware:
         records = _get_logged_json_lines(captured.err)
 
         access_log = next(
-            (r for r in records if r.get("event") == "http_request_completed" and r.get("request_id") == client_id),
+            (
+                r
+                for r in records
+                if r.get("event") == "http_request_completed" and r.get("request_id") == client_id
+            ),
             None,
         )
         assert access_log is not None
@@ -343,7 +347,11 @@ class TestRunnerAndJobManagerLogging:
         records = _get_logged_json_lines(captured.err)
 
         submitted = next(
-            (r for r in records if r.get("event") == "job_submitted" and r.get("run_id") == job.run_id),
+            (
+                r
+                for r in records
+                if r.get("event") == "job_submitted" and r.get("run_id") == job.run_id
+            ),
             None,
         )
         assert submitted is not None
@@ -351,13 +359,21 @@ class TestRunnerAndJobManagerLogging:
         assert submitted["judge_mode"] == "hybrid"
 
         started = next(
-            (r for r in records if r.get("event") == "job_started" and r.get("run_id") == job.run_id),
+            (
+                r
+                for r in records
+                if r.get("event") == "job_started" and r.get("run_id") == job.run_id
+            ),
             None,
         )
         assert started is not None
 
         completed = next(
-            (r for r in records if r.get("event") == "job_completed" and r.get("run_id") == job.run_id),
+            (
+                r
+                for r in records
+                if r.get("event") == "job_completed" and r.get("run_id") == job.run_id
+            ),
             None,
         )
         assert completed is not None

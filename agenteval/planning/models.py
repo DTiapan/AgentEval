@@ -1,5 +1,7 @@
 """Domain models for black-box test planning, optimization, and coverage."""
 
+from __future__ import annotations
+
 from enum import StrEnum
 from typing import Any
 
@@ -137,11 +139,16 @@ class CandidateTest(BaseModel):
         default=None,
         description="Multi-axis Jev quality score (composite Q, severity, novelty, flakiness, rationale)",
     )
+    steps: list[str] = Field(
+        default_factory=list,
+        description="Optional sequential prompts for multi-turn conversational evaluations",
+    )
 
 
 class TestPack(BaseModel):
     """Optimized subset of candidates chosen for execution."""
 
+    __test__ = False
     model_config = ConfigDict(extra="forbid")
 
     agent_id: str
@@ -221,6 +228,10 @@ class ObservationBundle(BaseModel):
     http_status: int = Field(default=200)
     latency_ms: float = Field(default=0.0)
     raw_json: dict[str, Any] = Field(default_factory=dict)
+    turn_observations: list[ObservationBundle] = Field(
+        default_factory=list,
+        description="Individual turn observations when test contains multi-turn steps",
+    )
 
 
 class ExecutionStep(BaseModel):
@@ -245,6 +256,7 @@ class ExecutionStep(BaseModel):
 class TestCaseResult(BaseModel):
     """Rule-based outcome for one candidate test (no LLM judge)."""
 
+    __test__ = False
     model_config = ConfigDict(extra="forbid")
 
     test_id: str

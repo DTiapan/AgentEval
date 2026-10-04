@@ -21,9 +21,14 @@ DEFAULT_SUITE_ROOT = Path(".agenteval/suites")
 
 
 def resolve_suite_root(suite_root: Path | str | None = None) -> Path:
-    if suite_root is not None and Path(suite_root) != DEFAULT_SUITE_ROOT:
-        return Path(suite_root)
-    return default_suite_root()
+    if suite_root is None:
+        return default_suite_root()
+    raw = Path(suite_root)
+    if ".." in raw.parts:
+        raise ValueError(f"Invalid suite_root: '{suite_root}' contains path traversal.")
+    if raw == DEFAULT_SUITE_ROOT:
+        return default_suite_root()
+    return raw
 
 
 def create_suite_workflow(

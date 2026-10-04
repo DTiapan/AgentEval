@@ -9,18 +9,14 @@ import structlog
 from structlog.types import EventDict, Processor
 
 
-def add_gcp_severity(
-    logger: Any, method_name: str, event_dict: EventDict
-) -> EventDict:
+def add_gcp_severity(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
     """Map log level to Google Cloud Logging native severity field."""
     level = str(event_dict.get("level", method_name)).upper()
     event_dict["severity"] = "WARNING" if level == "WARN" else level
     return event_dict
 
 
-def add_otel_trace_context(
-    logger: Any, method_name: str, event_dict: EventDict
-) -> EventDict:
+def add_otel_trace_context(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
     """Inject active OpenTelemetry trace_id and span_id into structlog event."""
     try:
         from agenteval.core.telemetry import get_current_span_id, get_current_trace_id
@@ -57,11 +53,7 @@ def configure_logging(
     if _LOGGING_CONFIGURED and not force:
         return
 
-    effective_level_str = (
-        log_level
-        or os.environ.get("AGENTEVAL_LOG_LEVEL")
-        or "INFO"
-    ).upper()
+    effective_level_str = (log_level or os.environ.get("AGENTEVAL_LOG_LEVEL") or "INFO").upper()
     level_num = getattr(logging, effective_level_str, logging.INFO)
 
     fmt = log_format or os.environ.get("AGENTEVAL_LOG_FORMAT")
@@ -94,7 +86,8 @@ def configure_logging(
     )
 
     structlog.configure(
-        processors=shared_processors + [
+        processors=shared_processors
+        + [
             structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         logger_factory=structlog.stdlib.LoggerFactory(),

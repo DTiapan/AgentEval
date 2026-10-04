@@ -38,7 +38,9 @@ def _clean_attributes(attributes: dict[str, Any] | None) -> dict[str, Any]:
         if isinstance(v, (bool, str, int, float, bytes)):
             cleaned[k] = v
         elif isinstance(v, (list, tuple)):
-            cleaned[k] = [str(item) if not isinstance(item, (bool, str, int, float)) else item for item in v]
+            cleaned[k] = [
+                str(item) if not isinstance(item, (bool, str, int, float)) else item for item in v
+            ]
         else:
             cleaned[k] = str(v)
     return cleaned
@@ -82,7 +84,12 @@ def configure_telemetry(
     )
     if exp_choice is None:
         is_dev = os.environ.get("ENVIRONMENT", "development").lower() in ("development", "dev")
-        otel_flag = os.environ.get("AGENTEVAL_OTEL_ENABLED", "").lower() in ("1", "true", "yes", "on")
+        otel_flag = os.environ.get("AGENTEVAL_OTEL_ENABLED", "").lower() in (
+            "1",
+            "true",
+            "yes",
+            "on",
+        )
         if otel_flag and is_dev:
             exp_choice = "console"
         else:

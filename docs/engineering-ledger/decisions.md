@@ -50,6 +50,9 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-040 | **OpenTelemetry (OTel) Distributed Tracing Engine, W3C Propagation & OpenInference Semantic Conventions:** End-to-end distributed tracing across FastAPI API endpoints, suite operations (`suite.run_pack`, `suite.preview`, `suite.init`), individual test case execution (`test.case.execute`), agent endpoint HTTP invocations (`agent.endpoint.invoke` with outbound W3C `traceparent` propagation), LLM evaluations (`llm.judge.evaluate`), candidate synthesizers (`llm.candidate.synthesize`), Jev scorers (`jev.candidate.score`), and SQLite mutations (`db.sqlite.operation`). Automated correlation of active `trace_id` and `span_id` with `structlog` JSON logs. | Accepted | 2026-10-04 |
 | DR-041 | **Production Database Architecture — SQLite GCS FUSE Evaluation & Dual-Engine Persistence Strategy ([ADR-007](../decisions/ADR-007-production-database-architecture-sqlite-gcs-evaluation.md)):** Evaluated POSIX locking absence, WAL mode shared memory (`.shm`) failure, and 50–250ms write amplification of SQLite on Google Cloud Storage FUSE in Cloud Run Gen2. Established Dual-Engine persistence strategy: embedded SQLite for local/CLI/CI single-node workflows, and managed PostgreSQL (Cloud SQL / Neon / Supabase) for autoscaling multi-tenant cloud SaaS. Implemented immediate Cloud Run operational guardrail clamping `MAX_INSTANCES=1` when running on SQLite. | Accepted | 2026-10-04 |
 | DR-042 | **Dual-Engine Persistence Implementation (PostgreSQL Engine + Embedded SQLite Runtime Routing):** Delivered production PostgreSQL backend via `psycopg` v3 + `psycopg-pool` alongside zero-config embedded SQLite. Defined `SuiteRepositoryProtocol`, created `PostgresSuiteRepository` with JSONB/GIN schema and connection pooling, added runtime factory routing via `create_suite_repository()` and `SuiteRepository.__new__`, refactored `SuiteWorkflow` to protocol boundaries with atomic `delete_run()`, and unlocked horizontal autoscaling (`MAX_INSTANCES=10`) in Cloud Run deployment tooling when `DATABASE_URL` is configured. | Accepted | 2026-10-04 |
+| DR-043 | **Outbound Agent Authentication & Target Connection Profiles (Bearer, API Key, Custom Headers, and Secret Masking):** Implemented `TargetConnectionProfile` domain model (`AuthType.BEARER`, `API_KEY`, `CUSTOM`), header resolution, and automated secret masking. Updated `EndpointProber`, `BlackboxRunner`, and `SuiteWorkflow` to inject authenticated headers while scrubbing secrets from execution steps, logs, and traces. Added Dual-Engine persistence schema migration (`connection_profile_json` in SQLite/PostgreSQL) and created an interactive Target Authentication & Headers drawer in Web Studio UI per `ui-ux-pro-max`. | Accepted | 2026-10-04 |
+| DR-044 | **Distributed Asynchronous Job State Persistence in Dual-Engine Repositories (Cloud Run Horizontal Scaling & Preemption Resilience):** Extended `SuiteRepositoryProtocol`, `SuiteRepository`, and `PostgresSuiteRepository` with persistent `run_jobs` schema (`_migration_v005`) for `save_run_job` and `get_run_job`. Wired `RunJobManager` to persist job states across lifecycle transitions (`PENDING`, `RUNNING`, `progress`, `COMPLETED`, `FAILED`). Updated `GET /v1/suites/{agent_id}/runs/{run_id}/status` to query DB if in-memory job is absent. | Accepted | 2026-10-04 |
+| DR-045 | **Built-in Demo Agent, Sequential Multi-Turn Evaluation, API Rate Limiting & Production CI Pipeline:** Bundled deterministic multi-turn demo agent (`/demo/chat`, `--demo` flag, Studio preset). Extended `CandidateTest` with `steps` and `BlackboxRunner` with multi-turn loop & trajectory steps. Added in-memory sliding-window rate limiters to `/v1/endpoints/probe` & `/v1/suites/preview`. Created GitHub Actions CI pipeline running backend quality gates and frontend web build. | Accepted | 2026-10-04 |
 
 
 ---
@@ -446,7 +449,61 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
      - Add atomic `delete_run(agent_id, run_id)` across repositories, refactoring `SuiteWorkflow` to interact exclusively through protocol methods without accessing internal connection or lock attributes.
      - Update `deploy/gcp/deploy.sh` to auto-detect `DATABASE_URL`, unlock horizontal autoscaling (`MAX_INSTANCES=10` default), and pass `--add-cloudsql-instances` when configured.
 - **Decision:** **Option 3.**
-- **Consequences:** Provides seamless dual-engine persistence with zero code changes required in calling code. Local users continue to run zero-setup SQLite, while cloud deployments scale horizontally across Cloud Run nodes backed by Google Cloud SQL, Neon, or Supabase. 10 cloud deployment configuration tests and 6 PostgreSQL engine tests pass; 117 source files pass `mypy --strict` with 0 issues; full test suite passes 322 tests at 87.94% coverage.
+
+---
+
+### DR-043 — Outbound Agent Authentication & Target Connection Profiles (Bearer, API Key, Custom Headers, and Secret Masking)
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** AgentEval evaluated endpoints (`POST /chat`) without outbound authentication or custom request headers. Real-world customer AI agents in enterprise and multi-tenant environments require authentication (e.g. `Authorization: Bearer <jwt>`, `X-API-Key: <key>`, or tenant routing headers like `X-Tenant-Id: <id>`). Without outbound auth support, users could not test secured agent targets, receiving `HTTP 401 Unauthorized` or `403 Forbidden`. Furthermore, storing or transmitting auth credentials presents critical security risks: raw tokens must never leak into execution logs, OpenTelemetry traces, test case observation JSON, Allure HTML reports, or database records.
+- **Alternatives considered:**
+  1. **Ad-hoc headers CLI option only:** (Rejected: Violates Core Principle 8 "Web UI-First Delivery").
+  2. **Embed secrets in endpoint query strings:** (Rejected: Severe security vulnerability; URLs leak into proxy logs, referrers, and browser histories).
+  3. **Target Connection Profiles with Dual-Engine persistence, secret masking, and Web Studio UI Drawer (Option 3, Accepted):**
+     - Domain model `TargetConnectionProfile` (`agenteval/targets/models.py`) with `AuthType` (`none`, `bearer`, `api_key`, `custom`), `resolve_headers()`, `to_safe_dict()`, `mask_secret_value()`, and `redact_sensitive_headers()`.
+     - Ingest & execution engine support in `EndpointProber`, `BlackboxRunner`, and `SuiteWorkflow`: outbound calls synthesize configured headers, while all recorded execution steps, observations, and error messages strictly redact secret values.
+     - API layer schema updates in `agenteval/api/schemas.py` and `app.py` on `/v1/endpoints/probe`, `/v1/suites/preview`, `/v1/suites`, and `/v1/suites/{agent_id}/runs`.
+     - Dual-Engine database schema migration adding `connection_profile_json` column (`TEXT` in SQLite with `_migration_v004`, `JSONB` in PostgreSQL) across `suite_versions` and `assurance_runs`.
+     - Web Studio UI drawer (`web/src/components/Studio.tsx`) designed per `ui-ux-pro-max`: expandable card under endpoint URL with auth scheme pills (`None`, `Bearer Token`, `API Key`, `Custom Headers`), password toggle eye reveals, key-value header editor, and live probe status badge (`HTTP 200 (XXms)` / `HTTP 401 Unauthorized`).
+- **Decision:** **Option 3.**
+- **Consequences:** Enables seamless evaluation of secured enterprise AI agents with end-to-end secret masking across storage, logs, traces, and UI. Automated test suites pass 343 tests (+21 new unit and integration tests), clean `mypy --strict` and `ruff check`, and clean frontend bundle build (`npm run build`).
+
+---
+
+### DR-044 — Distributed Asynchronous Job State Persistence in Dual-Engine Repositories (Cloud Run Horizontal Scaling & Preemption Resilience)
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** Decoupled asynchronous background execution (`RunJobManager`, [DR-035](#dr-035--decoupled-asynchronous-background-runs-in-process-job-manager-non-blocking-202-accepted-and-real-time-progress-polling)) originally tracked job states (`JobStatus`, `RunProgress`, `error`) in an in-memory dictionary. When AgentEval runs in horizontally scaled cloud deployments (e.g. Cloud Run Gen2 with PostgreSQL backend and `MAX_INSTANCES > 1`), client polling requests to `GET /v1/suites/{agent_id}/runs/{run_id}/status` may route across different container instances via load balancing. Furthermore, container cold starts or preemption would erase in-memory jobs, returning premature HTTP 404s to polling Web Studio or CI clients.
+- **Alternatives considered:**
+  1. **Introduce Redis / Memcached layer:** (Rejected: Introduces another distributed dependency, infrastructure cost, and complexity violating the lightweight appliance principle).
+  2. **Require sticky sessions (session affinity):** (Rejected: Fragile in serverless autoscaling, doesn't protect against instance restarts or preemption).
+  3. **Dual-Engine Repository Job State Persistence (Option 3, Accepted):**
+     - Extend `SuiteRepositoryProtocol` with `save_run_job(job: RunJobInfo)` and `get_run_job(run_id: str) -> RunJobInfo | None`.
+     - Author `run_jobs` DDL table across SQLite (via migration `_migration_v005`) and PostgreSQL (`agenteval/db/schema_postgres.sql`) with index on `status`.
+     - Update `RunJobManager` to persist job states across lifecycle transitions (`submit_job`, `_execute_job` start, `on_progress` ticks, `COMPLETED`, and `FAILED`).
+     - Update `GET /v1/suites/{agent_id}/runs/{run_id}/status` in `agenteval/api/app.py` to transparently fall back to querying the database repository if in-memory job state is absent.
+- **Decision:** **Option 3.**
+- **Consequences:** Polling state survives instance boundary crossing in multi-instance Cloud Run clusters and remains queryable even after server restarts. Verified with dedicated test `test_async_run_polling_from_db_when_memory_missing` in `tests/unit/test_api_async_runs.py`.
+
+---
+
+### DR-045 — Built-in Demo Agent, Sequential Multi-Turn Evaluation, API Rate Limiting & Production CI Pipeline
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** Following the end-to-end gap analysis and implementation plan (Slice 2), AgentEval required resolution of critical adoption and resilience barriers: (1) New users evaluating AgentEval needed external LLM keys or complex agent setups just to test the platform; (2) Evaluation targets were constrained to single-turn prompts, failing to test multi-turn conversations and stateful confirmations; (3) Compute- and token-heavy routes (`/v1/endpoints/probe` and `/v1/suites/preview`) had no rate limits, exposing deployments to resource exhaustion and LLM token draining; (4) The repository lacked automated GitHub Actions CI pipelines enforcing quality gates across push and pull requests.
+- **Alternatives considered:**
+  1. **External mocking scripts only:** Require running a separate python process for demos. (Rejected: High user onboarding friction).
+  2. **Wait for full agent simulation framework:** Defer multi-turn evaluation to major future release. (Rejected: Violates incremental delivery and blocks conversational agent testing).
+  3. **Appliance-Level Turnkey Quickstart, Multi-Turn Loop, In-Memory Rate Limiting, and Matrix CI (Option 3, Accepted):**
+     - **Built-in Demo Agent:** Created `agenteval/demo/mock_agent.py` implementing a complete customer support agent handling order tracking, confirmation-gated refund processing, prompt injection refusal, credential protection, and tenant isolation. Exposed via `POST /demo/chat` and `GET /demo/info`, enabled by `--demo` flag in `agenteval serve` or `AGENTEVAL_DEMO=1`. Added interactive "Demo Agent" quick preset button in Studio UI per `ui-ux-pro-max`.
+     - **Multi-Turn Evaluation:** Added `steps: list[str]` to `CandidateTest` and `turn_observations` to `ObservationBundle`. Refactored `BlackboxRunner` with `_invoke_multi_turn` to sequentially accumulate conversation history (`messages` and `history`), break early on 5xx errors, and derive sealed multi-turn execution trajectories (`User message (Turn N)`, `HTTP response (Turn N)`, `Agent thought (Turn N)`, `Tool call (Turn N)`).
+     - **API Rate Limiting:** Implemented `SlidingWindowRateLimiter` (`agenteval/api/rate_limiter.py`) with client IP and API key discrimination, automatic memory pruning, and `Retry-After` headers. Applied default 60 RPM on `/v1/endpoints/probe` and 20 RPM on `/v1/suites/preview`.
+     - **GitHub Actions CI:** Created `.github/workflows/ci.yml` running Python matrix (3.11 & 3.12) quality gates (`ruff check`, `ruff format --check`, `mypy agenteval`, and `pytest --cov=agenteval --cov-fail-under=85`) alongside Node 20 Web Console build (`tsc --noEmit`, `npm run build`).
+- **Decision:** **Option 3.**
+- **Consequences:** Eliminates onboarding friction with zero-key 30-second quickstarts, enables multi-turn conversation assurance, protects cloud deployments from runaway token drain, and automates repository quality enforcement. Verified across 380 passed tests with 89.46% code coverage, clean `mypy --strict`, clean `ruff`, and clean frontend production build.
 
 <!-- New entries above ## Archive -->
 

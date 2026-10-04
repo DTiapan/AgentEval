@@ -98,7 +98,11 @@ def main() -> None:
 
     for test in sample_tests:
         score = score_map.get(test.id)
-        status = "ACCEPTED (Kept in Pack)" if test.id in {t.id for t in filtered} else "PRUNED (Filtered Out)"
+        status = (
+            "ACCEPTED (Kept in Pack)"
+            if test.id in {t.id for t in filtered}
+            else "PRUNED (Filtered Out)"
+        )
         print(f"--- [{status}] {test.name} ({test.id}) ---")
         if score:
             print(f"  Source:           {score.source}")

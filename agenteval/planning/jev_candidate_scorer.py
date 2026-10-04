@@ -125,7 +125,9 @@ class JevCandidateScorer:
                         candidate, existing_prompts, source="local_heuristic_fallback"
                     )
             else:
-                res = self._local_heuristic_score(candidate, existing_prompts, source="local_heuristic")
+                res = self._local_heuristic_score(
+                    candidate, existing_prompts, source="local_heuristic"
+                )
 
             jev_span.set_attribute("agenteval.quality.composite", res.composite_score)
             jev_span.set_attribute("agenteval.quality.source", res.source)

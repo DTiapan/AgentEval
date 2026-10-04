@@ -32,6 +32,12 @@ def test_list_suites_empty(client: TestClient, tmp_path: Path) -> None:
     assert response.json()["suites"] == []
 
 
+def test_list_suites_path_traversal_rejected(client: TestClient) -> None:
+    response = client.get("/v1/suites", params={"suite_root": "../../etc"})
+    assert response.status_code == 400
+    assert "path traversal" in response.json()["error"]
+
+
 def test_health(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200

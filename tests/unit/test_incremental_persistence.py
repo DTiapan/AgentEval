@@ -18,7 +18,9 @@ from agenteval.planning.suite_store import SuiteStore
 from agenteval.services.suite_workflow import SuiteWorkflow
 
 
-def _create_sample_suite(db_path: Path, agent_id: str = "inc-agent", test_count: int = 3) -> SuiteRepository:
+def _create_sample_suite(
+    db_path: Path, agent_id: str = "inc-agent", test_count: int = 3
+) -> SuiteRepository:
     repo = SuiteRepository(db_path)
     tests = [
         CandidateTest(

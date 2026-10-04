@@ -198,7 +198,11 @@ def test_blackbox_runner_w3c_propagation_and_spans() -> None:
     assert "agent.endpoint.invoke" in span_names
 
     # Check that trace ID is constant across all 3 spans
-    trace_ids = {s.context.trace_id for s in spans if s.name in ("suite.run_pack", "test.case.execute", "agent.endpoint.invoke")}
+    trace_ids = {
+        s.context.trace_id
+        for s in spans
+        if s.name in ("suite.run_pack", "test.case.execute", "agent.endpoint.invoke")
+    }
     assert len(trace_ids) == 1
 
 
@@ -283,7 +287,9 @@ def test_suite_repository_spans(tmp_path: Path) -> None:
         ),
         rationale="Passed",
     )
-    repo.initialize_run("agent-otel", "run-1", suite_version=1, endpoint_url="http://127.0.0.1:8000")
+    repo.initialize_run(
+        "agent-otel", "run-1", suite_version=1, endpoint_url="http://127.0.0.1:8000"
+    )
     repo.save_partial_result("run-1", res)
 
     report = SuiteRunReport(
@@ -341,7 +347,9 @@ def test_suite_workflow_spans(tmp_path: Path) -> None:
 - Answer FAQs
 """
 
-    preview = workflow.preview_from_prd_text(prd_text, agent_id="agent-wf-test", probe_endpoint=False)
+    preview = workflow.preview_from_prd_text(
+        prd_text, agent_id="agent-wf-test", probe_endpoint=False
+    )
     assert preview is not None
 
     init = workflow.init_from_prd_text(prd_text, agent_id="agent-wf-test", probe_endpoint=False)

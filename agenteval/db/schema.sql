@@ -49,6 +49,7 @@ CREATE TABLE IF NOT EXISTS suite_versions (
     requirements_fingerprint TEXT NOT NULL,
     requirements_text        TEXT NOT NULL,
     endpoint_profile         TEXT NOT NULL DEFAULT '',
+    connection_profile_json  TEXT,
     pack_json                TEXT NOT NULL,
     candidate_pool_json      TEXT,
     agent_card_json          TEXT,
@@ -58,18 +59,19 @@ CREATE TABLE IF NOT EXISTS suite_versions (
 );
 
 CREATE TABLE IF NOT EXISTS assurance_runs (
-    run_id           TEXT PRIMARY KEY,
-    agent_id         TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
-    suite_version_id TEXT NOT NULL REFERENCES suite_versions(id),
-    environment_id   TEXT REFERENCES environments(id),
-    endpoint_url     TEXT NOT NULL,
-    started_at       TEXT NOT NULL,
-    finished_at      TEXT NOT NULL,
-    passed           INTEGER NOT NULL DEFAULT 0,
-    failed           INTEGER NOT NULL DEFAULT 0,
-    unverifiable     INTEGER NOT NULL DEFAULT 0,
-    run_diff_json    TEXT,
-    triggered_by     TEXT
+    run_id                  TEXT PRIMARY KEY,
+    agent_id                TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    suite_version_id        TEXT NOT NULL REFERENCES suite_versions(id),
+    environment_id          TEXT REFERENCES environments(id),
+    endpoint_url            TEXT NOT NULL,
+    connection_profile_json TEXT,
+    started_at              TEXT NOT NULL,
+    finished_at             TEXT NOT NULL,
+    passed                  INTEGER NOT NULL DEFAULT 0,
+    failed                  INTEGER NOT NULL DEFAULT 0,
+    unverifiable            INTEGER NOT NULL DEFAULT 0,
+    run_diff_json           TEXT,
+    triggered_by            TEXT
 );
 
 CREATE TABLE IF NOT EXISTS test_case_results (
@@ -126,3 +128,18 @@ CREATE INDEX IF NOT EXISTS idx_runs_agent_started ON assurance_runs(agent_id, st
 CREATE INDEX IF NOT EXISTS idx_results_run ON test_case_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_steps_result ON execution_steps(test_case_result_id, step_index);
 CREATE INDEX IF NOT EXISTS idx_audit_workspace_time ON audit_events(workspace_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS run_jobs (
+    run_id       TEXT PRIMARY KEY,
+    agent_id     TEXT NOT NULL,
+    status       TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    started_at   TEXT,
+    completed_at TEXT,
+    completed    INTEGER NOT NULL DEFAULT 0,
+    total        INTEGER NOT NULL DEFAULT 0,
+    percent      REAL NOT NULL DEFAULT 0.0,
+    error        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_jobs_agent ON run_jobs(agent_id, created_at DESC);

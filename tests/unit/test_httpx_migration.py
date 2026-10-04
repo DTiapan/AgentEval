@@ -22,6 +22,7 @@ def test_create_safe_client_blocks_direct_ssrf() -> None:
 
 def test_create_safe_client_blocks_redirect_ssrf() -> None:
     """Verify that create_safe_client intercepts 3xx redirect hops attempting to bounce to internal metadata."""
+
     def mock_handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/bounce":
             return httpx.Response(302, headers={"Location": "http://169.254.169.254/secret"})
@@ -36,6 +37,7 @@ def test_create_safe_client_blocks_redirect_ssrf() -> None:
 
 def test_create_safe_client_allows_valid_redirect() -> None:
     """Verify that create_safe_client allows redirects between safe allowed endpoints."""
+
     def mock_handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/old-path":
             return httpx.Response(301, headers={"Location": "http://api.agent.internal/new-path"})

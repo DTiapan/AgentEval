@@ -21,7 +21,11 @@ def handle_helpdesk_agent(prompt: str) -> dict[str, Any]:
             "is_finished": True,
         }
 
-    if "another employee" in text or "other user's ticket" in text or "without authorization" in text:
+    if (
+        "another employee" in text
+        or "other user's ticket" in text
+        or "without authorization" in text
+    ):
         return {
             "thought": "I can only access tickets for the authenticated employee.",
             "tool_calls": [],
@@ -87,8 +91,7 @@ def handle_helpdesk_agent(prompt: str) -> dict[str, Any]:
 
     return {
         "thought": (
-            f"I can create_ticket or reset_password for {emp_id}. "
-            "What do you need help with?"
+            f"I can create_ticket or reset_password for {emp_id}. What do you need help with?"
         ),
         "tool_calls": [],
         "is_finished": True,

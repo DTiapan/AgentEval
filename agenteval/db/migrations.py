@@ -231,6 +231,39 @@ def _migration_v003(conn: sqlite3.Connection) -> None:
         _add_column_if_missing(conn, "assurance_runs", "error_message", "error_message TEXT")
 
 
+def _migration_v004(conn: sqlite3.Connection) -> None:
+    """Additive v4: connection_profile_json on suite_versions and assurance_runs (Slice 13)."""
+    if _table_exists(conn, "suite_versions"):
+        _add_column_if_missing(
+            conn, "suite_versions", "connection_profile_json", "connection_profile_json TEXT"
+        )
+    if _table_exists(conn, "assurance_runs"):
+        _add_column_if_missing(
+            conn, "assurance_runs", "connection_profile_json", "connection_profile_json TEXT"
+        )
+
+
+def _migration_v005(conn: sqlite3.Connection) -> None:
+    """Additive v5: run_jobs table for distributed background run status."""
+    conn.executescript(
+        """
+        CREATE TABLE IF NOT EXISTS run_jobs (
+            run_id       TEXT PRIMARY KEY,
+            agent_id     TEXT NOT NULL,
+            status       TEXT NOT NULL,
+            created_at   TEXT NOT NULL,
+            started_at   TEXT,
+            completed_at TEXT,
+            completed    INTEGER NOT NULL DEFAULT 0,
+            total        INTEGER NOT NULL DEFAULT 0,
+            percent      REAL NOT NULL DEFAULT 0.0,
+            error        TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_run_jobs_agent ON run_jobs(agent_id, created_at DESC);
+        """
+    )
+
+
 def apply_migrations(conn: sqlite3.Connection) -> None:
     """Apply pending migrations in order."""
     conn.execute(
@@ -259,5 +292,21 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         conn.execute(
             "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
             (3, datetime.now(UTC).isoformat()),
+        )
+        conn.commit()
+
+    if current < 4:
+        _migration_v004(conn)
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (4, datetime.now(UTC).isoformat()),
+        )
+        conn.commit()
+
+    if current < 5:
+        _migration_v005(conn)
+        conn.execute(
+            "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+            (5, datetime.now(UTC).isoformat()),
         )
         conn.commit()

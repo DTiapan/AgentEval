@@ -144,3 +144,47 @@ def test_delete_agent_cascades_and_removes_data(tmp_path: Path) -> None:
     # Deleting non-existent agent returns False
     assert repo.delete_agent("repo-agent") is False
     assert repo.delete_agent("non-existent-agent") is False
+    repo.close()
+
+
+def test_save_and_get_run_job(tmp_path: Path) -> None:
+    from agenteval.services.run_manager import JobStatus, RunJobInfo, RunProgress
+
+    db = tmp_path / "test_jobs.db"
+    repo = SuiteRepository(db)
+    try:
+        # None for non-existent run_id
+        assert repo.get_run_job("missing-run") is None
+
+        job = RunJobInfo(
+            run_id="run-job-123",
+            agent_id="test-agent",
+            status=JobStatus.RUNNING,
+            progress=RunProgress(completed=3, total=10, percent=30.0),
+        )
+        repo.save_run_job(job)
+
+        fetched = repo.get_run_job("run-job-123")
+        assert fetched is not None
+        assert fetched.run_id == "run-job-123"
+        assert fetched.agent_id == "test-agent"
+        assert fetched.status == JobStatus.RUNNING
+        assert fetched.progress.completed == 3
+        assert fetched.progress.total == 10
+        assert fetched.progress.percent == 30.0
+
+        # Update to completed
+        updated = job.model_copy(
+            update={
+                "status": JobStatus.COMPLETED,
+                "progress": RunProgress(completed=10, total=10, percent=100.0),
+            }
+        )
+        repo.save_run_job(updated)
+
+        fetched2 = repo.get_run_job("run-job-123")
+        assert fetched2 is not None
+        assert fetched2.status == JobStatus.COMPLETED
+        assert fetched2.progress.percent == 100.0
+    finally:
+        repo.close()

@@ -30,6 +30,7 @@ from agenteval.security.url_validator import (
     is_private_allowed,
     validate_endpoint_url,
 )
+from agenteval.targets import TargetConnectionProfile
 from agenteval.telemetry import StatusCode, inject_trace_context, start_span
 
 logger = get_logger("agenteval.runner")
@@ -61,12 +62,27 @@ class BlackboxRunner:
         allow_private: bool | None = None,
         max_workers: int | None = None,
         client: httpx.Client | None = None,
+        connection_profile: TargetConnectionProfile | None = None,
     ) -> None:
         self.allow_private = is_private_allowed() if allow_private is None else allow_private
-        validate_endpoint_url(endpoint_url, allow_private=self.allow_private)
-        self.endpoint_url = endpoint_url
-        self.headers = headers or {"Content-Type": "application/json"}
-        self.timeout_seconds = timeout_seconds
+        effective_url = (
+            connection_profile.endpoint_url
+            if connection_profile and connection_profile.endpoint_url
+            else endpoint_url
+        )
+        validate_endpoint_url(effective_url, allow_private=self.allow_private)
+        self.endpoint_url = effective_url
+        effective_headers: dict[str, str] = {"Content-Type": "application/json"}
+        if connection_profile is not None:
+            effective_headers.update(connection_profile.resolve_headers())
+        if headers is not None:
+            effective_headers.update(headers)
+        self.headers = effective_headers
+        self.timeout_seconds = (
+            connection_profile.timeout_seconds
+            if connection_profile is not None
+            else timeout_seconds
+        )
         self.judge_mode = JudgeMode(judge_mode)
         self._scorer = ObservableScorer()
         self._judge_scorer = judge_scorer or LLMJudgeScorer(force_offline=force_offline_judge)
@@ -80,7 +96,11 @@ class BlackboxRunner:
                 headers=self.headers,
             )
             self._owns_client = True
-        raw_workers = max_workers if max_workers is not None else os.environ.get("AGENTEVAL_MAX_CONCURRENT_TESTS")
+        raw_workers = (
+            max_workers
+            if max_workers is not None
+            else os.environ.get("AGENTEVAL_MAX_CONCURRENT_TESTS")
+        )
         try:
             self.max_workers = int(raw_workers) if raw_workers else 8
         except ValueError:
@@ -121,6 +141,7 @@ class BlackboxRunner:
                 "agenteval.pack_version": pack.version,
             },
         ) as suite_span:
+
             def _execute_one(test: CandidateTest) -> TestCaseResult:
                 with start_span(
                     "test.case.execute",
@@ -143,7 +164,8 @@ class BlackboxRunner:
                             # Escalate to LLM judge if heuristic has no rule match
                             if (
                                 scored.verdict == "UNVERIFIABLE"
-                                and "external evaluator or llm judge required" in scored.rationale.lower()
+                                and "external evaluator or llm judge required"
+                                in scored.rationale.lower()
                             ):
                                 logger.info(
                                     "hybrid_judge_escalation",
@@ -164,9 +186,13 @@ class BlackboxRunner:
                         test_span.set_attribute("agenteval.latency_ms", obs.latency_ms)
                         test_span.set_attribute("http.status_code", obs.http_status)
                         if scored.verdict == "FAIL":
-                            test_span.set_status(StatusCode.ERROR, f"Test {test.id} failed: {scored.rationale}")
+                            test_span.set_status(
+                                StatusCode.ERROR, f"Test {test.id} failed: {scored.rationale}"
+                            )
 
-                        trajectory = build_blackbox_trajectory(obs, scored.verdict, scored.rationale)
+                        trajectory = build_blackbox_trajectory(
+                            obs, scored.verdict, scored.rationale
+                        )
                         return scored.model_copy(update={"trajectory": trajectory})
                     except Exception as exc:
                         test_span.set_status(StatusCode.ERROR, str(exc))
@@ -255,9 +281,23 @@ class BlackboxRunner:
             )
 
     def _invoke(self, test: CandidateTest) -> ObservationBundle:
+        turns: list[str]
+        if test.steps:
+            if test.steps[0] == test.user_prompt:
+                turns = list(test.steps)
+            else:
+                turns = [test.user_prompt] + [s for s in test.steps if s != test.user_prompt]
+        else:
+            turns = [test.user_prompt]
+
+        if len(turns) == 1:
+            return self._invoke_single_turn(test, test.user_prompt)
+        return self._invoke_multi_turn(test, turns)
+
+    def _invoke_single_turn(self, test: CandidateTest, prompt: str) -> ObservationBundle:
         payload: dict[str, Any] = {
-            "prompt": test.user_prompt,
-            "messages": [{"role": "user", "content": test.user_prompt}],
+            "prompt": prompt,
+            "messages": [{"role": "user", "content": prompt}],
             "history": [],
         }
         with start_span(
@@ -280,7 +320,7 @@ class BlackboxRunner:
                 invoke_span.set_status(StatusCode.ERROR, str(e))
                 return ObservationBundle(
                     test_id=test.id,
-                    user_prompt=test.user_prompt,
+                    user_prompt=prompt,
                     response_text=f"SSRF blocked: {e}",
                     http_status=0,
                     latency_ms=latency_ms,
@@ -291,7 +331,7 @@ class BlackboxRunner:
                 invoke_span.set_status(StatusCode.ERROR, str(e))
                 return ObservationBundle(
                     test_id=test.id,
-                    user_prompt=test.user_prompt,
+                    user_prompt=prompt,
                     response_text=f"HTTP error: {e}",
                     http_status=0,
                     latency_ms=latency_ms,
@@ -302,7 +342,7 @@ class BlackboxRunner:
                 invoke_span.set_status(StatusCode.ERROR, str(e))
                 return ObservationBundle(
                     test_id=test.id,
-                    user_prompt=test.user_prompt,
+                    user_prompt=prompt,
                     response_text=f"Request error: {e}",
                     http_status=0,
                     latency_ms=latency_ms,
@@ -318,12 +358,141 @@ class BlackboxRunner:
             text = self._extract_text(data) if isinstance(data, dict) else str(data)
             return ObservationBundle(
                 test_id=test.id,
-                user_prompt=test.user_prompt,
+                user_prompt=prompt,
                 response_text=text,
                 http_status=status,
                 latency_ms=latency_ms,
                 raw_json=data if isinstance(data, dict) else {"raw": data},
             )
+
+    def _invoke_multi_turn(self, test: CandidateTest, turns: list[str]) -> ObservationBundle:
+        messages: list[dict[str, str]] = []
+        history: list[dict[str, str]] = []
+        turn_bundles: list[ObservationBundle] = []
+        total_latency_ms = 0.0
+
+        for turn_idx, prompt in enumerate(turns, 1):
+            messages.append({"role": "user", "content": prompt})
+            payload: dict[str, Any] = {
+                "prompt": prompt,
+                "messages": list(messages),
+                "history": list(history),
+            }
+            with start_span(
+                "agent.endpoint.invoke",
+                attributes={
+                    "agenteval.test_id": test.id,
+                    "agenteval.turn_index": turn_idx,
+                    "http.url": self.endpoint_url,
+                    "http.method": "POST",
+                },
+            ) as invoke_span:
+                req_headers = dict(self.headers)
+                inject_trace_context(req_headers)
+                start = time.perf_counter()
+                try:
+                    resp = self._client.post(self.endpoint_url, json=payload, headers=req_headers)
+                    status = resp.status_code
+                    invoke_span.set_attribute("http.status_code", status)
+                except UnsafeURLError as e:
+                    latency_ms = (time.perf_counter() - start) * 1000
+                    invoke_span.set_status(StatusCode.ERROR, str(e))
+                    err_bundle = ObservationBundle(
+                        test_id=f"{test.id}-turn-{turn_idx}",
+                        user_prompt=prompt,
+                        response_text=f"SSRF blocked: {e}",
+                        http_status=0,
+                        latency_ms=latency_ms,
+                        raw_json={"error": str(e)},
+                    )
+                    turn_bundles.append(err_bundle)
+                    return ObservationBundle(
+                        test_id=test.id,
+                        user_prompt=test.user_prompt,
+                        response_text=f"SSRF blocked: {e}",
+                        http_status=0,
+                        latency_ms=total_latency_ms + latency_ms,
+                        raw_json={"error": str(e)},
+                        turn_observations=turn_bundles,
+                    )
+                except httpx.HTTPError as e:
+                    latency_ms = (time.perf_counter() - start) * 1000
+                    invoke_span.set_status(StatusCode.ERROR, str(e))
+                    err_bundle = ObservationBundle(
+                        test_id=f"{test.id}-turn-{turn_idx}",
+                        user_prompt=prompt,
+                        response_text=f"HTTP error: {e}",
+                        http_status=0,
+                        latency_ms=latency_ms,
+                        raw_json={"error": str(e)},
+                    )
+                    turn_bundles.append(err_bundle)
+                    return ObservationBundle(
+                        test_id=test.id,
+                        user_prompt=test.user_prompt,
+                        response_text=f"HTTP error: {e}",
+                        http_status=0,
+                        latency_ms=total_latency_ms + latency_ms,
+                        raw_json={"error": str(e)},
+                        turn_observations=turn_bundles,
+                    )
+                except Exception as e:
+                    latency_ms = (time.perf_counter() - start) * 1000
+                    invoke_span.set_status(StatusCode.ERROR, str(e))
+                    err_bundle = ObservationBundle(
+                        test_id=f"{test.id}-turn-{turn_idx}",
+                        user_prompt=prompt,
+                        response_text=f"Request error: {e}",
+                        http_status=0,
+                        latency_ms=latency_ms,
+                        raw_json={"error": str(e)},
+                    )
+                    turn_bundles.append(err_bundle)
+                    return ObservationBundle(
+                        test_id=test.id,
+                        user_prompt=test.user_prompt,
+                        response_text=f"Request error: {e}",
+                        http_status=0,
+                        latency_ms=total_latency_ms + latency_ms,
+                        raw_json={"error": str(e)},
+                        turn_observations=turn_bundles,
+                    )
+
+                latency_ms = (time.perf_counter() - start) * 1000
+                total_latency_ms += latency_ms
+                try:
+                    data = resp.json()
+                except Exception:
+                    data = {"response": resp.text}
+
+                text = self._extract_text(data) if isinstance(data, dict) else str(data)
+                bundle = ObservationBundle(
+                    test_id=f"{test.id}-turn-{turn_idx}",
+                    user_prompt=prompt,
+                    response_text=text,
+                    http_status=status,
+                    latency_ms=latency_ms,
+                    raw_json=data if isinstance(data, dict) else {"raw": data},
+                )
+                turn_bundles.append(bundle)
+
+                if status >= 500:
+                    break
+
+                # Append to conversation messages and history
+                messages.append({"role": "assistant", "content": text})
+                history.append({"user": prompt, "agent": text})
+
+        last_bundle = turn_bundles[-1]
+        return ObservationBundle(
+            test_id=test.id,
+            user_prompt=test.user_prompt,
+            response_text=last_bundle.response_text,
+            http_status=last_bundle.http_status,
+            latency_ms=total_latency_ms,
+            raw_json=last_bundle.raw_json,
+            turn_observations=turn_bundles,
+        )
 
     @staticmethod
     def _extract_text(data: dict[str, Any]) -> str:

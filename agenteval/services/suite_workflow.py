@@ -37,6 +37,7 @@ from agenteval.planning.optimizer import TestPackOptimizer
 from agenteval.planning.run_diff import diff_suite_runs
 from agenteval.planning.suite_store import SuiteStore
 from agenteval.planning.suite_sync import SuiteSynchronizer, SuiteSyncResult
+from agenteval.targets import TargetConnectionProfile
 from agenteval.telemetry import start_span
 
 
@@ -106,6 +107,23 @@ class SuiteWorkflow:
         self._db_path = Path(db_path) if db_path is not None else None
         self._repo: SuiteRepositoryProtocol | None = None
 
+    def close(self) -> None:
+        if self._repo is not None:
+            try:
+                self._repo.close()
+            except Exception:
+                pass
+            self._repo = None
+
+    def __del__(self) -> None:
+        self.close()
+
+    def __enter__(self) -> "SuiteWorkflow":
+        return self
+
+    def __exit__(self, exc_type: object, exc_val: object, exc_tb: object) -> None:
+        self.close()
+
     def _repository(self) -> SuiteRepositoryProtocol:
         if self._repo is None:
             self._repo = create_suite_repository(self._db_path)
@@ -155,8 +173,14 @@ class SuiteWorkflow:
         report: SuiteRunReport,
         *,
         endpoint_url: str,
+        connection_profile_json: str | None = None,
     ) -> None:
-        self._repository().finalize_run(agent_id, report, endpoint_url=endpoint_url)
+        self._repository().finalize_run(
+            agent_id,
+            report,
+            endpoint_url=endpoint_url,
+            connection_profile_json=connection_profile_json,
+        )
 
     def list_domain_packs(self) -> DomainPackListResult:
         summaries: list[DomainPackSummary] = []
@@ -205,19 +229,28 @@ class SuiteWorkflow:
         probe_endpoint: bool = True,
         max_tier: PriorityTier | None = None,
         selected_test_ids: list[str] | None = None,
+        headers: dict[str, str] | None = None,
+        connection_profile: TargetConnectionProfile | None = None,
     ) -> SuitePreviewResult:
+        eff_url = (
+            connection_profile.endpoint_url
+            if connection_profile and connection_profile.endpoint_url
+            else endpoint_url
+        )
         with start_span(
             "suite.preview",
             attributes={
                 "agenteval.agent_id": agent_id,
-                "agenteval.has_endpoint": bool(endpoint_url),
+                "agenteval.has_endpoint": bool(eff_url),
             },
         ):
             card, fingerprint, probe = AgentBootstrap.from_text(
                 prd_text,
                 agent_id=agent_id,
-                endpoint_url=endpoint_url,
-                probe_endpoint=probe_endpoint and endpoint_url is not None,
+                endpoint_url=eff_url,
+                probe_endpoint=probe_endpoint and eff_url is not None,
+                headers=headers,
+                connection_profile=connection_profile,
             )
             pool, pack, coverage = SuiteBootstrap(max_tests=self.max_tests).build(
                 card,
@@ -249,20 +282,29 @@ class SuiteWorkflow:
         enabled_domain_packs: list[str] | None = None,
         max_tier: PriorityTier | None = None,
         selected_test_ids: list[str] | None = None,
+        headers: dict[str, str] | None = None,
+        connection_profile: TargetConnectionProfile | None = None,
     ) -> SuiteInitResult:
+        eff_url = (
+            connection_profile.endpoint_url
+            if connection_profile and connection_profile.endpoint_url
+            else endpoint_url
+        )
         with start_span(
             "suite.init",
             attributes={
                 "agenteval.agent_id": agent_id,
-                "agenteval.has_endpoint": bool(endpoint_url),
+                "agenteval.has_endpoint": bool(eff_url),
                 "agenteval.force_new_version": force_new_version,
             },
         ):
             card, fingerprint, probe = AgentBootstrap.from_text(
                 prd_text,
                 agent_id=agent_id,
-                endpoint_url=endpoint_url,
-                probe_endpoint=probe_endpoint and endpoint_url is not None,
+                endpoint_url=eff_url,
+                probe_endpoint=probe_endpoint and eff_url is not None,
+                headers=headers,
+                connection_profile=connection_profile,
             )
             pool, pack, coverage = SuiteBootstrap(max_tests=self.max_tests).build(
                 card,
@@ -271,7 +313,8 @@ class SuiteWorkflow:
                 selected_test_ids=selected_test_ids,
             )
 
-            manifest = SuiteStore.new_manifest(card.id, fingerprint, endpoint_url or "")
+            manifest = SuiteStore.new_manifest(card.id, fingerprint, eff_url or "")
+            profile_json = connection_profile.model_dump_json() if connection_profile else None
             repo = self._repository()
             repo.init_suite(
                 manifest,
@@ -281,6 +324,7 @@ class SuiteWorkflow:
                 agent_card_json=card.model_dump_json(),
                 requirements_text=prd_text,
                 enabled_domain_packs=enabled_domain_packs,
+                connection_profile_json=profile_json,
             )
             suite_path = str(self._db_path or database_path())
 
@@ -291,7 +335,7 @@ class SuiteWorkflow:
                 candidate_pool_size=len(pool),
                 optimized_pack_size=len(pack.tests),
                 coverage=coverage,
-                endpoint_stored=bool(endpoint_url),
+                endpoint_stored=bool(eff_url),
                 agent_card=card,
                 endpoint_probe=probe,
             )
@@ -307,23 +351,31 @@ class SuiteWorkflow:
         force_offline_judge: bool | None = None,
         max_concurrency: int | None = None,
         on_progress: Callable[[int, int], None] | None = None,
+        headers: dict[str, str] | None = None,
+        connection_profile: TargetConnectionProfile | None = None,
     ) -> SuiteRunReport:
         manifest = self._load_manifest(agent_id)
         pack = self._load_pack(agent_id)
 
         set_run_audit_log_db_path(audit_log_db_path)
-        url = endpoint_url or manifest.endpoint_profile
+        url = (
+            connection_profile.endpoint_url
+            if connection_profile and connection_profile.endpoint_url
+            else (endpoint_url or manifest.endpoint_profile)
+        )
         if not url:
             raise ValueError("endpoint_url required when suite has no stored endpoint")
 
         previous_run = self._load_latest_run(agent_id)
         effective_run_id = run_id or uuid4().hex[:12]
+        profile_json = connection_profile.model_dump_json() if connection_profile else None
         repo = self._repository()
         repo.initialize_run(
             agent_id=agent_id,
             run_id=effective_run_id,
             suite_version=manifest.version,
             endpoint_url=url,
+            connection_profile_json=profile_json,
         )
 
         def _on_result(res: TestCaseResult) -> None:
@@ -331,6 +383,8 @@ class SuiteWorkflow:
 
         runner = BlackboxRunner(
             endpoint_url=url,
+            headers=headers,
+            connection_profile=connection_profile,
             judge_mode=judge_mode,
             force_offline_judge=force_offline_judge,
             max_workers=max_concurrency,
@@ -356,7 +410,12 @@ class SuiteWorkflow:
             if report.run_id != effective_run_id:
                 repo.delete_run(effective_run_id)
 
-            self._save_run(agent_id, report, endpoint_url=url)
+            self._save_run(
+                agent_id,
+                report,
+                endpoint_url=url,
+                connection_profile_json=profile_json,
+            )
         except Exception as exc:
             repo.mark_run_failed(effective_run_id, str(exc))
             raise
@@ -414,11 +473,7 @@ class SuiteWorkflow:
             pack = self._load_pack(agent_id)
             pool = self._load_pool(agent_id)
 
-            report = (
-                self._load_run(agent_id, run_id)
-                if run_id
-                else self._load_latest_run(agent_id)
-            )
+            report = self._load_run(agent_id, run_id) if run_id else self._load_latest_run(agent_id)
             if report is None:
                 raise FileNotFoundError(
                     f"No assurance run for agent '{agent_id}'. Run the suite before extending gaps."
@@ -549,11 +604,7 @@ class SuiteWorkflow:
     ) -> str:
         manifest = self._load_manifest(agent_id)
         pack = self._load_pack(agent_id)
-        report = (
-            self._load_run(agent_id, run_id)
-            if run_id
-            else self._load_latest_run(agent_id)
-        )
+        report = self._load_run(agent_id, run_id) if run_id else self._load_latest_run(agent_id)
         if report is None:
             target = f"run '{run_id}'" if run_id else "latest run"
             raise FileNotFoundError(f"No execution {target} found for agent '{agent_id}'")

@@ -62,7 +62,9 @@ def test_postgres_repository_missing_url(monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.delenv("AGENTEVAL_DATABASE_URL", raising=False)
 
-    with pytest.raises(ValueError, match="PostgresSuiteRepository requires a valid PostgreSQL connection URL"):
+    with pytest.raises(
+        ValueError, match="PostgresSuiteRepository requires a valid PostgreSQL connection URL"
+    ):
         PostgresSuiteRepository("")
 
 
@@ -300,11 +302,13 @@ def test_postgres_repository_mocked_lifecycle(monkeypatch: pytest.MonkeyPatch) -
                     "test_id": "cand-1",
                     "verdict": "PASS",
                     "rationale": "All assertions passed",
-                    "observation_json": json.dumps({
-                        "test_id": "cand-1",
-                        "user_prompt": "Hello",
-                        "response_text": "200 OK",
-                    }),
+                    "observation_json": json.dumps(
+                        {
+                            "test_id": "cand-1",
+                            "user_prompt": "Hello",
+                            "response_text": "200 OK",
+                        }
+                    ),
                 }
             ],
             # execution_steps rows
@@ -335,3 +339,46 @@ def test_postgres_repository_mocked_lifecycle(monkeypatch: pytest.MonkeyPatch) -
         # 10. close
         repo.close()
         mock_pool.close.assert_called_once()
+
+
+@patch("agenteval.db.postgres_repository.ConnectionPool")
+def test_postgres_save_and_get_run_job(mock_pool_cls: MagicMock) -> None:
+    from agenteval.services.run_manager import JobStatus, RunJobInfo, RunProgress
+
+    mock_pool = MagicMock()
+    mock_conn = MagicMock()
+    mock_cursor = MagicMock()
+    mock_pool.connection.return_value.__enter__.return_value = mock_conn
+    mock_conn.execute.return_value = mock_cursor
+    mock_pool_cls.return_value = mock_pool
+
+    repo = PostgresSuiteRepository("postgresql://localhost/test")
+
+    job = RunJobInfo(
+        run_id="run-pg-123",
+        agent_id="agent-pg",
+        status=JobStatus.RUNNING,
+        progress=RunProgress(completed=4, total=8, percent=50.0),
+    )
+    repo.save_run_job(job)
+    mock_conn.execute.assert_called()
+
+    # Mock get_run_job return
+    mock_cursor.fetchone.return_value = {
+        "run_id": "run-pg-123",
+        "agent_id": "agent-pg",
+        "status": "running",
+        "created_at": "2026-10-04T12:00:00Z",
+        "started_at": "2026-10-04T12:00:01Z",
+        "completed_at": None,
+        "completed": 4,
+        "total": 8,
+        "percent": 50.0,
+        "error": None,
+    }
+    result = repo.get_run_job("run-pg-123")
+    assert result is not None
+    assert result.run_id == "run-pg-123"
+    assert result.agent_id == "agent-pg"
+    assert result.status == JobStatus.RUNNING
+    assert result.progress.percent == 50.0

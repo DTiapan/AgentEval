@@ -34,6 +34,14 @@ def test_resolve_suite_root_preserves_custom_path() -> None:
     assert resolve_suite_root(custom) == custom
 
 
+def test_resolve_suite_root_rejects_path_traversal() -> None:
+    with pytest.raises(ValueError, match="path traversal"):
+        resolve_suite_root("../../etc/passwd")
+
+    with pytest.raises(ValueError, match="path traversal"):
+        resolve_suite_root("foo/../bar")
+
+
 def test_persistence_status_reports_suite_root(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AGENTEVAL_DATA_DIR", "/app/data")
     status = persistence_status()

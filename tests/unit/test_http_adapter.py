@@ -69,4 +69,3 @@ def test_http_adapter_network_failure_raises() -> None:
 
     with pytest.raises(RuntimeError, match="HTTP request failed"):
         adapter.step("Hello", [])
-

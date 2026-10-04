@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from agenteval.services.requirement_run_status import AssuranceSignoffContext
+    from agenteval.services.run_manager import RunJobInfo
 
 from agenteval.db.config import (
     DEFAULT_WORKSPACE_ID,
@@ -67,7 +68,22 @@ class SuiteRepository:
         self._ensure_default_workspace()
 
     def close(self) -> None:
-        self._conn.close()
+        conn = getattr(self, "_conn", None)
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+            self._conn = None  # type: ignore
+
+    def __del__(self) -> None:
+        self.close()
+
+    def __enter__(self) -> "SuiteRepository":
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        self.close()
 
     def list_agent_ids(self) -> list[str]:
         rows = self._conn.execute(
@@ -127,6 +143,7 @@ class SuiteRepository:
         agent_card_json: str | None = None,
         requirements_text: str = "",
         enabled_domain_packs: list[str] | None = None,
+        connection_profile_json: str | None = None,
     ) -> None:
         with start_span(
             "db.sqlite.operation",
@@ -170,13 +187,14 @@ class SuiteRepository:
                     """
                     INSERT INTO suite_versions (
                         id, agent_id, version, requirements_fingerprint,
-                        requirements_text, endpoint_profile, pack_json,
+                        requirements_text, endpoint_profile, connection_profile_json, pack_json,
                         candidate_pool_json, agent_card_json, created_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(agent_id, version) DO UPDATE SET
                         requirements_fingerprint = excluded.requirements_fingerprint,
                         requirements_text = excluded.requirements_text,
                         endpoint_profile = excluded.endpoint_profile,
+                        connection_profile_json = excluded.connection_profile_json,
                         pack_json = excluded.pack_json,
                         candidate_pool_json = excluded.candidate_pool_json,
                         agent_card_json = excluded.agent_card_json,
@@ -189,6 +207,7 @@ class SuiteRepository:
                         manifest.requirements_fingerprint,
                         requirements_text,
                         manifest.endpoint_profile,
+                        connection_profile_json,
                         pack.model_dump_json(),
                         json.dumps([t.model_dump() for t in pool]),
                         agent_card_json,
@@ -408,6 +427,7 @@ class SuiteRepository:
         suite_version: int,
         *,
         endpoint_url: str,
+        connection_profile_json: str | None = None,
     ) -> str:
         """Initialize an assurance run row in 'running' state with zero tallies."""
         row = self._conn.execute(
@@ -418,18 +438,36 @@ class SuiteRepository:
             (agent_id, suite_version),
         ).fetchone()
         if row is None:
-            raise FileNotFoundError(
-                f"No suite version {suite_version} for agent '{agent_id}'"
-            )
+            raise FileNotFoundError(f"No suite version {suite_version} for agent '{agent_id}'")
         suite_version_id = str(row["id"])
         now = datetime.now(UTC).isoformat()
         target_id = self.ensure_default_target(agent_id, endpoint_url)
-        has_target_column = self._conn.execute(
-            "SELECT 1 FROM pragma_table_info('assurance_runs') WHERE name = 'target_id'"
+        has_profile_column = self._conn.execute(
+            "SELECT 1 FROM pragma_table_info('assurance_runs') WHERE name = 'connection_profile_json'"
         ).fetchone()
 
         with self._write_lock, self._conn:
-            if has_target_column is not None:
+            if has_profile_column is not None:
+                self._conn.execute(
+                    """
+                    INSERT OR REPLACE INTO assurance_runs (
+                        run_id, agent_id, suite_version_id, environment_id,
+                        endpoint_url, connection_profile_json, started_at, finished_at,
+                        passed, failed, unverifiable, run_diff_json, target_id, status
+                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, 0, 0, 0, NULL, ?, 'running')
+                    """,
+                    (
+                        run_id,
+                        agent_id,
+                        suite_version_id,
+                        endpoint_url,
+                        connection_profile_json,
+                        now,
+                        now,
+                        target_id,
+                    ),
+                )
+            else:
                 self._conn.execute(
                     """
                     INSERT OR REPLACE INTO assurance_runs (
@@ -446,24 +484,6 @@ class SuiteRepository:
                         now,
                         now,
                         target_id,
-                    ),
-                )
-            else:
-                self._conn.execute(
-                    """
-                    INSERT OR REPLACE INTO assurance_runs (
-                        run_id, agent_id, suite_version_id, environment_id,
-                        endpoint_url, started_at, finished_at,
-                        passed, failed, unverifiable, run_diff_json
-                    ) VALUES (?, ?, ?, NULL, ?, ?, ?, 0, 0, 0, NULL)
-                    """,
-                    (
-                        run_id,
-                        agent_id,
-                        suite_version_id,
-                        endpoint_url,
-                        now,
-                        now,
                     ),
                 )
         return suite_version_id
@@ -522,6 +542,7 @@ class SuiteRepository:
         report: SuiteRunReport,
         *,
         endpoint_url: str,
+        connection_profile_json: str | None = None,
     ) -> None:
         """Mark run as completed, update diff/tallies, and persist evidence and inspect sidecars."""
         with start_span(
@@ -559,6 +580,7 @@ class SuiteRepository:
                         report.run_id,
                         report.suite_version,
                         endpoint_url=endpoint_url,
+                        connection_profile_json=connection_profile_json,
                     )
 
                 for result in report.results:
@@ -636,6 +658,55 @@ class SuiteRepository:
                 (run_id,),
             )
 
+    def save_run_job(self, job: "RunJobInfo") -> None:
+        """Persist or update background run job state."""
+        with self._write_lock, self._conn:
+            self._conn.execute(
+                """
+                INSERT OR REPLACE INTO run_jobs (
+                    run_id, agent_id, status, created_at, started_at, completed_at,
+                    completed, total, percent, error
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    job.run_id,
+                    job.agent_id,
+                    str(job.status),
+                    job.created_at,
+                    job.started_at,
+                    job.completed_at,
+                    job.progress.completed,
+                    job.progress.total,
+                    job.progress.percent,
+                    job.error,
+                ),
+            )
+
+    def get_run_job(self, run_id: str) -> "RunJobInfo | None":
+        """Retrieve background run job state by run_id."""
+        from agenteval.services.run_manager import JobStatus, RunJobInfo, RunProgress
+
+        row = self._conn.execute(
+            "SELECT * FROM run_jobs WHERE run_id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return RunJobInfo(
+            run_id=str(row["run_id"]),
+            agent_id=str(row["agent_id"]),
+            status=JobStatus(str(row["status"])),
+            created_at=str(row["created_at"]),
+            started_at=str(row["started_at"]) if row["started_at"] is not None else None,
+            completed_at=str(row["completed_at"]) if row["completed_at"] is not None else None,
+            progress=RunProgress(
+                completed=int(row["completed"]),
+                total=int(row["total"]),
+                percent=float(row["percent"]),
+            ),
+            error=str(row["error"]) if row["error"] is not None else None,
+        )
+
     def get_run_record(self, run_id: str) -> dict[str, Any] | None:
         """Return the raw assurance_runs row as a dict, including status and tallies."""
         row = self._conn.execute(
@@ -663,7 +734,6 @@ class SuiteRepository:
         for result in report.results:
             self.save_partial_result(report.run_id, result)
         self.finalize_run(agent_id, report, endpoint_url=endpoint_url)
-
 
     def _persist_inspect_sidecar(self, suite_version_id: str, report: SuiteRunReport) -> None:
         from agenteval.inspect_bridge.log_archive import inspect_extra_available, write_run_archive
@@ -876,4 +946,3 @@ def create_suite_repository(
         url = db_path_or_url if is_pg_url and isinstance(db_path_or_url, str) else None
         return PostgresSuiteRepository(url, **kwargs)
     return SQLiteSuiteRepository(db_path_or_url)
-

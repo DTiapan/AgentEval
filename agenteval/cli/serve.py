@@ -55,6 +55,14 @@ def serve(
             help="Comma-separated allowed CORS origins (default: Vite dev & localhost)",
         ),
     ] = None,
+    demo: Annotated[
+        bool,
+        typer.Option(
+            "--demo",
+            envvar=["AGENTEVAL_DEMO"],
+            help="Enable built-in demo agent endpoint at /demo/chat for instant zero-key testing",
+        ),
+    ] = False,
 ) -> None:
     """Listen for REST requests under /v1/suites/*."""
     if sqlite:
@@ -64,6 +72,13 @@ def serve(
 
     if cors_origins is not None:
         os.environ["AGENTEVAL_CORS_ORIGINS"] = cors_origins
+
+    if demo:
+        os.environ["AGENTEVAL_DEMO"] = "1"
+        typer.echo(
+            f"[agenteval] Demo agent active: http://{host}:{port}/demo/chat (built-in customer support agent)",
+            err=False,
+        )
 
     serve_ui = with_ui if with_ui is not None else _UI_DIST.is_dir()
 

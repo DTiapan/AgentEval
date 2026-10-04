@@ -22,4 +22,3 @@ __all__ = [
     "init_schema",
     "use_sqlite_persistence",
 ]
-
