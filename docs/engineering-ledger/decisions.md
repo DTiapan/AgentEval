@@ -37,6 +37,60 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-027 | **Switchable Tier-2 LLM-as-a-Judge Evaluation Backbone & BlackboxRunner Escalation:** Implemented `LLMJudgeScorer` using LiteLLM (DeepSeek / OpenRouter / OpenAI) with deterministic offline fallback. Introduced `JudgeMode` (`HYBRID`, `DETERMINISTIC_ONLY`, `LLM_JUDGE`). In `HYBRID` mode (default), deterministic heuristics run first; if an open-ended candidate has no rule match, `BlackboxRunner` automatically escalates to `LLMJudgeScorer` instead of stalling at `UNVERIFIABLE`. Upgraded `DeepEvalBridge` to support LiteLLM/OpenRouter keys. Verified live against the real IT Ops Agent (`:8770/chat`). | Accepted | 2026-09-28 |
 | DR-028 | **Surface Jev Quality Ratings & Rationales in Web Studio UI & Bounded Live Evaluation:** Exposed TypeSafe AI Jev System One evaluation results ($Q$ score, severity, novelty, flakiness risk, cost, source, decision rationale) directly in the Web Studio UI (`web/src/components/Studio.tsx`) on test list items and detail inspector. Added `CandidateQualityScore` to engine and client types, bound live cloud evaluations to budget (`max_jev_evals=15`), and enforced non-blocking synthesis timeouts. | Accepted | 2026-10-02 |
 | DR-029 | **Turnkey Google Cloud Deployment Pipeline (Cloud Run Gen2, GCS Volume Mount, Secret Manager & Serverless VPC):** Prepared production GCP deployment pipeline modeled after Recall: (1) Multi-stage security-hardened Dockerfile with unprivileged user building Web Console (`web/dist`) and Python virtualenv; (2) Automated `deploy/gcp/deploy.sh` script managing Artifact Registry, Cloud Build compilation, Cloud Storage volume mount (`/app/data`), and auto-binding Secret Manager secrets; (3) `deploy/gcp/vpc-network.sh` for Serverless VPC Access connector allowing AgentEval to privately evaluate internal VPC agents; (4) Declarative Knative `deploy/gcp/service.yaml` and `cloudbuild.yaml` CI/CD trigger; (5) Resolved runtime suite and SQLite persistence path resolution under mounted volumes (`AGENTEVAL_DATA_DIR`). | Accepted | 2026-10-03 |
+| DR-030 | **Zero-Trust URL Validation & SSRF Protection Architecture (Cloud Metadata Hard-Block, Private Subnet Gating, and Safe Redirect Interceptor):** Hardened AgentEval against Server-Side Request Forgery across all agent ingestion and execution paths (`EndpointProber`, `BlackboxRunner`, `HTTPAdapter`, and API `/v1/endpoints/probe`). Implemented centralized security module (`agenteval/security/url_validator.py`) with strict HTTP/HTTPS scheme allowlist, unconditional cloud metadata blocking (`169.254.169.254`, `metadata.google.internal`), dynamic DNS resolution with CIDR filtering against loopback and RFC 1918 subnets, IPv6 mapped IPv4 de-obfuscation (`::ffff:x.x.x.x`), and `SafeRedirectHandler` ensuring HTTP 3xx hops cannot pivot to internal resources. Default `allow_private=False` with explicit administrative opt-in via `AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=1` for internal VPC agent evaluation. | Accepted | 2026-10-04 |
+| DR-031 | **Configurable Origin Policy, W3C-Compliant Credential Gating, and Drive-By Intranet CORS Hardening:** Eliminated wildcard `allow_origins=["*"]` vulnerability in FastAPI application (`agenteval/api/app.py`). Enforced default allowlist restricted to local development origins (`localhost:5173`, `127.0.0.1:5173`, `localhost:8766`, `127.0.0.1:8766`), closing drive-by intranet cross-origin data exfiltration attacks. Added `AGENTEVAL_CORS_ORIGINS` environment variable and `--cors-origins` CLI flag for multi-tenant and staging deployment. Enforced strict W3C CORS compliance by dynamically disallowing credentials when wildcard `*` is explicitly enabled. Restricted permitted methods and headers to explicit allowlists. | Accepted | 2026-10-04 |
+| DR-032 | **Synchronized Cloud Run Request Timeout Baseline (1800s Execution Headroom for Synchronous Test Suites):** Expanded Cloud Run and deployment pipeline request timeouts from 300s (5 min) to 1800s (30 min) across `deploy/gcp/deploy.sh`, `deploy/gcp/service.yaml`, `cloudbuild.yaml` (via `_TIMEOUT: "1800"` substitution), and `.env.gcp.example`. Eliminates premature Cloud Run HTTP 504 Gateway Timeouts on synchronous evaluation runs (40-60 tests with LLM judge reasoning). Added automated configuration consistency unit test (`tests/unit/test_cloud_deployment_config.py`). | Accepted | 2026-10-04 |
+
+
+---
+
+### DR-030 — Zero-Trust URL Validation & SSRF Protection Architecture: Cloud Metadata Hard-Block, Private Subnet Gating, and Safe Redirect Interceptor
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** In a Bring-Your-Own-Agent (BYOA) architecture, users provide arbitrary HTTP/REST endpoints for evaluation. Naive HTTP fetching (`urllib.request.urlopen`) enables Server-Side Request Forgery (SSRF), allowing malicious or unwitting users to target cloud provider instance metadata services (`http://169.254.169.254`, `metadata.google.internal`) to steal IAM access tokens, or target internal enterprise VPC services (`10.0.0.0/8`, `192.168.0.0/16`, `127.0.0.1`) to port-scan intranet infrastructure. Furthermore, attackers can bypass string-based checks using DNS rebinding, IPv6-mapped IPv4 notation (`::ffff:169.254.169.254`), or HTTP 3xx redirects.
+- **Alternatives considered:**
+  1. **Regex/string prefix check:** Filter URLs starting with `http://localhost` or `http://10.`. (Rejected: trivially bypassed by DNS names resolving to internal IPs, integer/hex IP formats, or 3xx redirects).
+  2. **Rely on external egress proxy / firewall only:** Require all deployments to be fronted by Envoy or Squid. (Rejected: fails local developer usage, introduces massive operational complexity, and does not provide app-level error feedback).
+  3. **Zero-trust multi-layer validation engine with SafeRedirectHandler (Option 3):**
+     - Centralized security module (`agenteval/security/url_validator.py`).
+     - Strict scheme enforcement: permit only `http` and `https`. Reject `file://`, `gopher://`, `ftp://`.
+     - Unconditional hard-block against cloud metadata hostnames (`metadata.google.internal`, `metadata.aws.internal`, `metadata.azure.internal`) and link-local ranges (`169.254.0.0/16`, `fe80::/10`, `fd00:ec2::254`).
+     - Dynamic DNS socket resolution resolving all IP addresses before connecting, with CIDR filtering against loopback (`127.0.0.0/8`, `::1`) and RFC 1918 private subnets.
+     - Automatic IPv6-mapped IPv4 unwrapping (`::ffff:x.x.x.x`).
+     - Custom `SafeRedirectHandler` ensuring every 3xx redirect hop is independently validated against the same zero-trust policy.
+     - Enterprise VPC opt-in via `AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS=1` (cloud metadata remains strictly blocked even when enabled).
+     - Uniform integration across `EndpointProber`, `BlackboxRunner`, `HTTPAdapter`, and API `/v1/endpoints/probe`.
+- **Decision:** **Option 3.**
+- **Consequences:** Provides complete SSRF defense-in-depth across all ingest and evaluation surfaces. Prevents credential exfiltration and intranet port scanning while preserving seamless VPC evaluation capabilities for enterprise customers. Validated across 17 dedicated unit tests and 5 reproduction scenarios.
+
+---
+
+### DR-031 — Configurable Origin Policy, W3C-Compliant Credential Gating, and Drive-By Intranet CORS Hardening
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** Previously, `agenteval/api/app.py` initialized `CORSMiddleware` with `allow_origins=["*"]`, `allow_credentials=True`, and wildcard methods/headers (`"*"`, `"*"`) for development convenience. In modern web standards (W3C Fetch and CORS Specifications), returning `Access-Control-Allow-Origin: *` along with `Access-Control-Allow-Credentials: true` is an invalid combination that browsers reject on credentialed requests. More critically, when engineers run `agenteval serve` on their local machine (`127.0.0.1:8766`), wildcard CORS exposes the API to *drive-by intranet exploitation*: any malicious external webpage opened in the developer's browser could silently execute cross-origin `fetch()` requests against `http://127.0.0.1:8766/v1/suites`, exfiltrating PRDs, prompts, test cases, and agent responses, or launching unauthenticated LLM evaluation jobs.
+- **Alternatives considered:**
+  1. **Retain wildcard CORS:** Keep `allow_origins=["*"]` for frictionless dev setups. (Rejected: high security vulnerability for developer workstations and invalid under W3C credential specs).
+  2. **Completely disable CORS:** Require same-origin only. (Rejected: breaks Vite local development on `localhost:5173` and prevents multi-domain enterprise deployments where the Web Console and API live on separate subdomains).
+  3. **Configurable Origin Policy with Safe Local Defaults and Dynamic Credential Gating (Option 3):**
+     - Default allowed origins restricted to local development frontends: `http://localhost:5173`, `http://127.0.0.1:5173`, `http://localhost:8766`, `http://127.0.0.1:8766`.
+     - Allow custom origin configuration via comma-separated `AGENTEVAL_CORS_ORIGINS` environment variable and `--cors-origins` CLI option in `agenteval serve`.
+     - Dynamically enforce W3C compliance: if wildcard `*` is explicitly configured by an operator, automatically set `allow_credentials=False`.
+     - Restrict allowed methods to required HTTP verbs (`GET`, `POST`, `PUT`, `DELETE`, `OPTIONS`, `PATCH`) and restrict headers to explicit list (`Content-Type`, `Authorization`, `X-Requested-With`, `Accept`, `Origin`).
+     - Wire deployment environment variables in `deploy/gcp/deploy.sh` and document configuration in `.env.gcp.example`.
+- **Decision:** **Option 3.**
+- **Consequences:** Eliminates the drive-by intranet cross-origin data exfiltration vector while providing seamless out-of-the-box local developer workflows and enterprise multi-domain deployment flexibility. 9 dedicated unit tests in `tests/unit/test_api_cors.py` verify allowed origins, unauthorized origin rejection, wildcard credential decoupling, and preflight handling. Clean typing and linting preserved.
+
+---
+
+<!-- New entries above ## Archive -->
+
+## Archive
+
+<!-- Superseded decisions moved here with Superseded-by link -->
+
 
 
 ---
@@ -180,6 +234,23 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 - **Decision:** **Option 3.**
 - **Consequences:** Provides a single-command turnkey deployment (`./deploy/gcp/deploy.sh`) to Google Cloud Platform. Data survives container restarts and redeployments, secret keys remain securely stored in Secret Manager, and internal enterprise agents in private VPCs can be evaluated securely. Clean typing (`mypy --strict`), linting (`ruff`), and 229 passing unit tests at 87.05% test coverage.
 
+### DR-032 — Synchronized Cloud Run Request Timeout Baseline: 1800s Execution Headroom for Synchronous Test Suites
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** AgentEval executes test suites synchronously via `POST /v1/suites/{id}/runs` on `agenteval serve`. A full assurance suite containing 40–60 tests with endpoint probing, LLM judge semantic scoring (via DeepSeek / LiteLLM), and state diff assertions takes 10 to 25 minutes to execute. Cloud Run Gen2 defaults request timeouts to 300 seconds (5 minutes). Under the 300s limit, Cloud Run’s Envoy ingress forcibly terminates connections mid-execution, returning HTTP 504 Gateway Timeout, leaving runs unsealed, and risking partial state corruption during container de-scheduling.
+- **Alternatives considered:**
+  1. **Leave 300s limit and run small suites only:** Restrict users to 5–10 tests per suite. (Rejected: defeats the purpose of an assurance platform and prevents running P0 + P1 + P2 packs).
+  2. **Wait for Slice 6 (Async Background Jobs) before fixing:** Defer timeout changes until async worker architecture lands. (Rejected: production deployments today on Cloud Run would fail immediately whenever a user clicks "Run Suite" in the Web Console).
+  3. **Synchronized 1800s (30-minute) Baseline Across All Deployment Definitions (Option 3):**
+     - Update `deploy/gcp/deploy.sh` to default `TIMEOUT="${TIMEOUT:-1800}"`.
+     - Update declarative Knative `deploy/gcp/service.yaml` to specify `timeoutSeconds: 1800`.
+     - Update CI/CD `cloudbuild.yaml` to use `--timeout=${_TIMEOUT}` with substitution `_TIMEOUT: "1800"`.
+     - Update `.env.gcp.example` documentation with timeout rationale.
+     - Add regression test `tests/unit/test_cloud_deployment_config.py` asserting that all four deployment definitions maintain `timeout >= 1800`.
+- **Decision:** **Option 3.**
+- **Consequences:** Eliminates premature 504 timeouts on Cloud Run for full test suites up to 60 tests. Serves as an immediate production-safe bridge until Slice 4 (parallel execution) and Slice 6 (async background jobs) land. Verified by 4 automated configuration unit tests and full test suite passing at 87.17% coverage.
+
 ---
 
 <!-- New entries above ## Archive -->
@@ -187,3 +258,4 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 ## Archive
 
 <!-- Superseded decisions moved here with Superseded-by link -->
+

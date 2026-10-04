@@ -12,6 +12,9 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 | LL-004 | Python Reserved Keywords in Tool Schema Bridges (Pydantic Aliasing) and Dynamic OSS Extra Loading | logged | project | architecture / typing |
 | LL-005 | Strict Suite Sync Prefixing and Capability Association for Red-Team/Adversarial Inferred Tests | logged | project | architecture / sync |
 | LL-006 | Playwright Driver CDN 404 in IDE Environment and Offline Mirror Restoration | logged | project | tooling / browser |
+| LL-007 | SSRF Defense-in-Depth: DNS Resolution, 3xx Redirect Traps, and Mock Compatibility in Test Harnesses | logged | project | security / testing |
+| LL-008 | CORS Wildcard vs. Credentials Conflict and Drive-By Intranet Exploitation | logged | project | security / architecture |
+| LL-009 | Serverless Ingress Timeouts vs. Synchronous AI Trajectory Runs: Deployment Drift and Incomplete Assurance | logged | project | architecture / deployment |
 
 ---
 
@@ -74,8 +77,39 @@ Blameless capture of surprises, failed approaches, and reusable principles.
 - **Root Cause**: The IDE's internal browser automation manager is hardcoded to download Playwright driver version `1.57.0` for `mac-arm64`. Microsoft Azure CDN endpoints return HTTP 404 for this zip package. The initial automated attempt left an empty folder at `~/Library/Caches/ms-playwright-go/1.57.0/`.
 - **Lesson / Rule**: When internal IDE tool dependencies experience upstream CDN deprecation/404s, perform offline manual recovery by downloading the exact artifact from an active archive/mirror (e.g. `https://cdn.npmmirror.com/binaries/playwright/builds/driver/playwright-1.57.0-mac-arm64.zip`), extracting into `~/Library/Caches/ms-playwright-go/1.57.0/`, setting executable permissions on `./node`, and bootstrapping the browser binaries via `./node package/cli.js install chromium`.
 
+---
+
+## LL-007: SSRF Defense-in-Depth: DNS Resolution, 3xx Redirect Traps, and Mock Compatibility in Test Harnesses
+
+- **Date**: 2026-10-04
+- **Scope**: project
+- **Context**: When hardening BYOA agent endpoints against Server-Side Request Forgery (SSRF), naive URL validation (checking string prefix or parsing scheme and hostname) is trivially bypassed by HTTP 3xx redirects (e.g., public URL redirecting to `169.254.169.254`), alternative IPv6-mapped representations (`::ffff:169.254.169.254`), or DNS rebinding. Furthermore, replacing `urllib.request.urlopen` with custom `build_opener` instances can inadvertently break unit test fixtures that mock `urlopen` via `unittest.mock.patch`.
+- **Root Cause**: Standard library `urllib.request.urlopen` follows up to 10 redirects by default without inspecting destination IP ranges. Link-local addresses (`169.254.0.0/16`) house cloud metadata credentials (GCP/AWS IMDS), which must be blocked unconditionally even when private RFC 1918 evaluation is enabled for VPC services. Additionally, `OpenerDirector.open()` does not route through `urllib.request.urlopen`, silently ignoring test patches and attempting live network calls.
+- **Lesson / Rule**: Always pair initial URL validation with a `SafeRedirectHandler` that intercepts every 3xx redirect hop. Unconditionally block link-local and cloud metadata addresses regardless of private-network opt-in flags. In security transport wrapper functions (`safe_urlopen`), detect when `urlopen` has been replaced by a test mock (`hasattr(urllib.request.urlopen, "assert_called")`) and delegate to it after validation, preserving test determinism while enforcing strict production safety.
+
+---
+
+## LL-008: CORS Wildcard vs. Credentials Conflict and Drive-By Intranet Exploitation
+
+- **Date**: 2026-10-04
+- **Scope**: project
+- **Context**: Setting `allow_origins=["*"]` is standard boilerplate in early FastAPI/Starlette development. However, combining `allow_origins=["*"]` with `allow_credentials=True` triggers W3C Fetch specification browser errors (`The value of the 'Access-Control-Allow-Origin' header in the response must not be the wildcard '*' when the request's credentials mode is 'include'`). Furthermore, local developer services listening on `localhost` or `127.0.0.1` without origin filtering are vulnerable to drive-by cross-origin attacks from arbitrary external websites.
+- **Root Cause**: Browsers enforce the Same-Origin Policy (SOP), but CORS acts as an opt-in relaxation mechanism. If an internal developer tool exposes an unrestricted wildcard CORS API on `127.0.0.1`, any tab the engineer opens on the public internet can issue background `fetch("http://127.0.0.1:8766/v1/suites")` requests, stealing sensitive PRD contents, test traces, and agent credentials. Additionally, W3C standards strictly forbid credential sharing with wildcard origins.
+- **Lesson / Rule**: Never deploy `allow_origins=["*"]` alongside `allow_credentials=True`. Restrict default CORS origins strictly to local development frontend ports (`localhost:5173`, `127.0.0.1:8766`). Make custom origins configurable via environment variables (`AGENTEVAL_CORS_ORIGINS`). Whenever a wildcard origin `*` is explicitly configured, dynamically enforce `allow_credentials=False` to maintain RFC compliance and protect developer workstations.
+
+---
+
+## LL-009: Serverless Ingress Timeouts vs. Synchronous AI Trajectory Runs: Deployment Drift and Incomplete Assurance
+
+- **Date**: 2026-10-04
+- **Scope**: project
+- **Context**: In serverless container platforms such as Google Cloud Run, AWS App Runner, or Knative, the default HTTP request timeout is 300 seconds (5 minutes). While 300s is generous for standard microservices (REST CRUD APIs), AI agent evaluation workloads differ fundamentally: executing a 50-test assurance pack involves multi-turn agent network round-trips, tool execution latencies, and Tier-2 LLM judge completions (e.g. DeepSeek reasoning models), which cumulatively scale linearly to 10–25 minutes in synchronous execution mode.
+- **Root Cause**: Hardcoding `TIMEOUT=300` across deployment scripts (`deploy.sh`), Knative manifests (`service.yaml`), and CI/CD templates (`cloudbuild.yaml`) causes the infrastructure ingress proxy to drop requests at second 300 with an ungraceful HTTP 504 Gateway Timeout. This severs the client connection, aborts in-flight execution, leaves run states unsealed, and risks partial database corruption during container de-scheduling. Furthermore, configuring timeout in only one deployment path (e.g. `deploy.sh`) causes subtle deployment drift when deploying through declarative Knative manifests or automated CI/CD triggers.
+- **Lesson / Rule**: For platforms running synchronous long-duration evaluation workloads on Cloud Run Gen2, align all deployment channels to an explicit execution ceiling (`timeoutSeconds: 1800` / 30 minutes). Enforce cross-specification synchronization via automated unit tests (`test_cloud_deployment_config.py`) to prevent regressions until asynchronous background execution (e.g. `202 Accepted` job pools) can fully decouple the HTTP request lifecycle from batch evaluation runs.
+
 <!-- New entries above ## Archive -->
 
 ## Archive
 
 <!-- Resolved lessons optionally summarized here -->
+
