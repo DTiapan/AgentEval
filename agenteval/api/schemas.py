@@ -49,6 +49,31 @@ class SuiteRunRequest(BaseModel):
         le=50,
         description="Maximum parallel test executions within a run (default: 8)",
     )
+    wait: bool = Field(
+        default=False,
+        description="Whether to block synchronously until the run finishes (default: False)",
+    )
+
+
+class RunProgressSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    completed: int = 0
+    total: int = 0
+    percent: float = 0.0
+
+
+class RunJobStatusSchema(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: str
+    agent_id: str
+    status: str
+    created_at: str
+    started_at: str | None = None
+    completed_at: str | None = None
+    progress: RunProgressSchema = Field(default_factory=RunProgressSchema)
+    error: str | None = None
 
 
 class SuiteGapExtendRequest(BaseModel):

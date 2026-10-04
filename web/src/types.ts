@@ -266,6 +266,23 @@ export type SuiteRunReport = {
   criterion_verdicts?: CriterionVerdictSummary[];
 };
 
+export type RunProgress = {
+  completed: number;
+  total: number;
+  percent: number;
+};
+
+export type RunJobStatus = {
+  run_id: string;
+  agent_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  progress: RunProgress;
+  error?: string | null;
+};
+
 export type SuiteDetailResult = {
   manifest: {
     agent_id: string;

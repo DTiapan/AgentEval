@@ -6,6 +6,8 @@ import {
   SuiteRunReport,
   SuiteGapLoopResult,
   SuiteSyncResult,
+  RunProgress,
+  RunJobStatus,
 } from "./types";
 import { formatApiErrorBody } from "@/lib/api-error";
 
@@ -163,10 +165,35 @@ export async function syncSuite(
   return parseJson(res);
 }
 
+export async function getRunJobStatus(
+  agentId: string,
+  runId: string,
+): Promise<RunJobStatus> {
+  const res = await fetch(
+    `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/status`,
+  );
+  return parseJson<RunJobStatus>(res);
+}
+
+export async function getRunReport(
+  agentId: string,
+  runId: string,
+): Promise<SuiteRunReport> {
+  const res = await fetch(
+    `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}`,
+  );
+  return parseJson<SuiteRunReport>(res);
+}
+
 export async function runSuite(
   agentId: string,
   endpointUrl?: string,
   auditLogDbPath?: string,
+  options?: {
+    onProgress?: (progress: RunProgress, job: RunJobStatus) => void;
+    pollIntervalMs?: number;
+    wait?: boolean;
+  },
 ): Promise<SuiteRunReport> {
   const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs`, {
     method: "POST",
@@ -174,9 +201,34 @@ export async function runSuite(
     body: JSON.stringify({
       endpoint_url: endpointUrl || null,
       audit_log_db_path: auditLogDbPath || null,
+      wait: Boolean(options?.wait),
     }),
   });
-  return parseJson(res);
+
+  if (res.status === 200) {
+    return parseJson<SuiteRunReport>(res);
+  }
+
+  if (res.status === 202) {
+    const job = await parseJson<RunJobStatus>(res);
+    options?.onProgress?.(job.progress, job);
+
+    const interval = options?.pollIntervalMs ?? 600;
+    while (true) {
+      await new Promise((resolve) => setTimeout(resolve, interval));
+      const current = await getRunJobStatus(agentId, job.run_id);
+      options?.onProgress?.(current.progress, current);
+
+      if (current.status === "completed") {
+        return await getRunReport(agentId, job.run_id);
+      }
+      if (current.status === "failed") {
+        throw new Error(current.error || "Assurance suite run failed in background.");
+      }
+    }
+  }
+
+  return parseJson<SuiteRunReport>(res);
 }
 
 export async function getLatestRun(agentId: string): Promise<SuiteRunReport> {

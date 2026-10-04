@@ -78,7 +78,7 @@ def test_requirements_and_criterion_verdicts_api(
     )
     run = client.post(
         "/v1/suites/req-api-agent/runs",
-        json={"suite_root": suite_root},
+        json={"suite_root": suite_root, "wait": True},
     )
     assert run.status_code == 200
     run_body = run.json()

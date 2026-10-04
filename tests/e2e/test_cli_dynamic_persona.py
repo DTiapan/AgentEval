@@ -1,7 +1,6 @@
 """End-to-end integration tests for dynamic on-the-go persona synthesis and caching."""
 
-import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 

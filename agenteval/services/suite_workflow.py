@@ -1,5 +1,6 @@
 """Frozen suite preview, init, and run — same logic as CLI, UI/API-ready."""
 
+from collections.abc import Callable
 from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -344,11 +345,13 @@ class SuiteWorkflow:
         self,
         agent_id: str,
         *,
+        run_id: str | None = None,
         endpoint_url: str | None = None,
         audit_log_db_path: str | None = None,
         judge_mode: str = "hybrid",
         force_offline_judge: bool | None = None,
         max_concurrency: int | None = None,
+        on_progress: Callable[[int, int], None] | None = None,
     ) -> SuiteRunReport:
         store = self._store()
         manifest = self._load_manifest(store, agent_id)
@@ -366,7 +369,12 @@ class SuiteWorkflow:
             force_offline_judge=force_offline_judge,
             max_workers=max_concurrency,
         )
-        report = runner.run_pack(pack, max_workers=max_concurrency)
+        report = runner.run_pack(
+            pack,
+            run_id=run_id,
+            max_workers=max_concurrency,
+            on_progress=on_progress,
+        )
         pool = self._load_pool(store, agent_id)
         coverage = CoverageMapper().report(pool, pack.tests)
         report.coverage_report = coverage
@@ -384,6 +392,17 @@ class SuiteWorkflow:
 
     def latest_run(self, agent_id: str) -> SuiteRunReport | None:
         return self._load_latest_run(self._store(), agent_id)
+
+    def get_run(self, agent_id: str, run_id: str) -> SuiteRunReport | None:
+        """Load a specific run report by agent_id and run_id, enriched with signoff if repository exists."""
+        store = self._store()
+        report = self._load_run(store, agent_id, run_id)
+        if report is None:
+            return None
+        repo = self._repository()
+        if repo is not None:
+            return repo.enrich_run_report(report)
+        return report
 
     def list_suites(self) -> list[SuiteListItem]:
         store = self._store()

@@ -1,8 +1,7 @@
 """End-to-end CLI integration tests for Agency Personas, HTTP Endpoints, and PRD compilation."""
 
-import json
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 

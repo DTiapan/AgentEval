@@ -85,7 +85,7 @@ def test_run_suite_persists_to_sqlite(
     )
     response = client.post(
         "/v1/suites/sql-agent/runs",
-        json={"suite_root": suite_root},
+        json={"suite_root": suite_root, "wait": True},
     )
     assert response.status_code == 200
 
@@ -250,7 +250,7 @@ def test_run_suite_endpoint(
 
     response = client.post(
         "/v1/suites/run-me/runs",
-        json={"suite_root": suite_root},
+        json={"suite_root": suite_root, "wait": True},
     )
     assert response.status_code == 200
     assert response.json()["run_id"] == "run-1"

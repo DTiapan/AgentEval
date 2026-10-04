@@ -6,6 +6,7 @@ import concurrent.futures
 import json
 import os
 import time
+from collections.abc import Callable
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
@@ -82,8 +83,15 @@ class BlackboxRunner:
             self.max_workers = 8
         self.max_workers = max(1, min(50, self.max_workers))
 
-    def run_pack(self, pack: TestPack, *, max_workers: int | None = None) -> SuiteRunReport:
-        run_id = uuid4().hex[:12]
+    def run_pack(
+        self,
+        pack: TestPack,
+        *,
+        run_id: str | None = None,
+        max_workers: int | None = None,
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> SuiteRunReport:
+        effective_run_id = run_id or uuid4().hex[:12]
         effective_workers = max_workers if max_workers is not None else self.max_workers
         effective_workers = max(1, min(50, effective_workers))
 
@@ -127,16 +135,25 @@ class BlackboxRunner:
                 )
 
         results: list[TestCaseResult] = []
-        if effective_workers <= 1 or len(pack.tests) <= 1:
+        completed_count = 0
+        total_tests = len(pack.tests)
+
+        if effective_workers <= 1 or total_tests <= 1:
             for test in pack.tests:
                 results.append(_execute_one(test))
+                completed_count += 1
+                if on_progress:
+                    on_progress(completed_count, total_tests)
         else:
             with concurrent.futures.ThreadPoolExecutor(
-                max_workers=min(effective_workers, len(pack.tests))
+                max_workers=min(effective_workers, total_tests)
             ) as pool:
                 futures = [pool.submit(_execute_one, test) for test in pack.tests]
                 for future in concurrent.futures.as_completed(futures):
                     results.append(future.result())
+                    completed_count += 1
+                    if on_progress:
+                        on_progress(completed_count, total_tests)
 
         # Preserve canonical test pack ordering for deterministic reports and diffs
         order = {test.id: i for i, test in enumerate(pack.tests)}
@@ -147,7 +164,7 @@ class BlackboxRunner:
         unverifiable = sum(1 for r in results if r.verdict == "UNVERIFIABLE")
         return SuiteRunReport(
             agent_id=pack.agent_id,
-            run_id=run_id,
+            run_id=effective_run_id,
             suite_version=pack.version,
             results=results,
             passed=passed,

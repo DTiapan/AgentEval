@@ -1,6 +1,7 @@
 """FastAPI application exposing suite preview, init, and run (E3+E4)."""
 
 import os
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -20,6 +21,7 @@ from agenteval.api.schemas import (
 from agenteval.ingest.endpoint_probe import EndpointProber
 from agenteval.planning.models import PriorityTier
 from agenteval.planning.suite_store import SuiteExistsError
+from agenteval.services.run_manager import get_run_job_manager
 from agenteval.services.workflow_factory import create_suite_workflow, persistence_status
 
 _REPO_UI_DIST = Path(__file__).resolve().parents[2] / "web" / "dist"
@@ -204,21 +206,39 @@ def create_app() -> FastAPI:
     def run_suite(agent_id: str, body: SuiteRunRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root)
         try:
-            report = workflow.run_suite(
-                agent_id,
-                endpoint_url=body.endpoint_url,
-                audit_log_db_path=body.audit_log_db_path,
-                judge_mode=body.judge_mode,
-                max_concurrency=body.max_concurrency,
-            )
+            workflow.get_suite(agent_id)
         except FileNotFoundError:
             raise HTTPException(
                 status_code=404,
                 detail=f"No suite for agent '{agent_id}'. POST /v1/suites first.",
             ) from None
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from None
-        return JSONResponse(content=report.model_dump(mode="json"))
+
+        if body.wait:
+            try:
+                report = workflow.run_suite(
+                    agent_id,
+                    endpoint_url=body.endpoint_url,
+                    audit_log_db_path=body.audit_log_db_path,
+                    judge_mode=body.judge_mode,
+                    max_concurrency=body.max_concurrency,
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=str(exc)) from None
+            return JSONResponse(content=report.model_dump(mode="json"))
+
+        manager = get_run_job_manager()
+        job = manager.submit_run(
+            agent_id,
+            workflow,
+            endpoint_url=body.endpoint_url,
+            audit_log_db_path=body.audit_log_db_path,
+            judge_mode=body.judge_mode,
+            max_concurrency=body.max_concurrency,
+        )
+        return JSONResponse(
+            status_code=202,
+            content=job.model_dump(mode="json"),
+        )
 
     @app.get("/v1/suites/{agent_id}/runs/latest")
     def latest_run(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
@@ -227,6 +247,77 @@ def create_app() -> FastAPI:
         if report is None:
             raise HTTPException(status_code=404, detail=f"No runs for agent '{agent_id}'.")
         return JSONResponse(content=report.model_dump(mode="json"))
+
+    @app.get("/v1/suites/{agent_id}/runs/{run_id}/status")
+    def run_status(
+        agent_id: str,
+        run_id: str,
+        suite_root: str = ".agenteval/suites",
+    ) -> JSONResponse:
+        manager = get_run_job_manager()
+        job = manager.get_job(run_id)
+        if job is not None:
+            return JSONResponse(content=job.model_dump(mode="json"))
+        workflow = create_suite_workflow(suite_root=suite_root)
+        report = workflow.get_run(agent_id, run_id)
+        if report is not None:
+            now_iso = datetime.now(UTC).isoformat()
+            return JSONResponse(
+                content={
+                    "run_id": run_id,
+                    "agent_id": agent_id,
+                    "status": "completed",
+                    "created_at": now_iso,
+                    "started_at": now_iso,
+                    "completed_at": now_iso,
+                    "progress": {
+                        "completed": len(report.results),
+                        "total": len(report.results),
+                        "percent": 100.0,
+                    },
+                    "error": None,
+                }
+            )
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run '{run_id}' not found for agent '{agent_id}'.",
+        )
+
+    @app.get("/v1/suites/{agent_id}/runs/{run_id}")
+    def get_run(
+        agent_id: str,
+        run_id: str,
+        suite_root: str = ".agenteval/suites",
+    ) -> JSONResponse:
+        manager = get_run_job_manager()
+        job = manager.get_job(run_id)
+        if job is not None:
+            if job.status in ("pending", "running"):
+                return JSONResponse(
+                    status_code=202,
+                    content=job.model_dump(mode="json"),
+                )
+            if job.status == "failed":
+                return JSONResponse(
+                    status_code=500,
+                    content={
+                        "error": job.error or "Run execution failed",
+                        "job": job.model_dump(mode="json"),
+                    },
+                )
+            report = manager.get_report(run_id)
+            if report is not None:
+                return JSONResponse(content=report.model_dump(mode="json"))
+
+        workflow = create_suite_workflow(suite_root=suite_root)
+        report = workflow.get_run(agent_id, run_id)
+        if report is not None:
+            return JSONResponse(content=report.model_dump(mode="json"))
+
+        raise HTTPException(
+            status_code=404,
+            detail=f"Run '{run_id}' not found for agent '{agent_id}'.",
+        )
 
     @app.get("/v1/suites/{agent_id}/report", response_class=HTMLResponse)
     def suite_report(

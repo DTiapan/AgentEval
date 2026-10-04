@@ -27,6 +27,7 @@ import {
 import { useWorkspace } from "../context/WorkspaceContext";
 import {
   CriterionVerdictSummary,
+  RunProgress,
   SuiteDetailResult,
   SuiteRunReport,
   TestCaseResult,
@@ -73,6 +74,7 @@ export const AssuranceView: React.FC = () => {
   const [suiteDetail, setSuiteDetail] = useState<SuiteDetailResult | null>(null);
   const [latestRun, setLatestRun] = useState<SuiteRunReport | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  const [runProgress, setRunProgress] = useState<RunProgress | null>(null);
   const [isExtendingGaps, setIsExtendingGaps] = useState(false);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -162,8 +164,22 @@ export const AssuranceView: React.FC = () => {
   const handleRunSuite = async () => {
     if (!activeAgentId) return;
     setIsRunning(true);
+    setRunProgress({
+      completed: 0,
+      total: suiteDetail?.optimized_pack?.tests?.length || 0,
+      percent: 0,
+    });
     try {
-      const report = await runSuite(activeAgentId, customEndpoint.trim() || undefined);
+      const report = await runSuite(
+        activeAgentId,
+        customEndpoint.trim() || undefined,
+        undefined,
+        {
+          onProgress: (progress) => {
+            setRunProgress(progress);
+          },
+        },
+      );
       setLatestRun(report);
       if (report.results?.length > 0) {
         setSelectedTest(report.results[0]);
@@ -183,6 +199,7 @@ export const AssuranceView: React.FC = () => {
       });
     } finally {
       setIsRunning(false);
+      setRunProgress(null);
     }
   };
 
@@ -433,6 +450,45 @@ export const AssuranceView: React.FC = () => {
           )}
         </div>
       </div>
+
+      {/* Background Run Progress Indicator Card */}
+      {isRunning && (
+        <div className="mb-6 rounded-lg border border-primary/30 bg-primary/5 p-4 shadow-sm backdrop-blur-xs transition-all animate-in fade-in-50">
+          <div className="flex items-center justify-between gap-4 mb-2.5">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+                <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary" />
+              </span>
+              <span className="text-xs font-semibold text-foreground tracking-tight">
+                Executing Assurance Suite in Background
+              </span>
+              <Badge variant="outline" className="text-[10px] py-0 px-1.5 h-4.5 font-mono text-muted-foreground border-border/80">
+                202 Accepted • Async Worker
+              </Badge>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-xs text-muted-foreground">
+                {runProgress?.total ? `${runProgress.completed} / ${runProgress.total} tests` : "Initializing..."}
+              </span>
+              <span className="font-mono text-xs font-semibold text-primary">
+                {runProgress ? `${Math.round(runProgress.percent)}%` : "0%"}
+              </span>
+            </div>
+          </div>
+          {/* Progress Bar Container */}
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary/80">
+            <div
+              className="h-full bg-primary transition-all duration-300 ease-out"
+              style={{ width: `${Math.min(100, Math.max(runProgress?.percent || 0, isRunning ? 5 : 0))}%` }}
+            />
+          </div>
+          <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+            <span>Deterministic side-effect and invariant checks running on background thread pool</span>
+            <span className="font-mono text-[10px]">Non-blocking connection</span>
+          </div>
+        </div>
+      )}
 
       {showNoRunEmpty && (
         <div className="mb-6">
