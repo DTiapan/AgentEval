@@ -27,6 +27,7 @@ from agenteval.db.normalized_suite import (
     persist_normalized_suite,
     persist_run_evidence_and_verdicts,
 )
+from agenteval.db.protocol import SuiteRepositoryProtocol
 from agenteval.domain.models import FrozenTestCaseRecord, RequirementRecord
 from agenteval.planning.models import (
     CandidateTest,
@@ -44,6 +45,19 @@ from agenteval.telemetry import start_span
 
 class SuiteRepository:
     """Relational store for suite versions and assurance runs."""
+
+    def __new__(cls, db_path: Path | str | None = None, *args: Any, **kwargs: Any) -> Any:
+        from agenteval.db.config import is_postgres
+
+        is_pg_url = isinstance(db_path, str) and (
+            db_path.startswith("postgres://") or db_path.startswith("postgresql://")
+        )
+        if cls is SuiteRepository and (is_postgres() or is_pg_url):
+            from agenteval.db.postgres_repository import PostgresSuiteRepository
+
+            url = db_path if is_pg_url and isinstance(db_path, str) else None
+            return PostgresSuiteRepository(url, **kwargs)
+        return super().__new__(cls)
 
     def __init__(self, db_path: Path | str | None = None) -> None:
         self.db_path = Path(db_path) if db_path is not None else database_path()
@@ -614,6 +628,14 @@ class SuiteRepository:
                     (now, run_id),
                 )
 
+    def delete_run(self, run_id: str) -> None:
+        """Delete an assurance run by run_id."""
+        with self._write_lock, self._conn:
+            self._conn.execute(
+                "DELETE FROM assurance_runs WHERE run_id = ?",
+                (run_id,),
+            )
+
     def get_run_record(self, run_id: str) -> dict[str, Any] | None:
         """Return the raw assurance_runs row as a dict, including status and tallies."""
         row = self._conn.execute(
@@ -833,3 +855,25 @@ class SuiteRepository:
                 )
             )
         return steps
+
+
+SQLiteSuiteRepository = SuiteRepository
+
+
+def create_suite_repository(
+    db_path_or_url: Path | str | None = None,
+    **kwargs: Any,
+) -> SuiteRepositoryProtocol:
+    """Factory to instantiate either SQLiteSuiteRepository or PostgresSuiteRepository."""
+    from agenteval.db.config import is_postgres
+
+    is_pg_url = isinstance(db_path_or_url, str) and (
+        db_path_or_url.startswith("postgres://") or db_path_or_url.startswith("postgresql://")
+    )
+    if is_postgres() or is_pg_url:
+        from agenteval.db.postgres_repository import PostgresSuiteRepository
+
+        url = db_path_or_url if is_pg_url and isinstance(db_path_or_url, str) else None
+        return PostgresSuiteRepository(url, **kwargs)
+    return SQLiteSuiteRepository(db_path_or_url)
+

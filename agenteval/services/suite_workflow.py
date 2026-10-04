@@ -8,7 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agenteval.core.manifest import AgentCard
 from agenteval.db.config import database_path
-from agenteval.db.suite_repository import SuiteRepository
+from agenteval.db.protocol import SuiteRepositoryProtocol
+from agenteval.db.suite_repository import create_suite_repository
 from agenteval.ingest.bootstrap import AgentBootstrap
 from agenteval.ingest.endpoint_probe import EndpointProbeResult
 from agenteval.packs.enabled import set_run_audit_log_db_path
@@ -103,11 +104,11 @@ class SuiteWorkflow:
         self.suite_root = Path(suite_root)
         self.max_tests = max_tests
         self._db_path = Path(db_path) if db_path is not None else None
-        self._repo: SuiteRepository | None = None
+        self._repo: SuiteRepositoryProtocol | None = None
 
-    def _repository(self) -> SuiteRepository:
+    def _repository(self) -> SuiteRepositoryProtocol:
         if self._repo is None:
-            self._repo = SuiteRepository(self._db_path)
+            self._repo = create_suite_repository(self._db_path)
         return self._repo
 
     def _list_agent_ids(self) -> list[str]:
@@ -353,11 +354,7 @@ class SuiteWorkflow:
                     report.run_diff = run_diff.model_dump(mode="json")
 
             if report.run_id != effective_run_id:
-                with repo._write_lock, repo._conn:
-                    repo._conn.execute(
-                        "DELETE FROM assurance_runs WHERE run_id = ?",
-                        (effective_run_id,),
-                    )
+                repo.delete_run(effective_run_id)
 
             self._save_run(agent_id, report, endpoint_url=url)
         except Exception as exc:

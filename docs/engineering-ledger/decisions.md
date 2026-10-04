@@ -49,6 +49,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-039 | **Deprecation and Complete Removal of Filesystem Dual-Persistence in Runtime Workflows:** Removed legacy `SuiteStore` fallback branches and `_sqlite_primary()` checks from `SuiteWorkflow`, cementing `SuiteRepository` (SQLite) as the single authoritative persistence backend for all suite operations. Preserved `SuiteStore` solely for legacy migrations via `agenteval db import-suites`. | Accepted | 2026-10-04 |
 | DR-040 | **OpenTelemetry (OTel) Distributed Tracing Engine, W3C Propagation & OpenInference Semantic Conventions:** End-to-end distributed tracing across FastAPI API endpoints, suite operations (`suite.run_pack`, `suite.preview`, `suite.init`), individual test case execution (`test.case.execute`), agent endpoint HTTP invocations (`agent.endpoint.invoke` with outbound W3C `traceparent` propagation), LLM evaluations (`llm.judge.evaluate`), candidate synthesizers (`llm.candidate.synthesize`), Jev scorers (`jev.candidate.score`), and SQLite mutations (`db.sqlite.operation`). Automated correlation of active `trace_id` and `span_id` with `structlog` JSON logs. | Accepted | 2026-10-04 |
 | DR-041 | **Production Database Architecture — SQLite GCS FUSE Evaluation & Dual-Engine Persistence Strategy ([ADR-007](../decisions/ADR-007-production-database-architecture-sqlite-gcs-evaluation.md)):** Evaluated POSIX locking absence, WAL mode shared memory (`.shm`) failure, and 50–250ms write amplification of SQLite on Google Cloud Storage FUSE in Cloud Run Gen2. Established Dual-Engine persistence strategy: embedded SQLite for local/CLI/CI single-node workflows, and managed PostgreSQL (Cloud SQL / Neon / Supabase) for autoscaling multi-tenant cloud SaaS. Implemented immediate Cloud Run operational guardrail clamping `MAX_INSTANCES=1` when running on SQLite. | Accepted | 2026-10-04 |
+| DR-042 | **Dual-Engine Persistence Implementation (PostgreSQL Engine + Embedded SQLite Runtime Routing):** Delivered production PostgreSQL backend via `psycopg` v3 + `psycopg-pool` alongside zero-config embedded SQLite. Defined `SuiteRepositoryProtocol`, created `PostgresSuiteRepository` with JSONB/GIN schema and connection pooling, added runtime factory routing via `create_suite_repository()` and `SuiteRepository.__new__`, refactored `SuiteWorkflow` to protocol boundaries with atomic `delete_run()`, and unlocked horizontal autoscaling (`MAX_INSTANCES=10`) in Cloud Run deployment tooling when `DATABASE_URL` is configured. | Accepted | 2026-10-04 |
 
 
 ---
@@ -425,6 +426,27 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
      - Implement immediate Cloud Run operational guardrail: clamp `MAX_INSTANCES=1` and `autoscaling.knative.dev/maxScale: "1"` in `deploy.sh` and `service.yaml` while SQLite is active.
 - **Decision:** **Option 4 (formalized in [ADR-007](../decisions/ADR-007-production-database-architecture-sqlite-gcs-evaluation.md)).**
 - **Consequences:** Eliminates the risk of catastrophic GCS FUSE database corruption. Establishes a clear architecture for horizontal scaling on Cloud Run without degrading local developer experience. Automated regression tests added in `tests/unit/test_cloud_deployment_config.py` assert single-instance guardrails across `deploy.sh`, `service.yaml`, and `.env.gcp.example`.
+
+---
+
+### DR-042 — Dual-Engine Persistence Implementation: PostgreSQL Production Backend & Embedded SQLite Runtime Routing
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** Following the decision in [ADR-007](../decisions/ADR-007-production-database-architecture-sqlite-gcs-evaluation.md) / DR-041, AgentEval required a concrete, production-grade Dual-Engine persistence implementation. The requirements were twofold: (1) Preserve embedded SQLite as the zero-configuration default for local development, CLI execution, and CI test pipelines; (2) Provide a fully functional PostgreSQL storage engine with connection pooling (`psycopg_pool`), JSONB document querying, GIN indexing, and identical protocol semantics when `DATABASE_URL` is set; (3) Dynamically route storage operations at runtime without modifying upstream workflow or API services; (4) Unlock Cloud Run horizontal autoscaling (`MAX_INSTANCES=10`) when backed by PostgreSQL/Cloud SQL while strictly maintaining `MAX_INSTANCES=1` when backed by SQLite over GCS FUSE.
+- **Alternatives considered:**
+  1. **ORM Abstraction (SQLAlchemy / SQLModel):** (Rejected: Introduces heavyweight abstractions, slows query execution, complicates raw JSONB operator optimizations, and creates friction with existing lightweight schema migration patterns).
+  2. **Compile-time backend separation:** (Rejected: Requires separate Docker images or entrypoints for local vs cloud execution).
+  3. **Dual-Engine Protocol Architecture with Dynamic Factory Routing (Option 3, Accepted):**
+     - Add `[postgres]` optional dependency group with `psycopg[binary]>=3.1.18` and `psycopg-pool>=3.2.0` in `pyproject.toml` and Dockerfile.
+     - Define `SuiteRepositoryProtocol` in `agenteval/db/protocol.py` ensuring contract parity across SQLite and PostgreSQL.
+     - Author PostgreSQL DDL in `agenteval/db/schema_postgres.sql` featuring native `JSONB` columns and GIN indices for JSON query operations on evidence.
+     - Implement `PostgresSuiteRepository` with `psycopg_pool.ConnectionPool`, auto-migration bootstrap, typed cursor execution helpers (`_fetch_one`, `_fetch_all`), and streaming incremental test persistence (`initialize_run`, `save_partial_result`, `finalize_run`, `mark_run_failed`).
+     - Implement factory routing in `create_suite_repository()` and `SuiteRepository.__new__()` inspecting `DATABASE_URL` / `is_postgres()`, with `SQLiteSuiteRepository = SuiteRepository` alias.
+     - Add atomic `delete_run(agent_id, run_id)` across repositories, refactoring `SuiteWorkflow` to interact exclusively through protocol methods without accessing internal connection or lock attributes.
+     - Update `deploy/gcp/deploy.sh` to auto-detect `DATABASE_URL`, unlock horizontal autoscaling (`MAX_INSTANCES=10` default), and pass `--add-cloudsql-instances` when configured.
+- **Decision:** **Option 3.**
+- **Consequences:** Provides seamless dual-engine persistence with zero code changes required in calling code. Local users continue to run zero-setup SQLite, while cloud deployments scale horizontally across Cloud Run nodes backed by Google Cloud SQL, Neon, or Supabase. 10 cloud deployment configuration tests and 6 PostgreSQL engine tests pass; 117 source files pass `mypy --strict` with 0 issues; full test suite passes 322 tests at 87.94% coverage.
 
 <!-- New entries above ## Archive -->
 

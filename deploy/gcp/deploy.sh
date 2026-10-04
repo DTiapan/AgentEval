@@ -163,11 +163,30 @@ info "Mounted gs://${GCS_DATA_BUCKET} → ${AGENTEVAL_DATA_DIR} (SQLite DB and t
 
 # Cloud Storage FUSE + SQLite Safety Guardrail (ADR-007)
 # SQLite does not support distributed multi-instance locking over GCS FUSE.
-# If SQLite persistence is used, we must clamp MAX_INSTANCES to 1 to prevent database corruption.
-if [[ "${AGENTEVAL_USE_SQLITE:-1}" == "1" && -z "${DATABASE_URL:-}" && "${MAX_INSTANCES}" -gt 1 ]]; then
-    warn "CRITICAL: SQLite on GCS FUSE does not support multi-instance writes (ADR-007)!"
-    warn "Clamping MAX_INSTANCES from ${MAX_INSTANCES} -> 1 to prevent silent database corruption."
-    MAX_INSTANCES=1
+# If SQLite persistence is used (DATABASE_URL unset), clamp MAX_INSTANCES to 1.
+# When PostgreSQL is active via DATABASE_URL, horizontal scaling is unlocked.
+if [[ -z "${DATABASE_URL:-}" ]]; then
+    if [[ "${MAX_INSTANCES}" -gt 1 ]]; then
+        warn "CRITICAL: SQLite on GCS FUSE does not support multi-instance writes (ADR-007)!"
+        warn "Clamping MAX_INSTANCES from ${MAX_INSTANCES} -> 1 to prevent silent database corruption."
+        MAX_INSTANCES=1
+    fi
+else
+    info "PostgreSQL backend detected (DATABASE_URL configured)."
+    if [[ "${MAX_INSTANCES}" -le 1 ]]; then
+        MAX_INSTANCES="${POSTGRES_MAX_INSTANCES:-10}"
+        info "Unlocking Cloud Run horizontal autoscaling: MAX_INSTANCES=${MAX_INSTANCES}"
+    else
+        info "Multi-instance horizontal autoscaling enabled: MAX_INSTANCES=${MAX_INSTANCES}"
+    fi
+fi
+
+# Optional Cloud SQL Instance Connection Flag
+CLOUD_SQL_INSTANCE="${CLOUD_SQL_INSTANCE:-}"
+CLOUDSQL_FLAGS=()
+if [[ -n "${CLOUD_SQL_INSTANCE}" ]]; then
+    CLOUDSQL_FLAGS=(--add-cloudsql-instances="${CLOUD_SQL_INSTANCE}")
+    info "Binding Cloud SQL instance connection: ${CLOUD_SQL_INSTANCE}"
 fi
 
 # 6. Automatic Secret Manager Discovery & Binding
@@ -271,6 +290,9 @@ fi
 if [[ ${#SECRET_FLAGS[@]} -gt 0 ]]; then
     DEPLOY_CMD+=("${SECRET_FLAGS[@]}")
 fi
+if [[ ${#CLOUDSQL_FLAGS[@]} -gt 0 ]]; then
+    DEPLOY_CMD+=("${CLOUDSQL_FLAGS[@]}")
+fi
 
 "${DEPLOY_CMD[@]}"
 
@@ -289,6 +311,11 @@ echo -e "Web Console & Studio: ${BOLD}${SERVICE_URL}/${NC}"
 echo -e "REST API Healthcheck: ${SERVICE_URL}/health"
 echo -e "REST API Docs:        ${SERVICE_URL}/docs"
 echo -e "Persistent Storage:   ${BOLD}gs://${GCS_DATA_BUCKET}${NC} mounted at ${AGENTEVAL_DATA_DIR}"
+if [[ -n "${DATABASE_URL:-}" ]]; then
+    echo -e "Database Backend:     ${GREEN}PostgreSQL (Multi-Instance Concurrency, MAX_INSTANCES=${MAX_INSTANCES})${NC}"
+else
+    echo -e "Database Backend:     ${YELLOW}SQLite on GCS FUSE (Single Instance Guardrail, MAX_INSTANCES=1)${NC}"
+fi
 if [[ ${#SECRET_FLAGS[@]} -gt 0 ]]; then
     echo -e "Secret Manager:       ${GREEN}Connected (${#SECRET_FLAGS[@]} secret bindings active)${NC}"
 fi

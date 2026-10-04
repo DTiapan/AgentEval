@@ -105,3 +105,38 @@ def test_sqlite_gcs_max_instances_in_env_gcp_example() -> None:
     assert max_val == 1, (
         f".env.gcp.example MAX_INSTANCES is {max_val}; must be 1 for SQLite on GCS FUSE (ADR-007)."
     )
+
+
+def test_deploy_sh_postgres_horizontal_scaling_unlocked() -> None:
+    """Verify deploy.sh unlocks horizontal scaling when DATABASE_URL is set (ADR-007)."""
+    deploy_sh = REPO_ROOT / "deploy" / "gcp" / "deploy.sh"
+    content = deploy_sh.read_text(encoding="utf-8")
+
+    assert "PostgreSQL backend detected (DATABASE_URL configured)" in content, (
+        "deploy.sh must log when PostgreSQL backend is detected"
+    )
+    assert 'POSTGRES_MAX_INSTANCES:-10' in content, (
+        "deploy.sh must default MAX_INSTANCES to at least 10 when PostgreSQL is active"
+    )
+    assert "--add-cloudsql-instances" in content, (
+        "deploy.sh must support binding Cloud SQL instances via --add-cloudsql-instances"
+    )
+
+
+def test_env_gcp_example_documents_postgres_and_cloud_sql() -> None:
+    """Verify .env.gcp.example documents PostgreSQL and Cloud SQL configurations."""
+    env_example = REPO_ROOT / ".env.gcp.example"
+    content = env_example.read_text(encoding="utf-8")
+
+    assert "DATABASE_URL=postgresql://" in content
+    assert "CLOUD_SQL_INSTANCE=" in content
+    assert "POSTGRES_MAX_INSTANCES=10" in content
+
+
+def test_service_yaml_documents_cloud_sql_instances() -> None:
+    """Verify service.yaml contains documented Cloud SQL instance annotations."""
+    service_yaml = REPO_ROOT / "deploy" / "gcp" / "service.yaml"
+    content = service_yaml.read_text(encoding="utf-8")
+
+    assert "run.googleapis.com/cloudsql-instances" in content
+

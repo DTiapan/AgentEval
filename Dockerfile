@@ -35,7 +35,7 @@ COPY agenteval_packs/ ./agenteval_packs/
 
 RUN uv venv /opt/venv && \
     . /opt/venv/bin/activate && \
-    uv pip install --no-cache ".[api,inspect]"
+    uv pip install --no-cache ".[api,inspect,postgres]"
 
 # Stage 3: Minimal unprivileged runtime image
 FROM python:3.11-slim-bookworm AS runtime
