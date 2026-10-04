@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from agenteval.logging import get_logger
 from agenteval.planning._utils import load_env
 from agenteval.planning.models import CandidateTest, ObservationBundle, TestCaseResult
+from agenteval.telemetry import start_span
 
 load_env()
 logger = get_logger("agenteval.evaluators.llm_judge")
@@ -105,60 +106,83 @@ class LLMJudgeScorer:
         category: str = "functional",
     ) -> LLMJudgeResult:
         """Evaluate agent response against expected behavior and criteria."""
-        text = (response_text or "").strip()
-        if not text:
-            return LLMJudgeResult(
-                verdict="UNVERIFIABLE",
-                score=0.0,
-                passed=False,
-                rationale="Empty response from agent; unable to judge semantic output.",
-                evaluator_provenance="heuristic-fallback",
+        with start_span(
+            "llm.judge.evaluate",
+            attributes={
+                "openinference.span.kind": "EVALUATOR",
+                "agenteval.category": category,
+                "gen_ai.system": "litellm",
+                "gen_ai.request.model": self._resolve_model(),
+            },
+        ) as judge_span:
+            text = (response_text or "").strip()
+            if not text:
+                res = LLMJudgeResult(
+                    verdict="UNVERIFIABLE",
+                    score=0.0,
+                    passed=False,
+                    rationale="Empty response from agent; unable to judge semantic output.",
+                    evaluator_provenance="heuristic-fallback",
+                )
+                judge_span.set_attribute("agenteval.verdict", res.verdict)
+                judge_span.set_attribute("agenteval.score", res.score)
+                judge_span.set_attribute("agenteval.evaluator_provenance", res.evaluator_provenance)
+                return res
+
+            if not self.force_offline:
+                key = self._resolve_api_key()
+                if key:
+                    try:
+                        res = self._evaluate_with_litellm(
+                            user_prompt=user_prompt,
+                            expected_behavior=expected_behavior,
+                            response_text=text,
+                            category=category,
+                            api_key=key,
+                        )
+                        logger.info(
+                            "llm_judge_evaluated",
+                            category=category,
+                            model=res.model_used or self._resolve_model(),
+                            score=res.score,
+                            passed=res.passed,
+                            evaluator_provenance=res.evaluator_provenance,
+                        )
+                        judge_span.set_attribute("agenteval.verdict", res.verdict)
+                        judge_span.set_attribute("agenteval.score", res.score)
+                        judge_span.set_attribute("agenteval.evaluator_provenance", res.evaluator_provenance)
+                        return res
+                    except Exception as exc:
+                        logger.warning(
+                            "llm_judge_fallback_triggered",
+                            category=category,
+                            model=self._resolve_model(),
+                            error=str(exc),
+                            error_type=type(exc).__name__,
+                            evaluator_provenance="heuristic-fallback",
+                        )
+                        fallback = self._evaluate_with_heuristics(
+                            user_prompt=user_prompt,
+                            expected_behavior=expected_behavior,
+                            response_text=text,
+                            category=category,
+                        )
+                        fallback.rationale = f"{fallback.rationale} (LiteLLM judge fallback: {exc})"
+                        judge_span.set_attribute("agenteval.verdict", fallback.verdict)
+                        judge_span.set_attribute("agenteval.score", fallback.score)
+                        judge_span.set_attribute("agenteval.evaluator_provenance", fallback.evaluator_provenance)
+                        return fallback
+
+            res = self._evaluate_with_heuristics(
+                user_prompt=user_prompt,
+                expected_behavior=expected_behavior,
+                response_text=text,
+                category=category,
             )
-
-        if not self.force_offline:
-            key = self._resolve_api_key()
-            if key:
-                try:
-                    res = self._evaluate_with_litellm(
-                        user_prompt=user_prompt,
-                        expected_behavior=expected_behavior,
-                        response_text=text,
-                        category=category,
-                        api_key=key,
-                    )
-                    logger.info(
-                        "llm_judge_evaluated",
-                        category=category,
-                        model=res.model_used or self._resolve_model(),
-                        score=res.score,
-                        passed=res.passed,
-                        evaluator_provenance=res.evaluator_provenance,
-                    )
-                    return res
-                except Exception as exc:
-                    logger.warning(
-                        "llm_judge_fallback_triggered",
-                        category=category,
-                        model=self._resolve_model(),
-                        error=str(exc),
-                        error_type=type(exc).__name__,
-                        evaluator_provenance="heuristic-fallback",
-                    )
-                    fallback = self._evaluate_with_heuristics(
-                        user_prompt=user_prompt,
-                        expected_behavior=expected_behavior,
-                        response_text=text,
-                        category=category,
-                    )
-                    fallback.rationale = f"{fallback.rationale} (LiteLLM judge fallback: {exc})"
-                    return fallback
-
-        return self._evaluate_with_heuristics(
-            user_prompt=user_prompt,
-            expected_behavior=expected_behavior,
-            response_text=text,
-            category=category,
-        )
+            judge_span.set_attribute("agenteval.verdict", res.verdict)
+            judge_span.set_attribute("agenteval.score", res.score)
+            judge_span.set_attribute("agenteval.evaluator_provenance", res.evaluator_provenance)
+            return res
 
     def score(self, test: CandidateTest, observation: ObservationBundle) -> TestCaseResult:
         """Score candidate test execution observation using LLM judge."""

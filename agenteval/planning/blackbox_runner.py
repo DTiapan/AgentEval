@@ -30,6 +30,7 @@ from agenteval.security.url_validator import (
     is_private_allowed,
     validate_endpoint_url,
 )
+from agenteval.telemetry import StatusCode, inject_trace_context, start_span
 
 logger = get_logger("agenteval.runner")
 
@@ -109,117 +110,149 @@ class BlackboxRunner:
             judge_mode=str(self.judge_mode),
         )
 
-        def _execute_one(test: CandidateTest) -> TestCaseResult:
-            try:
-                obs = self._invoke(test)
-                scored: TestCaseResult
-                if self.judge_mode == JudgeMode.LLM_JUDGE:
-                    scored = self._judge_scorer.score(test, obs)
-                elif self.judge_mode == JudgeMode.DETERMINISTIC_ONLY:
-                    scored = self._scorer.score(test, obs)
-                else:  # JudgeMode.HYBRID
-                    scored = self._scorer.score(test, obs)
-                    # Escalate to LLM judge if heuristic has no rule match
-                    if (
-                        scored.verdict == "UNVERIFIABLE"
-                        and "external evaluator or llm judge required" in scored.rationale.lower()
-                    ):
+        with start_span(
+            "suite.run_pack",
+            attributes={
+                "agenteval.run_id": effective_run_id,
+                "agenteval.agent_id": pack.agent_id,
+                "agenteval.test_count": total_tests,
+                "agenteval.workers": effective_workers,
+                "agenteval.judge_mode": str(self.judge_mode),
+                "agenteval.pack_version": pack.version,
+            },
+        ) as suite_span:
+            def _execute_one(test: CandidateTest) -> TestCaseResult:
+                with start_span(
+                    "test.case.execute",
+                    attributes={
+                        "agenteval.run_id": effective_run_id,
+                        "agenteval.test_id": test.id,
+                        "agenteval.category": test.category,
+                        "agenteval.expected_verdict": getattr(test, "expected_verdict", "PASS"),
+                    },
+                ) as test_span:
+                    try:
+                        obs = self._invoke(test)
+                        scored: TestCaseResult
+                        if self.judge_mode == JudgeMode.LLM_JUDGE:
+                            scored = self._judge_scorer.score(test, obs)
+                        elif self.judge_mode == JudgeMode.DETERMINISTIC_ONLY:
+                            scored = self._scorer.score(test, obs)
+                        else:  # JudgeMode.HYBRID
+                            scored = self._scorer.score(test, obs)
+                            # Escalate to LLM judge if heuristic has no rule match
+                            if (
+                                scored.verdict == "UNVERIFIABLE"
+                                and "external evaluator or llm judge required" in scored.rationale.lower()
+                            ):
+                                logger.info(
+                                    "hybrid_judge_escalation",
+                                    run_id=effective_run_id,
+                                    test_id=test.id,
+                                )
+                                scored = self._judge_scorer.score(test, obs)
+
                         logger.info(
-                            "hybrid_judge_escalation",
+                            "test_completed",
                             run_id=effective_run_id,
                             test_id=test.id,
+                            verdict=scored.verdict,
+                            latency_ms=round(obs.latency_ms, 2),
+                            http_status=obs.http_status,
                         )
-                        scored = self._judge_scorer.score(test, obs)
+                        test_span.set_attribute("agenteval.verdict", scored.verdict)
+                        test_span.set_attribute("agenteval.latency_ms", obs.latency_ms)
+                        test_span.set_attribute("http.status_code", obs.http_status)
+                        if scored.verdict == "FAIL":
+                            test_span.set_status(StatusCode.ERROR, f"Test {test.id} failed: {scored.rationale}")
 
-                logger.info(
-                    "test_completed",
-                    run_id=effective_run_id,
-                    test_id=test.id,
-                    verdict=scored.verdict,
-                    latency_ms=round(obs.latency_ms, 2),
-                    http_status=obs.http_status,
-                )
-                trajectory = build_blackbox_trajectory(obs, scored.verdict, scored.rationale)
-                return scored.model_copy(update={"trajectory": trajectory})
-            except Exception as exc:
-                logger.error(
-                    "test_execution_exception",
-                    run_id=effective_run_id,
-                    test_id=test.id,
-                    error=str(exc),
-                )
-                fallback_obs = ObservationBundle(
-                    test_id=test.id,
-                    user_prompt=test.user_prompt,
-                    response_text=f"Execution error: {exc}",
-                    http_status=0,
-                    latency_ms=0.0,
-                    raw_json={"error": str(exc)},
-                )
-                trajectory = build_blackbox_trajectory(
-                    fallback_obs, "UNVERIFIABLE", f"Runner execution exception: {exc}"
-                )
-                return TestCaseResult(
-                    test_id=test.id,
-                    verdict="UNVERIFIABLE",
-                    observation=fallback_obs,
-                    rationale=f"Runner execution exception: {exc}",
-                    trajectory=trajectory,
-                )
+                        trajectory = build_blackbox_trajectory(obs, scored.verdict, scored.rationale)
+                        return scored.model_copy(update={"trajectory": trajectory})
+                    except Exception as exc:
+                        test_span.set_status(StatusCode.ERROR, str(exc))
+                        test_span.record_exception(exc)
+                        logger.error(
+                            "test_execution_exception",
+                            run_id=effective_run_id,
+                            test_id=test.id,
+                            error=str(exc),
+                        )
+                        fallback_obs = ObservationBundle(
+                            test_id=test.id,
+                            user_prompt=test.user_prompt,
+                            response_text=f"Execution error: {exc}",
+                            http_status=0,
+                            latency_ms=0.0,
+                            raw_json={"error": str(exc)},
+                        )
+                        trajectory = build_blackbox_trajectory(
+                            fallback_obs, "UNVERIFIABLE", f"Runner execution exception: {exc}"
+                        )
+                        return TestCaseResult(
+                            test_id=test.id,
+                            verdict="UNVERIFIABLE",
+                            observation=fallback_obs,
+                            rationale=f"Runner execution exception: {exc}",
+                            trajectory=trajectory,
+                        )
 
-        results: list[TestCaseResult] = []
-        completed_count = 0
+            results: list[TestCaseResult] = []
+            completed_count = 0
 
-        if effective_workers <= 1 or total_tests <= 1:
-            for test in pack.tests:
-                res = _execute_one(test)
-                results.append(res)
-                completed_count += 1
-                if on_result:
-                    on_result(res)
-                if on_progress:
-                    on_progress(completed_count, total_tests)
-        else:
-            with concurrent.futures.ThreadPoolExecutor(
-                max_workers=min(effective_workers, total_tests)
-            ) as pool:
-                futures = [pool.submit(_execute_one, test) for test in pack.tests]
-                for future in concurrent.futures.as_completed(futures):
-                    res = future.result()
+            if effective_workers <= 1 or total_tests <= 1:
+                for test in pack.tests:
+                    res = _execute_one(test)
                     results.append(res)
                     completed_count += 1
                     if on_result:
                         on_result(res)
                     if on_progress:
                         on_progress(completed_count, total_tests)
+            else:
+                with concurrent.futures.ThreadPoolExecutor(
+                    max_workers=min(effective_workers, total_tests)
+                ) as pool:
+                    futures = [pool.submit(_execute_one, test) for test in pack.tests]
+                    for future in concurrent.futures.as_completed(futures):
+                        res = future.result()
+                        results.append(res)
+                        completed_count += 1
+                        if on_result:
+                            on_result(res)
+                        if on_progress:
+                            on_progress(completed_count, total_tests)
 
-        # Preserve canonical test pack ordering for deterministic reports and diffs
-        order = {test.id: i for i, test in enumerate(pack.tests)}
-        results.sort(key=lambda r: order.get(r.test_id, 0))
+            # Preserve canonical test pack ordering for deterministic reports and diffs
+            order = {test.id: i for i, test in enumerate(pack.tests)}
+            results.sort(key=lambda r: order.get(r.test_id, 0))
 
-        passed = sum(1 for r in results if r.verdict == "PASS")
-        failed = sum(1 for r in results if r.verdict == "FAIL")
-        unverifiable = sum(1 for r in results if r.verdict == "UNVERIFIABLE")
+            passed = sum(1 for r in results if r.verdict == "PASS")
+            failed = sum(1 for r in results if r.verdict == "FAIL")
+            unverifiable = sum(1 for r in results if r.verdict == "UNVERIFIABLE")
 
-        logger.info(
-            "suite_run_finished",
-            run_id=effective_run_id,
-            agent_id=pack.agent_id,
-            passed=passed,
-            failed=failed,
-            unverifiable=unverifiable,
-            total=len(results),
-        )
+            logger.info(
+                "suite_run_finished",
+                run_id=effective_run_id,
+                agent_id=pack.agent_id,
+                passed=passed,
+                failed=failed,
+                unverifiable=unverifiable,
+                total=len(results),
+            )
 
-        return SuiteRunReport(
-            agent_id=pack.agent_id,
-            run_id=effective_run_id,
-            suite_version=pack.version,
-            results=results,
-            passed=passed,
-            failed=failed,
-            unverifiable=unverifiable,
-        )
+            suite_span.set_attribute("agenteval.passed", passed)
+            suite_span.set_attribute("agenteval.failed", failed)
+            suite_span.set_attribute("agenteval.unverifiable", unverifiable)
+
+            return SuiteRunReport(
+                agent_id=pack.agent_id,
+                run_id=effective_run_id,
+                suite_version=pack.version,
+                results=results,
+                passed=passed,
+                failed=failed,
+                unverifiable=unverifiable,
+            )
 
     def _invoke(self, test: CandidateTest) -> ObservationBundle:
         payload: dict[str, Any] = {
@@ -227,56 +260,70 @@ class BlackboxRunner:
             "messages": [{"role": "user", "content": test.user_prompt}],
             "history": [],
         }
-        start = time.perf_counter()
-        try:
-            resp = self._client.post(self.endpoint_url, json=payload)
-            status = resp.status_code
-        except UnsafeURLError as e:
-            latency_ms = (time.perf_counter() - start) * 1000
-            return ObservationBundle(
-                test_id=test.id,
-                user_prompt=test.user_prompt,
-                response_text=f"SSRF blocked: {e}",
-                http_status=0,
-                latency_ms=latency_ms,
-                raw_json={"error": str(e)},
-            )
-        except httpx.HTTPError as e:
-            latency_ms = (time.perf_counter() - start) * 1000
-            return ObservationBundle(
-                test_id=test.id,
-                user_prompt=test.user_prompt,
-                response_text=f"HTTP error: {e}",
-                http_status=0,
-                latency_ms=latency_ms,
-                raw_json={"error": str(e)},
-            )
-        except Exception as e:
-            latency_ms = (time.perf_counter() - start) * 1000
-            return ObservationBundle(
-                test_id=test.id,
-                user_prompt=test.user_prompt,
-                response_text=f"Request error: {e}",
-                http_status=0,
-                latency_ms=latency_ms,
-                raw_json={"error": str(e)},
-            )
+        with start_span(
+            "agent.endpoint.invoke",
+            attributes={
+                "agenteval.test_id": test.id,
+                "http.url": self.endpoint_url,
+                "http.method": "POST",
+            },
+        ) as invoke_span:
+            req_headers = dict(self.headers)
+            inject_trace_context(req_headers)
+            start = time.perf_counter()
+            try:
+                resp = self._client.post(self.endpoint_url, json=payload, headers=req_headers)
+                status = resp.status_code
+                invoke_span.set_attribute("http.status_code", status)
+            except UnsafeURLError as e:
+                latency_ms = (time.perf_counter() - start) * 1000
+                invoke_span.set_status(StatusCode.ERROR, str(e))
+                return ObservationBundle(
+                    test_id=test.id,
+                    user_prompt=test.user_prompt,
+                    response_text=f"SSRF blocked: {e}",
+                    http_status=0,
+                    latency_ms=latency_ms,
+                    raw_json={"error": str(e)},
+                )
+            except httpx.HTTPError as e:
+                latency_ms = (time.perf_counter() - start) * 1000
+                invoke_span.set_status(StatusCode.ERROR, str(e))
+                return ObservationBundle(
+                    test_id=test.id,
+                    user_prompt=test.user_prompt,
+                    response_text=f"HTTP error: {e}",
+                    http_status=0,
+                    latency_ms=latency_ms,
+                    raw_json={"error": str(e)},
+                )
+            except Exception as e:
+                latency_ms = (time.perf_counter() - start) * 1000
+                invoke_span.set_status(StatusCode.ERROR, str(e))
+                return ObservationBundle(
+                    test_id=test.id,
+                    user_prompt=test.user_prompt,
+                    response_text=f"Request error: {e}",
+                    http_status=0,
+                    latency_ms=latency_ms,
+                    raw_json={"error": str(e)},
+                )
 
-        latency_ms = (time.perf_counter() - start) * 1000
-        try:
-            data = resp.json()
-        except Exception:
-            data = {"response": resp.text}
+            latency_ms = (time.perf_counter() - start) * 1000
+            try:
+                data = resp.json()
+            except Exception:
+                data = {"response": resp.text}
 
-        text = self._extract_text(data) if isinstance(data, dict) else str(data)
-        return ObservationBundle(
-            test_id=test.id,
-            user_prompt=test.user_prompt,
-            response_text=text,
-            http_status=status,
-            latency_ms=latency_ms,
-            raw_json=data if isinstance(data, dict) else {"raw": data},
-        )
+            text = self._extract_text(data) if isinstance(data, dict) else str(data)
+            return ObservationBundle(
+                test_id=test.id,
+                user_prompt=test.user_prompt,
+                response_text=text,
+                http_status=status,
+                latency_ms=latency_ms,
+                raw_json=data if isinstance(data, dict) else {"raw": data},
+            )
 
     @staticmethod
     def _extract_text(data: dict[str, Any]) -> str:

@@ -17,7 +17,7 @@ SAMPLE_PRD = """# Demo Agent
 
 
 def test_run_suite_requires_endpoint(tmp_path: Path) -> None:
-    workflow = SuiteWorkflow(suite_root=tmp_path / "suites", use_sqlite=False)
+    workflow = SuiteWorkflow(suite_root=tmp_path / "suites", db_path=tmp_path / "test.db")
     workflow.init_from_prd_text(
         SAMPLE_PRD,
         agent_id="demo-agent",
@@ -33,7 +33,7 @@ def test_run_suite_requires_endpoint(tmp_path: Path) -> None:
 
 @patch("agenteval.services.suite_workflow.BlackboxRunner")
 def test_run_suite_saves_latest(mock_runner_cls: MagicMock, tmp_path: Path) -> None:
-    workflow = SuiteWorkflow(suite_root=tmp_path / "suites", use_sqlite=False)
+    workflow = SuiteWorkflow(suite_root=tmp_path / "suites", db_path=tmp_path / "test.db")
     workflow.init_from_prd_text(
         SAMPLE_PRD,
         agent_id="demo-agent",
@@ -76,7 +76,6 @@ def test_sqlite_primary_skips_filesystem_on_init_and_run(
     db_path = tmp_path / "agenteval.db"
     workflow = SuiteWorkflow(
         suite_root=tmp_path / "suites",
-        use_sqlite=True,
         db_path=db_path,
     )
     workflow.init_from_prd_text(
@@ -138,7 +137,6 @@ def test_sqlite_sync_prunes_removed_capability(tmp_path: Path) -> None:
     db_path = tmp_path / "agenteval.db"
     workflow = SuiteWorkflow(
         suite_root=tmp_path / "suites",
-        use_sqlite=True,
         db_path=db_path,
         max_tests=12,
     )
@@ -177,7 +175,6 @@ def test_extend_gaps_from_latest_run_sqlite(mock_runner_cls: MagicMock, tmp_path
     db_path = tmp_path / "agenteval.db"
     workflow = SuiteWorkflow(
         suite_root=tmp_path / "suites",
-        use_sqlite=True,
         db_path=db_path,
         max_tests=3,
     )
@@ -222,7 +219,6 @@ def test_init_persists_requirements_text_sqlite(tmp_path: Path) -> None:
     db_path = tmp_path / "agenteval.db"
     workflow = SuiteWorkflow(
         suite_root=tmp_path / "suites",
-        use_sqlite=True,
         db_path=db_path,
     )
     workflow.init_from_prd_text(
@@ -236,29 +232,10 @@ def test_init_persists_requirements_text_sqlite(tmp_path: Path) -> None:
     assert len(detail.optimized_pack.tests) >= 1
 
 
-def test_delete_suite_filesystem(tmp_path: Path) -> None:
-    suite_root = tmp_path / "suites"
-    workflow = SuiteWorkflow(suite_root=suite_root, use_sqlite=False)
-    workflow.init_from_prd_text(
-        SAMPLE_PRD,
-        agent_id="del-agent",
-        endpoint_url="http://127.0.0.1/chat",
-        force_new_version=True,
-    )
-    assert any(s.agent_id == "del-agent" for s in workflow.list_suites())
-    assert workflow.delete_suite("del-agent") is True
-    assert not any(s.agent_id == "del-agent" for s in workflow.list_suites())
-    # Calling delete again raises FileNotFoundError
-    import pytest
-
-    with pytest.raises(FileNotFoundError):
-        workflow.delete_suite("del-agent")
-
-
 def test_delete_suite_sqlite(tmp_path: Path) -> None:
     suite_root = tmp_path / "suites"
     db_path = tmp_path / "test.db"
-    workflow = SuiteWorkflow(suite_root=suite_root, use_sqlite=True, db_path=db_path)
+    workflow = SuiteWorkflow(suite_root=suite_root, db_path=db_path)
     workflow.init_from_prd_text(
         SAMPLE_PRD,
         agent_id="sql-agent",

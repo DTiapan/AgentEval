@@ -40,7 +40,7 @@ def create_suite_workflow(
         suite_root=resolved_suite_root,
         max_tests=max_tests,
         use_sqlite=sqlite_on,
-        db_path=resolved_db if sqlite_on else None,
+        db_path=resolved_db,
     )
 
 

@@ -27,8 +27,6 @@ def database_path() -> Path:
 
 def use_sqlite_persistence() -> bool:
     flag = os.environ.get("AGENTEVAL_USE_SQLITE", "").strip().lower()
-    if flag in ("1", "true", "yes", "on"):
-        return True
     if flag in ("0", "false", "no", "off"):
         return False
-    return bool(os.environ.get("AGENTEVAL_DATABASE_URL", "").strip())
+    return True

@@ -15,6 +15,7 @@ from agenteval.planning.models import (
     CandidateTest,
     PriorityTier,
 )
+from agenteval.telemetry import start_span
 
 load_env()
 
@@ -72,24 +73,39 @@ class LLMCandidateSynthesizer:
         prd_text: str | None = None,
     ) -> list[CandidateTest]:
         """Synthesize candidate tests. Uses LiteLLM when available; otherwise falls back to deterministic heuristics."""
-        if not self.force_offline:
-            key = self._resolve_api_key()
-            if key:
-                import concurrent.futures
+        with start_span(
+            "llm.candidate.synthesize",
+            attributes={
+                "openinference.span.kind": "LLM",
+                "gen_ai.system": "litellm",
+                "gen_ai.request.model": self._resolve_model(),
+                "agenteval.agent_id": card.id,
+            },
+        ) as synth_span:
+            candidates: list[CandidateTest]
+            if not self.force_offline:
+                key = self._resolve_api_key()
+                if key:
+                    import concurrent.futures
 
-                executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                try:
-                    future = executor.submit(self._synthesize_with_litellm, card, prd_text, key)
-                    candidates = future.result(timeout=self.timeout)
-                    if candidates:
-                        return candidates
-                except Exception:
-                    # Fallback on any network/API failure or timeout
-                    pass
-                finally:
-                    executor.shutdown(wait=False, cancel_futures=True)
+                    executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                    try:
+                        future = executor.submit(self._synthesize_with_litellm, card, prd_text, key)
+                        candidates = future.result(timeout=self.timeout)
+                        if candidates:
+                            synth_span.set_attribute("agenteval.candidates_count", len(candidates))
+                            synth_span.set_attribute("agenteval.synthesis_source", "litellm")
+                            return candidates
+                    except Exception:
+                        # Fallback on any network/API failure or timeout
+                        pass
+                    finally:
+                        executor.shutdown(wait=False, cancel_futures=True)
 
-        return self._offline_heuristic_synthesis(card, prd_text)
+            candidates = self._offline_heuristic_synthesis(card, prd_text)
+            synth_span.set_attribute("agenteval.candidates_count", len(candidates))
+            synth_span.set_attribute("agenteval.synthesis_source", "heuristic_fallback")
+            return candidates
 
     def _synthesize_with_litellm(
         self,

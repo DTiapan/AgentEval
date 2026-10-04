@@ -21,8 +21,8 @@ SAMPLE_PRD = """# Refund Bot — Requirements
 
 @pytest.fixture
 def client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv("AGENTEVAL_USE_SQLITE", "0")
-    monkeypatch.delenv("AGENTEVAL_DATABASE_URL", raising=False)
+    db_file = tmp_path / "test_api.db"
+    monkeypatch.setenv("AGENTEVAL_DATABASE_URL", f"sqlite:///{db_file}")
     return TestClient(create_app())
 
 

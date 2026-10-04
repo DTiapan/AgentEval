@@ -2,15 +2,18 @@ import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 
 from agenteval import __version__
+from agenteval.api.auth import get_api_key
 from agenteval.api.schemas import (
     EndpointProbeRequest,
     PrdBootstrapRequest,
@@ -19,6 +22,7 @@ from agenteval.api.schemas import (
     SuiteRunRequest,
     SuiteSyncRequest,
 )
+from agenteval.core.telemetry import configure_telemetry, telemetry_status
 from agenteval.ingest.endpoint_probe import EndpointProber
 from agenteval.logging import (
     bind_contextvars,
@@ -94,11 +98,13 @@ def get_allowed_cors_origins() -> list[str]:
 
 def create_app() -> FastAPI:
     configure_logging()
+    provider = configure_telemetry()
     app = FastAPI(
         title="AgentEval API",
         version=__version__,
         description="HTTP façade over black-box suite services (DR-012).",
     )
+    FastAPIInstrumentor.instrument_app(app, tracer_provider=provider)
 
     origins = get_allowed_cors_origins()
     is_wildcard = origins == ["*"]
@@ -113,27 +119,30 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(RequestIdMiddleware)
 
+    api_router = APIRouter(prefix="/v1", dependencies=[Depends(get_api_key)])
+
     @app.get("/health")
-    def health() -> dict[str, str | bool | dict[str, str | bool | None]]:
+    def health() -> dict[str, Any]:
         return {
             "status": "ok",
             "version": __version__,
             "persistence": persistence_status(),
+            "telemetry": telemetry_status(),
         }
 
-    @app.get("/v1/packs")
+    @api_router.get("/packs")
     def list_domain_packs(suite_root: str = ".agenteval/suites") -> JSONResponse:
         workflow = create_suite_workflow(suite_root=suite_root)
         result = workflow.list_domain_packs()
         return JSONResponse(content=result.model_dump(mode="json"))
 
-    @app.get("/v1/suites")
+    @api_router.get("/suites")
     def list_suites(suite_root: str = ".agenteval/suites") -> JSONResponse:
         workflow = create_suite_workflow(suite_root=suite_root)
         items = workflow.list_suites()
         return JSONResponse(content={"suites": [item.model_dump(mode="json") for item in items]})
 
-    @app.get("/v1/suites/{agent_id}/requirements")
+    @api_router.get("/suites/{agent_id}/requirements")
     def get_suite_requirements(
         agent_id: str, suite_root: str = ".agenteval/suites"
     ) -> JSONResponse:
@@ -147,7 +156,7 @@ def create_app() -> FastAPI:
             ) from None
         return JSONResponse(content=result.model_dump(mode="json"))
 
-    @app.get("/v1/suites/{agent_id}")
+    @api_router.get("/suites/{agent_id}")
     def get_suite(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
         workflow = create_suite_workflow(suite_root=suite_root)
         try:
@@ -159,7 +168,7 @@ def create_app() -> FastAPI:
             ) from None
         return JSONResponse(content=detail.model_dump(mode="json"))
 
-    @app.delete("/v1/suites/{agent_id}")
+    @api_router.delete("/suites/{agent_id}")
     def delete_suite(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
         workflow = create_suite_workflow(suite_root=suite_root)
         try:
@@ -171,7 +180,7 @@ def create_app() -> FastAPI:
             ) from None
         return JSONResponse(content={"deleted": True, "agent_id": agent_id})
 
-    @app.post("/v1/endpoints/probe")
+    @api_router.post("/endpoints/probe")
     def probe_agent_endpoint(body: EndpointProbeRequest) -> JSONResponse:
         """Probe target agent from the engine (avoids browser CORS to user endpoints)."""
         result = EndpointProber().probe(body.endpoint_url)
@@ -179,7 +188,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail=result.error)
         return JSONResponse(content=result.model_dump(mode="json"))
 
-    @app.post("/v1/suites/preview")
+    @api_router.post("/suites/preview")
     def preview_suite(body: PrdBootstrapRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root, max_tests=body.max_tests)
         tier = PriorityTier(body.target_tier) if body.target_tier else None
@@ -196,7 +205,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         return JSONResponse(content=result.model_dump(mode="json"))
 
-    @app.post("/v1/suites")
+    @api_router.post("/suites")
     def init_suite(body: SuiteInitRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root, max_tests=body.max_tests)
         tier = PriorityTier(body.target_tier) if body.target_tier else None
@@ -217,7 +226,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         return JSONResponse(content=result.model_dump(mode="json"), status_code=201)
 
-    @app.post("/v1/suites/{agent_id}/extend-gaps")
+    @api_router.post("/suites/{agent_id}/extend-gaps")
     def extend_suite_gaps(agent_id: str, body: SuiteGapExtendRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root)
         try:
@@ -235,7 +244,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         return JSONResponse(content=result.model_dump(mode="json"))
 
-    @app.post("/v1/suites/{agent_id}/sync")
+    @api_router.post("/suites/{agent_id}/sync")
     def sync_suite(agent_id: str, body: SuiteSyncRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root, max_tests=body.max_tests)
         try:
@@ -255,7 +264,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=422, detail=str(exc)) from None
         return JSONResponse(content=result.model_dump(mode="json"))
 
-    @app.post("/v1/suites/{agent_id}/runs")
+    @api_router.post("/suites/{agent_id}/runs")
     def run_suite(agent_id: str, body: SuiteRunRequest) -> JSONResponse:
         workflow = create_suite_workflow(suite_root=body.suite_root)
         try:
@@ -293,7 +302,7 @@ def create_app() -> FastAPI:
             content=job.model_dump(mode="json"),
         )
 
-    @app.get("/v1/suites/{agent_id}/runs/latest")
+    @api_router.get("/suites/{agent_id}/runs/latest")
     def latest_run(agent_id: str, suite_root: str = ".agenteval/suites") -> JSONResponse:
         workflow = create_suite_workflow(suite_root=suite_root)
         report = workflow.latest_run(agent_id)
@@ -301,7 +310,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail=f"No runs for agent '{agent_id}'.")
         return JSONResponse(content=report.model_dump(mode="json"))
 
-    @app.get("/v1/suites/{agent_id}/runs/{run_id}/status")
+    @api_router.get("/suites/{agent_id}/runs/{run_id}/status")
     def run_status(
         agent_id: str,
         run_id: str,
@@ -330,7 +339,7 @@ def create_app() -> FastAPI:
             completed_count = len(report.results) if report else 0
             total_count = completed_count
             try:
-                pack = workflow._load_pack(workflow._store(), agent_id)
+                pack = workflow._load_pack(agent_id)
                 total_count = max(len(pack.tests), completed_count)
             except Exception:
                 pass
@@ -360,7 +369,7 @@ def create_app() -> FastAPI:
             detail=f"Run '{run_id}' not found for agent '{agent_id}'.",
         )
 
-    @app.get("/v1/suites/{agent_id}/runs/{run_id}")
+    @api_router.get("/suites/{agent_id}/runs/{run_id}")
     def get_run(
         agent_id: str,
         run_id: str,
@@ -422,6 +431,8 @@ def create_app() -> FastAPI:
                 "Content-Security-Policy": "frame-ancestors 'self'",
             },
         )
+
+    app.include_router(api_router)
 
     ui_dist = Path(os.environ.get("AGENTEVAL_UI_DIST", str(_REPO_UI_DIST)))
     if os.environ.get("AGENTEVAL_SERVE_UI", "0") == "1" and ui_dist.is_dir():

@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agenteval.api.app import create_app
+from agenteval.db.suite_repository import SuiteRepository
 from agenteval.planning.models import (
     CandidateTest,
     CoverageReport,
@@ -15,7 +16,6 @@ from agenteval.planning.models import (
     TestCaseResult,
     TestPack,
 )
-from agenteval.planning.suite_store import SuiteStore
 from agenteval.reporting.html_report import HTMLReportGenerator
 from agenteval.services.requirement_run_status import (
     AssuranceSignoffContext,
@@ -176,8 +176,9 @@ def test_html_report_includes_signoff_sections(
 def test_suite_workflow_generate_html_report(
     tmp_path: Path, sample_pack: TestPack, sample_report: SuiteRunReport
 ) -> None:
-    store = SuiteStore(tmp_path)
-    store.init_suite(
+    db_path = tmp_path / "test.db"
+    repo = SuiteRepository(db_path)
+    repo.init_suite(
         SuiteManifest(
             agent_id="test-refund-agent",
             version=1,
@@ -188,9 +189,9 @@ def test_suite_workflow_generate_html_report(
         sample_pack,
         force=True,
     )
-    store.save_run("test-refund-agent", sample_report)
+    repo.finalize_run("test-refund-agent", sample_report, endpoint_url="http://127.0.0.1/chat")
 
-    workflow = SuiteWorkflow(suite_root=tmp_path, use_sqlite=False)
+    workflow = SuiteWorkflow(suite_root=tmp_path, db_path=db_path)
     report_html = workflow.generate_html_report("test-refund-agent")
 
     assert "<!DOCTYPE html>" in report_html
@@ -211,9 +212,10 @@ def test_api_suite_report_endpoint(
     sample_report: SuiteRunReport,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENTEVAL_USE_SQLITE", "0")
-    store = SuiteStore(tmp_path)
-    store.init_suite(
+    db_path = tmp_path / "report_api.db"
+    monkeypatch.setenv("AGENTEVAL_DATABASE_URL", f"sqlite:///{db_path}")
+    repo = SuiteRepository(db_path)
+    repo.init_suite(
         SuiteManifest(
             agent_id="test-refund-agent",
             version=1,
@@ -224,7 +226,7 @@ def test_api_suite_report_endpoint(
         sample_pack,
         force=True,
     )
-    store.save_run("test-refund-agent", sample_report)
+    repo.finalize_run("test-refund-agent", sample_report, endpoint_url="http://127.0.0.1/chat")
 
     client = TestClient(create_app())
     res = client.get(f"/v1/suites/test-refund-agent/report?suite_root={tmp_path}")
@@ -251,13 +253,14 @@ def test_cli_suite_report(
     sample_report: SuiteRunReport,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("AGENTEVAL_USE_SQLITE", "0")
+    db_path = tmp_path / "cli_report.db"
+    monkeypatch.setenv("AGENTEVAL_DATABASE_URL", f"sqlite:///{db_path}")
     from typer.testing import CliRunner
 
     from agenteval.cli.main import app
 
-    store = SuiteStore(tmp_path)
-    store.init_suite(
+    repo = SuiteRepository(db_path)
+    repo.init_suite(
         SuiteManifest(
             agent_id="test-refund-agent",
             version=1,
@@ -268,7 +271,7 @@ def test_cli_suite_report(
         sample_pack,
         force=True,
     )
-    store.save_run("test-refund-agent", sample_report)
+    repo.finalize_run("test-refund-agent", sample_report, endpoint_url="http://127.0.0.1/chat")
 
     runner = CliRunner()
     out_file = tmp_path / "custom_report.html"

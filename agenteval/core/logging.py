@@ -18,6 +18,24 @@ def add_gcp_severity(
     return event_dict
 
 
+def add_otel_trace_context(
+    logger: Any, method_name: str, event_dict: EventDict
+) -> EventDict:
+    """Inject active OpenTelemetry trace_id and span_id into structlog event."""
+    try:
+        from agenteval.core.telemetry import get_current_span_id, get_current_trace_id
+
+        trace_id = get_current_trace_id()
+        if trace_id:
+            event_dict["trace_id"] = trace_id
+        span_id = get_current_span_id()
+        if span_id:
+            event_dict["span_id"] = span_id
+    except Exception:
+        pass
+    return event_dict
+
+
 _LOGGING_CONFIGURED = False
 
 
@@ -56,6 +74,7 @@ def configure_logging(
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_log_level,
         add_gcp_severity,
+        add_otel_trace_context,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,

@@ -39,6 +39,7 @@ from agenteval.planning.models import (
     TestPack,
 )
 from agenteval.planning.suite_store import SuiteExistsError
+from agenteval.telemetry import start_span
 
 
 class SuiteRepository:
@@ -113,71 +114,80 @@ class SuiteRepository:
         requirements_text: str = "",
         enabled_domain_packs: list[str] | None = None,
     ) -> None:
-        agent_id = manifest.agent_id
-        exists = self._conn.execute(
-            "SELECT 1 FROM agents WHERE id = ?",
-            (agent_id,),
-        ).fetchone()
-        if exists is not None and not force:
-            raise SuiteExistsError(
-                f"Suite already exists for agent '{agent_id}' in database. Use force to replace."
-            )
+        with start_span(
+            "db.sqlite.operation",
+            attributes={
+                "db.system": "sqlite",
+                "db.operation": "init_suite",
+                "agenteval.agent_id": manifest.agent_id,
+                "agenteval.force": force,
+            },
+        ):
+            agent_id = manifest.agent_id
+            exists = self._conn.execute(
+                "SELECT 1 FROM agents WHERE id = ?",
+                (agent_id,),
+            ).fetchone()
+            if exists is not None and not force:
+                raise SuiteExistsError(
+                    f"Suite already exists for agent '{agent_id}' in database. Use force to replace."
+                )
 
-        now = datetime.now(UTC).isoformat()
-        with self._conn:
-            self._ensure_default_workspace()
-            self._conn.execute(
-                """
-                INSERT INTO agents (id, workspace_id, slug, display_name, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(id) DO UPDATE SET
-                    display_name = excluded.display_name
-                """,
-                (
-                    agent_id,
-                    DEFAULT_WORKSPACE_ID,
-                    agent_id,
-                    agent_id,
-                    now,
-                ),
-            )
-            suite_version_id = self._suite_version_id(agent_id, manifest.version)
-            self._conn.execute(
-                """
-                INSERT INTO suite_versions (
-                    id, agent_id, version, requirements_fingerprint,
-                    requirements_text, endpoint_profile, pack_json,
-                    candidate_pool_json, agent_card_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT(agent_id, version) DO UPDATE SET
-                    requirements_fingerprint = excluded.requirements_fingerprint,
-                    requirements_text = excluded.requirements_text,
-                    endpoint_profile = excluded.endpoint_profile,
-                    pack_json = excluded.pack_json,
-                    candidate_pool_json = excluded.candidate_pool_json,
-                    agent_card_json = excluded.agent_card_json,
-                    created_at = excluded.created_at
-                """,
-                (
+            now = datetime.now(UTC).isoformat()
+            with self._conn:
+                self._ensure_default_workspace()
+                self._conn.execute(
+                    """
+                    INSERT INTO agents (id, workspace_id, slug, display_name, created_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET
+                        display_name = excluded.display_name
+                    """,
+                    (
+                        agent_id,
+                        DEFAULT_WORKSPACE_ID,
+                        agent_id,
+                        agent_id,
+                        now,
+                    ),
+                )
+                suite_version_id = self._suite_version_id(agent_id, manifest.version)
+                self._conn.execute(
+                    """
+                    INSERT INTO suite_versions (
+                        id, agent_id, version, requirements_fingerprint,
+                        requirements_text, endpoint_profile, pack_json,
+                        candidate_pool_json, agent_card_json, created_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(agent_id, version) DO UPDATE SET
+                        requirements_fingerprint = excluded.requirements_fingerprint,
+                        requirements_text = excluded.requirements_text,
+                        endpoint_profile = excluded.endpoint_profile,
+                        pack_json = excluded.pack_json,
+                        candidate_pool_json = excluded.candidate_pool_json,
+                        agent_card_json = excluded.agent_card_json,
+                        created_at = excluded.created_at
+                    """,
+                    (
+                        suite_version_id,
+                        agent_id,
+                        manifest.version,
+                        manifest.requirements_fingerprint,
+                        requirements_text,
+                        manifest.endpoint_profile,
+                        pack.model_dump_json(),
+                        json.dumps([t.model_dump() for t in pool]),
+                        agent_card_json,
+                        manifest.created_at or now,
+                    ),
+                )
+                persist_normalized_suite(
+                    self._conn,
                     suite_version_id,
-                    agent_id,
-                    manifest.version,
-                    manifest.requirements_fingerprint,
-                    requirements_text,
-                    manifest.endpoint_profile,
-                    pack.model_dump_json(),
-                    json.dumps([t.model_dump() for t in pool]),
-                    agent_card_json,
-                    manifest.created_at or now,
-                ),
-            )
-            persist_normalized_suite(
-                self._conn,
-                suite_version_id,
-                pack,
-                agent_card_json=agent_card_json,
-                enabled_domain_packs=enabled_domain_packs,
-            )
+                    pack,
+                    agent_card_json=agent_card_json,
+                    enabled_domain_packs=enabled_domain_packs,
+                )
 
     def load_normalized_requirements(self, agent_id: str) -> list[RequirementRecord]:
         row = self._latest_suite_row(agent_id)
@@ -446,41 +456,51 @@ class SuiteRepository:
 
     def save_partial_result(self, run_id: str, result: TestCaseResult) -> None:
         """Atomically persist a single test case result and trajectory, updating running tallies."""
-        now = datetime.now(UTC).isoformat()
-        result_id = f"{run_id}:{result.test_id}"
-        with self._write_lock, self._conn:
-            self._conn.execute(
-                """
-                INSERT OR REPLACE INTO test_case_results (
-                    id, run_id, test_id, verdict, rationale, observation_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    result_id,
-                    run_id,
-                    result.test_id,
-                    result.verdict,
-                    result.rationale,
-                    result.observation.model_dump_json(),
-                ),
-            )
-            self._conn.execute(
-                "DELETE FROM execution_steps WHERE test_case_result_id = ?",
-                (result_id,),
-            )
-            self._insert_trajectory(result_id, result.trajectory)
+        with start_span(
+            "db.sqlite.operation",
+            attributes={
+                "db.system": "sqlite",
+                "db.operation": "save_partial_result",
+                "agenteval.run_id": run_id,
+                "agenteval.test_id": result.test_id,
+                "agenteval.verdict": result.verdict,
+            },
+        ):
+            now = datetime.now(UTC).isoformat()
+            result_id = f"{run_id}:{result.test_id}"
+            with self._write_lock, self._conn:
+                self._conn.execute(
+                    """
+                    INSERT OR REPLACE INTO test_case_results (
+                        id, run_id, test_id, verdict, rationale, observation_json
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        result_id,
+                        run_id,
+                        result.test_id,
+                        result.verdict,
+                        result.rationale,
+                        result.observation.model_dump_json(),
+                    ),
+                )
+                self._conn.execute(
+                    "DELETE FROM execution_steps WHERE test_case_result_id = ?",
+                    (result_id,),
+                )
+                self._insert_trajectory(result_id, result.trajectory)
 
-            self._conn.execute(
-                """
-                UPDATE assurance_runs
-                SET passed = (SELECT count(*) FROM test_case_results WHERE run_id = ? AND verdict = 'PASS'),
-                    failed = (SELECT count(*) FROM test_case_results WHERE run_id = ? AND verdict = 'FAIL'),
-                    unverifiable = (SELECT count(*) FROM test_case_results WHERE run_id = ? AND verdict = 'UNVERIFIABLE'),
-                    finished_at = ?
-                WHERE run_id = ?
-                """,
-                (run_id, run_id, run_id, now, run_id),
-            )
+                self._conn.execute(
+                    """
+                    UPDATE assurance_runs
+                    SET passed = (SELECT count(*) FROM test_case_results WHERE run_id = ? AND verdict = 'PASS'),
+                        failed = (SELECT count(*) FROM test_case_results WHERE run_id = ? AND verdict = 'FAIL'),
+                        unverifiable = (SELECT count(*) FROM test_case_results WHERE run_id = ? AND verdict = 'UNVERIFIABLE'),
+                        finished_at = ?
+                    WHERE run_id = ?
+                    """,
+                    (run_id, run_id, run_id, now, run_id),
+                )
 
     def finalize_run(
         self,
@@ -490,71 +510,80 @@ class SuiteRepository:
         endpoint_url: str,
     ) -> None:
         """Mark run as completed, update diff/tallies, and persist evidence and inspect sidecars."""
-        row = self._conn.execute(
-            """
-            SELECT id FROM suite_versions
-            WHERE agent_id = ? AND version = ?
-            """,
-            (agent_id, report.suite_version),
-        ).fetchone()
-        if row is None:
-            raise FileNotFoundError(
-                f"No suite version {report.suite_version} for agent '{agent_id}'"
-            )
-        suite_version_id = str(row["id"])
-        now = datetime.now(UTC).isoformat()
-        run_diff_json = json.dumps(report.run_diff) if report.run_diff is not None else None
-
-        with self._write_lock, self._conn:
-            run_row = self._conn.execute(
-                "SELECT 1 FROM assurance_runs WHERE run_id = ?",
-                (report.run_id,),
-            ).fetchone()
-            if run_row is None:
-                self.initialize_run(
-                    agent_id,
-                    report.run_id,
-                    report.suite_version,
-                    endpoint_url=endpoint_url,
-                )
-
-            for result in report.results:
-                result_id = f"{report.run_id}:{result.test_id}"
-                exists = self._conn.execute(
-                    "SELECT 1 FROM test_case_results WHERE id = ?",
-                    (result_id,),
-                ).fetchone()
-                if exists is None:
-                    self.save_partial_result(report.run_id, result)
-
-            self._conn.execute(
+        with start_span(
+            "db.sqlite.operation",
+            attributes={
+                "db.system": "sqlite",
+                "db.operation": "finalize_run",
+                "agenteval.agent_id": agent_id,
+                "agenteval.run_id": report.run_id,
+            },
+        ):
+            row = self._conn.execute(
                 """
-                UPDATE assurance_runs
-                SET status = 'completed',
-                    finished_at = ?,
-                    passed = ?,
-                    failed = ?,
-                    unverifiable = ?,
-                    run_diff_json = ?
-                WHERE run_id = ?
+                SELECT id FROM suite_versions
+                WHERE agent_id = ? AND version = ?
                 """,
-                (
-                    now,
-                    report.passed,
-                    report.failed,
-                    report.unverifiable,
-                    run_diff_json,
+                (agent_id, report.suite_version),
+            ).fetchone()
+            if row is None:
+                raise FileNotFoundError(
+                    f"No suite version {report.suite_version} for agent '{agent_id}'"
+                )
+            suite_version_id = str(row["id"])
+            now = datetime.now(UTC).isoformat()
+            run_diff_json = json.dumps(report.run_diff) if report.run_diff is not None else None
+
+            with self._write_lock, self._conn:
+                run_row = self._conn.execute(
+                    "SELECT 1 FROM assurance_runs WHERE run_id = ?",
+                    (report.run_id,),
+                ).fetchone()
+                if run_row is None:
+                    self.initialize_run(
+                        agent_id,
+                        report.run_id,
+                        report.suite_version,
+                        endpoint_url=endpoint_url,
+                    )
+
+                for result in report.results:
+                    result_id = f"{report.run_id}:{result.test_id}"
+                    exists = self._conn.execute(
+                        "SELECT 1 FROM test_case_results WHERE id = ?",
+                        (result_id,),
+                    ).fetchone()
+                    if exists is None:
+                        self.save_partial_result(report.run_id, result)
+
+                self._conn.execute(
+                    """
+                    UPDATE assurance_runs
+                    SET status = 'completed',
+                        finished_at = ?,
+                        passed = ?,
+                        failed = ?,
+                        unverifiable = ?,
+                        run_diff_json = ?
+                    WHERE run_id = ?
+                    """,
+                    (
+                        now,
+                        report.passed,
+                        report.failed,
+                        report.unverifiable,
+                        run_diff_json,
+                        report.run_id,
+                    ),
+                )
+                persist_run_evidence_and_verdicts(
+                    self._conn,
                     report.run_id,
-                ),
-            )
-            persist_run_evidence_and_verdicts(
-                self._conn,
-                report.run_id,
-                suite_version_id,
-                report.results,
-                captured_at=now,
-            )
-            self._persist_inspect_sidecar(suite_version_id, report)
+                    suite_version_id,
+                    report.results,
+                    captured_at=now,
+                )
+                self._persist_inspect_sidecar(suite_version_id, report)
 
     def mark_run_failed(self, run_id: str, error_message: str | None = None) -> None:
         """Mark run as failed upon unexpected error/exception."""

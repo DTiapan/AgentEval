@@ -13,6 +13,15 @@ import { formatApiErrorBody } from "@/lib/api-error";
 
 const API_BASE = "";
 
+async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
+  const headers = new Headers(init?.headers);
+  const apiKey = localStorage.getItem("AGENTEVAL_API_KEY");
+  if (apiKey) {
+    headers.set("X-API-Key", apiKey);
+  }
+  return fetch(input, { ...init, headers });
+}
+
 async function parseJson<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -34,17 +43,17 @@ export type EngineHealth = {
 };
 
 export async function fetchHealth(): Promise<EngineHealth> {
-  const res = await fetch(`${API_BASE}/health`);
+  const res = await authFetch(`${API_BASE}/health`);
   return parseJson(res);
 }
 
 export async function listDomainPacks() {
-  const res = await fetch(`${API_BASE}/v1/packs`);
+  const res = await authFetch(`${API_BASE}/v1/packs`);
   return parseJson<import("./types").DomainPackListResult>(res);
 }
 
 export async function listSuites(): Promise<SuiteListItem[]> {
-  const res = await fetch(`${API_BASE}/v1/suites`);
+  const res = await authFetch(`${API_BASE}/v1/suites`);
   const body = await parseJson<{ suites: SuiteListItem[] }>(res);
   return body.suites;
 }
@@ -61,7 +70,7 @@ export type EngineEndpointProbeResult = {
 export async function probeAgentEndpoint(
   endpointUrl: string,
 ): Promise<EngineEndpointProbeResult> {
-  const res = await fetch(`${API_BASE}/v1/endpoints/probe`, {
+  const res = await authFetch(`${API_BASE}/v1/endpoints/probe`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ endpoint_url: endpointUrl }),
@@ -70,12 +79,12 @@ export async function probeAgentEndpoint(
 }
 
 export async function getSuiteDetail(agentId: string): Promise<SuiteDetailResult> {
-  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}`);
+  const res = await authFetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}`);
   return parseJson(res);
 }
 
 export async function getSuiteRequirements(agentId: string) {
-  const res = await fetch(
+  const res = await authFetch(
     `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/requirements`,
   );
   return parseJson<import("./types").SuiteRequirementsResult>(res);
@@ -89,7 +98,7 @@ export async function previewSuite(payload: {
   target_tier?: string;
   selected_test_ids?: string[];
 }): Promise<PreviewResponse> {
-  const res = await fetch(`${API_BASE}/v1/suites/preview`, {
+  const res = await authFetch(`${API_BASE}/v1/suites/preview`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -111,7 +120,7 @@ export async function initSuite(payload: {
   target_tier?: string;
   selected_test_ids?: string[];
 }): Promise<SuiteInitResult> {
-  const res = await fetch(`${API_BASE}/v1/suites`, {
+  const res = await authFetch(`${API_BASE}/v1/suites`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -128,7 +137,7 @@ export async function extendSuiteGaps(
   agentId: string,
   payload?: { max_add?: number; run_id?: string },
 ): Promise<SuiteGapLoopResult> {
-  const res = await fetch(
+  const res = await authFetch(
     `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/extend-gaps`,
     {
       method: "POST",
@@ -153,7 +162,7 @@ export async function syncSuite(
     selected_test_ids?: string[];
   },
 ): Promise<SuiteSyncResult> {
-  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/sync`, {
+  const res = await authFetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/sync`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -169,7 +178,7 @@ export async function getRunJobStatus(
   agentId: string,
   runId: string,
 ): Promise<RunJobStatus> {
-  const res = await fetch(
+  const res = await authFetch(
     `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}/status`,
   );
   return parseJson<RunJobStatus>(res);
@@ -179,7 +188,7 @@ export async function getRunReport(
   agentId: string,
   runId: string,
 ): Promise<SuiteRunReport> {
-  const res = await fetch(
+  const res = await authFetch(
     `${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs/${encodeURIComponent(runId)}`,
   );
   return parseJson<SuiteRunReport>(res);
@@ -195,7 +204,7 @@ export async function runSuite(
     wait?: boolean;
   },
 ): Promise<SuiteRunReport> {
-  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs`, {
+  const res = await authFetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -232,7 +241,7 @@ export async function runSuite(
 }
 
 export async function getLatestRun(agentId: string): Promise<SuiteRunReport> {
-  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs/latest`);
+  const res = await authFetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}/runs/latest`);
   return parseJson(res);
 }
 
@@ -256,7 +265,7 @@ export async function downloadSuiteReport(
   options?: { theme?: "light" | "dark" },
 ): Promise<void> {
   const url = getSuiteReportUrl(agentId, runId, { theme: options?.theme });
-  const res = await fetch(url);
+  const res = await authFetch(url);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(formatApiErrorBody(body, res.statusText || "Report download failed"));
@@ -275,7 +284,7 @@ export async function downloadSuiteReport(
 export async function deleteSuite(
   agentId: string,
 ): Promise<{ deleted: boolean; agent_id: string }> {
-  const res = await fetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}`, {
+  const res = await authFetch(`${API_BASE}/v1/suites/${encodeURIComponent(agentId)}`, {
     method: "DELETE",
   });
   return parseJson(res);

@@ -14,9 +14,9 @@ _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
-from agenteval.planning._utils import load_env
-from agenteval.planning.jev_candidate_scorer import JevCandidateScorer
-from agenteval.planning.models import (
+from agenteval.planning._utils import load_env  # noqa: E402
+from agenteval.planning.jev_candidate_scorer import JevCandidateScorer  # noqa: E402
+from agenteval.planning.models import (  # noqa: E402
     CandidateTest,
     MandatoryCategory,
     PriorityTier,

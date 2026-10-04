@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from typing import Any, Callable
+from typing import Any
 
 HOST = "127.0.0.1"
 

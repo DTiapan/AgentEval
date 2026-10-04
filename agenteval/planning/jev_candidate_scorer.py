@@ -23,6 +23,7 @@ from agenteval.planning.models import (
     CandidateTest,
     PriorityTier,
 )
+from agenteval.telemetry import start_span
 
 load_env()
 
@@ -107,15 +108,29 @@ class JevCandidateScorer:
         existing_prompts: list[str] | None = None,
     ) -> CandidateQualityScore:
         """Score an individual candidate test across all 4 quality axes using TypeSafe AI Jev or fallback."""
-        if self._client is not None and _TYPESAFE_AVAILABLE:
-            try:
-                return self._typesafe_jev_score(candidate, existing_prompts)
-            except Exception:
-                return self._local_heuristic_score(
-                    candidate, existing_prompts, source="local_heuristic_fallback"
-                )
+        with start_span(
+            "jev.candidate.score",
+            attributes={
+                "openinference.span.kind": "EVALUATOR",
+                "agenteval.candidate.id": candidate.id,
+                "agenteval.candidate.category": candidate.category,
+            },
+        ) as jev_span:
+            res: CandidateQualityScore
+            if self._client is not None and _TYPESAFE_AVAILABLE:
+                try:
+                    res = self._typesafe_jev_score(candidate, existing_prompts)
+                except Exception:
+                    res = self._local_heuristic_score(
+                        candidate, existing_prompts, source="local_heuristic_fallback"
+                    )
+            else:
+                res = self._local_heuristic_score(candidate, existing_prompts, source="local_heuristic")
 
-        return self._local_heuristic_score(candidate, existing_prompts, source="local_heuristic")
+            jev_span.set_attribute("agenteval.quality.composite", res.composite_score)
+            jev_span.set_attribute("agenteval.quality.source", res.source)
+            jev_span.set_attribute("agenteval.quality.recommended_tier", res.recommended_tier.value)
+            return res
 
     def _typesafe_jev_score(
         self,
