@@ -48,6 +48,7 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
 | DR-038 | **API Key Authentication (BYOA First Layer) & APIRouter Gating:** Implemented global `/v1` endpoint protection using `X-API-Key` or `Authorization: Bearer` verified securely against `AGENTEVAL_API_KEY` via `secrets.compare_digest`. Migrated FastAPI endpoints to `APIRouter` to isolate protected domains while leaving `/health` and UI static asset routes unauthenticated. Handled backward compatibility gracefully for local development. | Accepted | 2026-10-04 |
 | DR-039 | **Deprecation and Complete Removal of Filesystem Dual-Persistence in Runtime Workflows:** Removed legacy `SuiteStore` fallback branches and `_sqlite_primary()` checks from `SuiteWorkflow`, cementing `SuiteRepository` (SQLite) as the single authoritative persistence backend for all suite operations. Preserved `SuiteStore` solely for legacy migrations via `agenteval db import-suites`. | Accepted | 2026-10-04 |
 | DR-040 | **OpenTelemetry (OTel) Distributed Tracing Engine, W3C Propagation & OpenInference Semantic Conventions:** End-to-end distributed tracing across FastAPI API endpoints, suite operations (`suite.run_pack`, `suite.preview`, `suite.init`), individual test case execution (`test.case.execute`), agent endpoint HTTP invocations (`agent.endpoint.invoke` with outbound W3C `traceparent` propagation), LLM evaluations (`llm.judge.evaluate`), candidate synthesizers (`llm.candidate.synthesize`), Jev scorers (`jev.candidate.score`), and SQLite mutations (`db.sqlite.operation`). Automated correlation of active `trace_id` and `span_id` with `structlog` JSON logs. | Accepted | 2026-10-04 |
+| DR-041 | **Production Database Architecture — SQLite GCS FUSE Evaluation & Dual-Engine Persistence Strategy ([ADR-007](../decisions/ADR-007-production-database-architecture-sqlite-gcs-evaluation.md)):** Evaluated POSIX locking absence, WAL mode shared memory (`.shm`) failure, and 50–250ms write amplification of SQLite on Google Cloud Storage FUSE in Cloud Run Gen2. Established Dual-Engine persistence strategy: embedded SQLite for local/CLI/CI single-node workflows, and managed PostgreSQL (Cloud SQL / Neon / Supabase) for autoscaling multi-tenant cloud SaaS. Implemented immediate Cloud Run operational guardrail clamping `MAX_INSTANCES=1` when running on SQLite. | Accepted | 2026-10-04 |
 
 
 ---
@@ -406,6 +407,24 @@ Decisions reversible without a formal ADR. Promote to `docs/decisions/` when rev
      - Auto-instrumentation of FastAPI routes via `FastAPIInstrumentor` and telemetry status reporting in `/health`.
 - **Decision:** **Option 3.**
 - **Consequences:** End-to-end tracing coverage across all critical execution planes. Evaluated agents receive standard W3C `traceparent` headers. Active trace and span IDs correlate seamlessly in `structlog` JSON logs. Verified with 12 comprehensive unit tests in `tests/unit/test_otel_telemetry.py`; full suite passes 310 tests with 87.97% coverage.
+
+---
+
+### DR-041 — Production Database Architecture: SQLite GCS FUSE Evaluation & Dual-Engine Persistence Strategy
+
+- **Date:** 2026-10-04
+- **Status:** accepted
+- **Context:** In Slice 12, evaluated the data integrity, concurrency, and performance risks of running SQLite over Google Cloud Storage FUSE (`gcsfuse`) volume mounts in Cloud Run Gen2. Analysis revealed four severe vulnerabilities: (1) Absence of distributed POSIX file locking (`fcntl`/`flock`) in GCS causes silent split-brain database corruption whenever Cloud Run scales to $\ge 2$ instances or during rolling deployments; (2) Shared-memory mapping (`.shm`) required for WAL mode cannot cross network machines; (3) Write amplification forces whole-file HTTP PUT uploads on every commit, increasing latency to 50–250ms and inflating API costs; (4) Google's official documentation explicitly warns against running databases on GCS FUSE.
+- **Alternatives considered:**
+  1. **Retain SQLite on GCS FUSE with single-instance pinning:** (Temporary mitigation only; caps SaaS scaling and remains vulnerable during rolling revision overlaps).
+  2. **SQLite with Litestream on local ephemeral disk:** (Sub-millisecond local NVMe writes with WAL streaming to GCS, but strictly single-writer; does not support multi-tenant SaaS scaling).
+  3. **Managed PostgreSQL only:** (Complete ACID and multi-instance scaling, but destroys zero-friction local developer onboarding and air-gapped CI).
+  4. **Dual-Engine Persistence Strategy (Option 4, Accepted):**
+     - Retain embedded SQLite (`.agenteval/agenteval.db`) as zero-config default for local workstations, CLI runs, and air-gapped CI.
+     - Support Managed PostgreSQL (Google Cloud SQL / Neon / Supabase) for Cloud Run multi-tenant SaaS deployments via `DATABASE_URL`.
+     - Implement immediate Cloud Run operational guardrail: clamp `MAX_INSTANCES=1` and `autoscaling.knative.dev/maxScale: "1"` in `deploy.sh` and `service.yaml` while SQLite is active.
+- **Decision:** **Option 4 (formalized in [ADR-007](../decisions/ADR-007-production-database-architecture-sqlite-gcs-evaluation.md)).**
+- **Consequences:** Eliminates the risk of catastrophic GCS FUSE database corruption. Establishes a clear architecture for horizontal scaling on Cloud Run without degrading local developer experience. Automated regression tests added in `tests/unit/test_cloud_deployment_config.py` assert single-instance guardrails across `deploy.sh`, `service.yaml`, and `.env.gcp.example`.
 
 <!-- New entries above ## Archive -->
 

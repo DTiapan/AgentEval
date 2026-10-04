@@ -71,7 +71,9 @@ REPO_NAME="${REPO_NAME:-agenteval-repo}"
 CPU="${CPU:-2}"
 MEMORY="${MEMORY:-4Gi}"
 MIN_INSTANCES="${MIN_INSTANCES:-0}"
-MAX_INSTANCES="${MAX_INSTANCES:-10}"
+# Note: Clamped to 1 by default when using SQLite on GCS FUSE to prevent multi-writer corruption (ADR-007).
+# Scale > 1 only when connecting to managed PostgreSQL via DATABASE_URL.
+MAX_INSTANCES="${MAX_INSTANCES:-1}"
 TIMEOUT="${TIMEOUT:-1800}"
 CONCURRENCY="${CONCURRENCY:-20}"
 
@@ -159,6 +161,15 @@ STORAGE_VOLUME_FLAGS=(
 )
 info "Mounted gs://${GCS_DATA_BUCKET} → ${AGENTEVAL_DATA_DIR} (SQLite DB and test suites survive redeploy)."
 
+# Cloud Storage FUSE + SQLite Safety Guardrail (ADR-007)
+# SQLite does not support distributed multi-instance locking over GCS FUSE.
+# If SQLite persistence is used, we must clamp MAX_INSTANCES to 1 to prevent database corruption.
+if [[ "${AGENTEVAL_USE_SQLITE:-1}" == "1" && -z "${DATABASE_URL:-}" && "${MAX_INSTANCES}" -gt 1 ]]; then
+    warn "CRITICAL: SQLite on GCS FUSE does not support multi-instance writes (ADR-007)!"
+    warn "Clamping MAX_INSTANCES from ${MAX_INSTANCES} -> 1 to prevent silent database corruption."
+    MAX_INSTANCES=1
+fi
+
 # 6. Automatic Secret Manager Discovery & Binding
 SECRET_FLAGS=()
 bind_secret_if_exists() {
@@ -221,6 +232,9 @@ if [[ -n "${AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS:-}" ]]; then
 fi
 if [[ -n "${AGENTEVAL_CORS_ORIGINS:-}" ]]; then
     ENV_VARS="${ENV_VARS},AGENTEVAL_CORS_ORIGINS=${AGENTEVAL_CORS_ORIGINS}"
+fi
+if [[ -n "${DATABASE_URL:-}" ]]; then
+    ENV_VARS="${ENV_VARS},DATABASE_URL=${DATABASE_URL}"
 fi
 if [[ -n "${FALLBACK_ENV_VARS}" ]]; then
     ENV_VARS="${ENV_VARS}${FALLBACK_ENV_VARS}"

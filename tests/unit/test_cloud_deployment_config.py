@@ -59,3 +59,49 @@ def test_env_gcp_example_timeout_baseline() -> None:
     assert timeout_val >= 1800, (
         f".env.gcp.example TIMEOUT is {timeout_val}; must be >= 1800."
     )
+
+
+def test_sqlite_gcs_max_instances_guardrail_in_deploy_sh() -> None:
+    """Verify deploy.sh enforces MAX_INSTANCES=1 for SQLite on GCS FUSE safety (ADR-007)."""
+    deploy_sh = REPO_ROOT / "deploy" / "gcp" / "deploy.sh"
+    content = deploy_sh.read_text(encoding="utf-8")
+
+    match = re.search(r'MAX_INSTANCES="?\$\{MAX_INSTANCES:-(\d+)\}"?', content)
+    assert match is not None, "deploy.sh missing MAX_INSTANCES default assignment"
+    max_val = int(match.group(1))
+    assert max_val == 1, (
+        f"deploy.sh default MAX_INSTANCES is {max_val}; must be 1 to prevent multi-instance "
+        "split-brain corruption with SQLite on GCS FUSE (ADR-007)."
+    )
+
+    # Verify active guardrail check exists
+    assert "MAX_INSTANCES=1" in content, "deploy.sh missing active MAX_INSTANCES=1 clamp"
+    assert "SQLite on GCS FUSE does not support multi-instance writes" in content, (
+        "deploy.sh missing ADR-007 safety warning message"
+    )
+
+
+def test_sqlite_gcs_max_scale_guardrail_in_service_yaml() -> None:
+    """Verify service.yaml clamps maxScale to 1 for SQLite on GCS FUSE safety (ADR-007)."""
+    service_yaml = REPO_ROOT / "deploy" / "gcp" / "service.yaml"
+    content = service_yaml.read_text(encoding="utf-8")
+
+    match = re.search(r'autoscaling\.knative\.dev/maxScale:\s*"(\d+)"', content)
+    assert match is not None, "service.yaml missing autoscaling.knative.dev/maxScale"
+    max_scale = int(match.group(1))
+    assert max_scale == 1, (
+        f"service.yaml maxScale is {max_scale}; must be 1 while using SQLite on GCS FUSE (ADR-007)."
+    )
+
+
+def test_sqlite_gcs_max_instances_in_env_gcp_example() -> None:
+    """Verify .env.gcp.example defaults MAX_INSTANCES=1 (ADR-007)."""
+    env_example = REPO_ROOT / ".env.gcp.example"
+    content = env_example.read_text(encoding="utf-8")
+
+    match = re.search(r'^MAX_INSTANCES=(\d+)', content, re.MULTILINE)
+    assert match is not None, ".env.gcp.example missing MAX_INSTANCES setting"
+    max_val = int(match.group(1))
+    assert max_val == 1, (
+        f".env.gcp.example MAX_INSTANCES is {max_val}; must be 1 for SQLite on GCS FUSE (ADR-007)."
+    )
