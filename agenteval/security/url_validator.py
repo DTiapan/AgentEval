@@ -10,6 +10,8 @@ import urllib.request
 from typing import Any
 from urllib.parse import urlparse
 
+import httpx
+
 _ALWAYS_BLOCKED_HOSTNAMES = frozenset(
     {
         "metadata.google.internal",
@@ -190,3 +192,44 @@ def safe_urlopen(
 
     opener = build_safe_opener(allow_private=resolved_allow)
     return opener.open(req_or_url, timeout=timeout)
+
+
+def create_safe_client(
+    allow_private: bool | None = None,
+    *,
+    timeout: float | httpx.Timeout = 30.0,
+    limits: httpx.Limits | None = None,
+    headers: dict[str, str] | None = None,
+    follow_redirects: bool = True,
+    transport: httpx.BaseTransport | None = None,
+) -> httpx.Client:
+    """Create an httpx.Client configured with SSRF protection and connection pooling.
+
+    The request event hook validates every request URL and every 3xx redirect hop
+    against SSRF policy before connections are established.
+    """
+    resolved_allow = is_private_allowed() if allow_private is None else allow_private
+
+    def ssrf_hook(request: httpx.Request) -> None:
+        validate_endpoint_url(str(request.url), allow_private=resolved_allow)
+
+    effective_timeout = (
+        timeout
+        if isinstance(timeout, httpx.Timeout)
+        else httpx.Timeout(timeout, connect=min(5.0, timeout))
+    )
+    effective_limits = limits or httpx.Limits(
+        max_connections=50,
+        max_keepalive_connections=20,
+        keepalive_expiry=30.0,
+    )
+
+    return httpx.Client(
+        timeout=effective_timeout,
+        limits=effective_limits,
+        headers=headers,
+        follow_redirects=follow_redirects,
+        event_hooks={"request": [ssrf_hook]},
+        transport=transport,
+    )
+

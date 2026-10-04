@@ -1,13 +1,19 @@
 """HTTP/REST agent adapter for Bring Your Own Agent (BYOA) endpoints."""
 
+from __future__ import annotations
+
 import json
-import urllib.error
-import urllib.request
 from typing import Any
+
+import httpx
 
 from agenteval.adapters.base import AgentAdapter
 from agenteval.core.models import StepRecord, ToolCall
-from agenteval.security.url_validator import is_private_allowed, safe_urlopen, validate_endpoint_url
+from agenteval.security.url_validator import (
+    create_safe_client,
+    is_private_allowed,
+    validate_endpoint_url,
+)
 
 
 class HTTPAdapter(AgentAdapter):
@@ -20,6 +26,7 @@ class HTTPAdapter(AgentAdapter):
         timeout_seconds: float = 30.0,
         agent_id: str = "http-agent",
         allow_private: bool | None = None,
+        client: httpx.Client | None = None,
     ) -> None:
         self.allow_private = is_private_allowed() if allow_private is None else allow_private
         validate_endpoint_url(endpoint_url, allow_private=self.allow_private)
@@ -27,6 +34,16 @@ class HTTPAdapter(AgentAdapter):
         self.headers = headers or {"Content-Type": "application/json"}
         self.timeout_seconds = timeout_seconds
         self.agent_id = agent_id
+        if client is not None:
+            self._client = client
+            self._owns_client = False
+        else:
+            self._client = create_safe_client(
+                allow_private=self.allow_private,
+                timeout=self.timeout_seconds,
+                headers=self.headers,
+            )
+            self._owns_client = True
 
     def step(
         self,
@@ -51,20 +68,9 @@ class HTTPAdapter(AgentAdapter):
             ],
         }
 
-        body_bytes = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            self.endpoint_url,
-            data=body_bytes,
-            headers=self.headers,
-            method="POST",
-        )
-
         try:
-            with safe_urlopen(
-                req, timeout=self.timeout_seconds, allow_private=self.allow_private
-            ) as resp:
-                resp_bytes = resp.read()
-                data = json.loads(resp_bytes.decode("utf-8"))
+            resp = self._client.post(self.endpoint_url, json=payload)
+            data = resp.json()
         except Exception as e:
             raise RuntimeError(f"HTTP request failed for {self.endpoint_url}: {e}") from e
 
@@ -126,3 +132,14 @@ class HTTPAdapter(AgentAdapter):
         # 3. Simple text response
         reply = data.get("reply") or data.get("output") or data.get("response") or str(data)
         return str(reply), [], True
+
+    def close(self) -> None:
+        """Close underlying HTTP client if owned by this adapter."""
+        if getattr(self, "_owns_client", False):
+            self._client.close()
+
+    def __enter__(self) -> HTTPAdapter:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()

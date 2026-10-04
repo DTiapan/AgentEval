@@ -63,17 +63,18 @@ def test_cli_run_with_persona() -> None:
 
 
 def test_cli_run_with_http_endpoint_and_persona() -> None:
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = json.dumps(
-        {
+    import httpx
+
+    mock_resp = httpx.Response(
+        200,
+        json={
             "thought": "All automated rollbacks completed.",
             "tool_calls": [],
             "is_finished": True,
-        }
-    ).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
+        },
+    )
 
-    with patch("urllib.request.urlopen", return_value=mock_resp):
+    with patch("httpx.Client.post", return_value=mock_resp):
         result = runner.invoke(
             app,
             [

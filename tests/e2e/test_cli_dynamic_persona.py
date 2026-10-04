@@ -28,17 +28,18 @@ def test_cli_plan_dynamic_persona_synthesis_and_caching() -> None:
 
 
 def test_cli_run_dynamic_persona_auto_selection() -> None:
-    mock_resp = MagicMock()
-    mock_resp.read.return_value = json.dumps(
-        {
+    import httpx
+
+    mock_resp = httpx.Response(
+        200,
+        json={
             "thought": "Executed DB failover verification safely.",
             "tool_calls": [],
             "is_finished": True,
-        }
-    ).encode("utf-8")
-    mock_resp.__enter__.return_value = mock_resp
+        },
+    )
 
-    with patch("urllib.request.urlopen", return_value=mock_resp):
+    with patch("httpx.Client.post", return_value=mock_resp):
         res = runner.invoke(app, ["run", "--endpoint", "http://localhost:8000/db-service"])
         assert res.exit_code in [0, 1]
         assert "Auto-selected" in res.output and "Persona:" in res.output

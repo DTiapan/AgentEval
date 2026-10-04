@@ -1,19 +1,20 @@
 """E2: lightweight HTTP endpoint probe for black-box agents."""
 
+from __future__ import annotations
+
 import json
 import time
-import urllib.error
-import urllib.request
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
+import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from agenteval.core.manifest import AgentCard, ToolRequirement
 from agenteval.security.url_validator import (
     UnsafeURLError,
+    create_safe_client,
     is_private_allowed,
-    safe_urlopen,
     validate_endpoint_url,
 )
 
@@ -36,9 +37,23 @@ class EndpointProbeResult(BaseModel):
 class EndpointProber:
     """POST a minimal chat payload; infer tools from JSON shape."""
 
-    def __init__(self, timeout_seconds: float = 10.0, allow_private: bool | None = None) -> None:
+    def __init__(
+        self,
+        timeout_seconds: float = 10.0,
+        allow_private: bool | None = None,
+        client: httpx.Client | None = None,
+    ) -> None:
         self.timeout_seconds = timeout_seconds
         self.allow_private = is_private_allowed() if allow_private is None else allow_private
+        if client is not None:
+            self._client = client
+            self._owns_client = False
+        else:
+            self._client = create_safe_client(
+                allow_private=self.allow_private,
+                timeout=self.timeout_seconds,
+            )
+            self._owns_client = True
 
     def probe(self, endpoint_url: str) -> EndpointProbeResult:
         try:
@@ -55,23 +70,22 @@ class EndpointProber:
             "messages": [{"role": "user", "content": "ping"}],
             "history": [],
         }
-        body = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            endpoint_url,
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         start = time.perf_counter()
         try:
-            with safe_urlopen(
-                req, timeout=self.timeout_seconds, allow_private=self.allow_private
-            ) as resp:
-                status = resp.getcode()
-                raw_bytes = resp.read()
-        except urllib.error.HTTPError as exc:
-            status = exc.code
-            raw_bytes = exc.read()
+            resp = self._client.post(endpoint_url, json=payload)
+            status = resp.status_code
+        except UnsafeURLError as exc:
+            return EndpointProbeResult(
+                endpoint_url=endpoint_url,
+                reachable=False,
+                error=f"SSRF protection: {exc}",
+            )
+        except httpx.HTTPError as exc:
+            return EndpointProbeResult(
+                endpoint_url=endpoint_url,
+                reachable=False,
+                error=str(exc),
+            )
         except Exception as exc:
             return EndpointProbeResult(
                 endpoint_url=endpoint_url,
@@ -81,8 +95,8 @@ class EndpointProber:
 
         latency_ms = (time.perf_counter() - start) * 1000.0
         try:
-            data = json.loads(raw_bytes.decode("utf-8"))
-        except json.JSONDecodeError:
+            data = resp.json()
+        except Exception:
             return EndpointProbeResult(
                 endpoint_url=endpoint_url,
                 reachable=200 <= status < 300,
@@ -176,16 +190,27 @@ class EndpointProber:
         names: list[str] = []
         for url in candidates:
             try:
-                with safe_urlopen(url, timeout=5.0, allow_private=self.allow_private) as resp:
-                    if resp.getcode() != 200:
-                        continue
-                    text = resp.read().decode("utf-8")
-                    if url.endswith(".json"):
-                        spec = json.loads(text)
-                        from agenteval.introspect.openapi import OpenAPIIntrospector
+                resp = self._client.get(url, timeout=5.0)
+                if resp.status_code != 200:
+                    continue
+                text = resp.text
+                if url.endswith(".json"):
+                    spec = json.loads(text)
+                    from agenteval.introspect.openapi import OpenAPIIntrospector
 
-                        for tool in OpenAPIIntrospector().extract_tools(spec):
-                            names.append(tool.name)
+                    for tool in OpenAPIIntrospector().extract_tools(spec):
+                        names.append(tool.name)
             except Exception:
                 continue
         return names
+
+    def close(self) -> None:
+        """Close underlying HTTP client if owned by this prober."""
+        if getattr(self, "_owns_client", False):
+            self._client.close()
+
+    def __enter__(self) -> EndpointProber:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()

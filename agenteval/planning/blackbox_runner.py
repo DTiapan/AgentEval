@@ -1,14 +1,16 @@
 """Execute a frozen test pack against an HTTP endpoint (blackbox profile)."""
 
+from __future__ import annotations
+
 import concurrent.futures
 import json
 import os
 import time
-import urllib.error
-import urllib.request
 from enum import StrEnum
 from typing import Any
 from uuid import uuid4
+
+import httpx
 
 from agenteval.evaluators.llm_judge import LLMJudgeScorer
 from agenteval.planning.execution_trace import build_blackbox_trajectory
@@ -20,7 +22,12 @@ from agenteval.planning.models import (
     TestPack,
 )
 from agenteval.planning.observable_scorer import ObservableScorer
-from agenteval.security.url_validator import is_private_allowed, safe_urlopen, validate_endpoint_url
+from agenteval.security.url_validator import (
+    UnsafeURLError,
+    create_safe_client,
+    is_private_allowed,
+    validate_endpoint_url,
+)
 
 
 class JudgeMode(StrEnum):
@@ -48,6 +55,7 @@ class BlackboxRunner:
         force_offline_judge: bool | None = None,
         allow_private: bool | None = None,
         max_workers: int | None = None,
+        client: httpx.Client | None = None,
     ) -> None:
         self.allow_private = is_private_allowed() if allow_private is None else allow_private
         validate_endpoint_url(endpoint_url, allow_private=self.allow_private)
@@ -57,6 +65,16 @@ class BlackboxRunner:
         self.judge_mode = JudgeMode(judge_mode)
         self._scorer = ObservableScorer()
         self._judge_scorer = judge_scorer or LLMJudgeScorer(force_offline=force_offline_judge)
+        if client is not None:
+            self._client = client
+            self._owns_client = False
+        else:
+            self._client = create_safe_client(
+                allow_private=self.allow_private,
+                timeout=self.timeout_seconds,
+                headers=self.headers,
+            )
+            self._owns_client = True
         raw_workers = max_workers if max_workers is not None else os.environ.get("AGENTEVAL_MAX_CONCURRENT_TESTS")
         try:
             self.max_workers = int(raw_workers) if raw_workers else 8
@@ -143,24 +161,21 @@ class BlackboxRunner:
             "messages": [{"role": "user", "content": test.user_prompt}],
             "history": [],
         }
-        body = json.dumps(payload).encode("utf-8")
-        req = urllib.request.Request(
-            self.endpoint_url,
-            data=body,
-            headers=self.headers,
-            method="POST",
-        )
         start = time.perf_counter()
         try:
-            with safe_urlopen(
-                req, timeout=self.timeout_seconds, allow_private=self.allow_private
-            ) as resp:
-                status = resp.getcode()
-                raw_bytes = resp.read()
-        except urllib.error.HTTPError as e:
-            status = e.code
-            raw_bytes = e.read()
-        except Exception as e:
+            resp = self._client.post(self.endpoint_url, json=payload)
+            status = resp.status_code
+        except UnsafeURLError as e:
+            latency_ms = (time.perf_counter() - start) * 1000
+            return ObservationBundle(
+                test_id=test.id,
+                user_prompt=test.user_prompt,
+                response_text=f"SSRF blocked: {e}",
+                http_status=0,
+                latency_ms=latency_ms,
+                raw_json={"error": str(e)},
+            )
+        except httpx.HTTPError as e:
             latency_ms = (time.perf_counter() - start) * 1000
             return ObservationBundle(
                 test_id=test.id,
@@ -168,16 +183,26 @@ class BlackboxRunner:
                 response_text=f"HTTP error: {e}",
                 http_status=0,
                 latency_ms=latency_ms,
-                raw_json={},
+                raw_json={"error": str(e)},
+            )
+        except Exception as e:
+            latency_ms = (time.perf_counter() - start) * 1000
+            return ObservationBundle(
+                test_id=test.id,
+                user_prompt=test.user_prompt,
+                response_text=f"Request error: {e}",
+                http_status=0,
+                latency_ms=latency_ms,
+                raw_json={"error": str(e)},
             )
 
         latency_ms = (time.perf_counter() - start) * 1000
         try:
-            data = json.loads(raw_bytes.decode("utf-8"))
-        except json.JSONDecodeError:
-            data = {"response": raw_bytes.decode("utf-8", errors="replace")}
+            data = resp.json()
+        except Exception:
+            data = {"response": resp.text}
 
-        text = self._extract_text(data)
+        text = self._extract_text(data) if isinstance(data, dict) else str(data)
         return ObservationBundle(
             test_id=test.id,
             user_prompt=test.user_prompt,
@@ -203,3 +228,14 @@ class BlackboxRunner:
         if parts:
             return " ".join(parts).strip()
         return json.dumps(data)
+
+    def close(self) -> None:
+        """Close underlying HTTP client if owned by this runner."""
+        if getattr(self, "_owns_client", False):
+            self._client.close()
+
+    def __enter__(self) -> BlackboxRunner:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        self.close()
