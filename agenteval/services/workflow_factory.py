@@ -53,4 +53,3 @@ def persistence_status(suite_root: Path | str = DEFAULT_SUITE_ROOT) -> dict[str,
         "database_path": str(db) if sqlite_on else None,
         "suite_root": str(resolved_suite_root),
     }
-

@@ -12,6 +12,7 @@ def _set_test_offline_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """Ensure unit tests run deterministically offline without slow external API calls."""
     monkeypatch.setenv("AGENTEVAL_FORCE_LOCAL", "1")
     monkeypatch.setenv("AGENTEVAL_FORCE_OFFLINE", "1")
+    monkeypatch.setenv("AGENTEVAL_ALLOW_PRIVATE_ENDPOINTS", "1")
 
 
 @pytest.fixture

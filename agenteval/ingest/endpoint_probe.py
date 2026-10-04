@@ -10,6 +10,12 @@ from urllib.parse import urljoin, urlparse
 from pydantic import BaseModel, ConfigDict, Field
 
 from agenteval.core.manifest import AgentCard, ToolRequirement
+from agenteval.security.url_validator import (
+    UnsafeURLError,
+    is_private_allowed,
+    safe_urlopen,
+    validate_endpoint_url,
+)
 
 
 class EndpointProbeResult(BaseModel):
@@ -30,10 +36,20 @@ class EndpointProbeResult(BaseModel):
 class EndpointProber:
     """POST a minimal chat payload; infer tools from JSON shape."""
 
-    def __init__(self, timeout_seconds: float = 10.0) -> None:
+    def __init__(self, timeout_seconds: float = 10.0, allow_private: bool | None = None) -> None:
         self.timeout_seconds = timeout_seconds
+        self.allow_private = is_private_allowed() if allow_private is None else allow_private
 
     def probe(self, endpoint_url: str) -> EndpointProbeResult:
+        try:
+            validate_endpoint_url(endpoint_url, allow_private=self.allow_private)
+        except UnsafeURLError as exc:
+            return EndpointProbeResult(
+                endpoint_url=endpoint_url,
+                reachable=False,
+                error=f"SSRF protection: {exc}",
+            )
+
         payload = {
             "prompt": "AgentEval connectivity probe. Reply briefly.",
             "messages": [{"role": "user", "content": "ping"}],
@@ -48,7 +64,9 @@ class EndpointProber:
         )
         start = time.perf_counter()
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+            with safe_urlopen(
+                req, timeout=self.timeout_seconds, allow_private=self.allow_private
+            ) as resp:
                 status = resp.getcode()
                 raw_bytes = resp.read()
         except urllib.error.HTTPError as exc:
@@ -158,7 +176,7 @@ class EndpointProber:
         names: list[str] = []
         for url in candidates:
             try:
-                with urllib.request.urlopen(url, timeout=5.0) as resp:
+                with safe_urlopen(url, timeout=5.0, allow_private=self.allow_private) as resp:
                     if resp.getcode() != 200:
                         continue
                     text = resp.read().decode("utf-8")

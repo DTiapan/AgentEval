@@ -7,6 +7,7 @@ from typing import Any
 
 from agenteval.adapters.base import AgentAdapter
 from agenteval.core.models import StepRecord, ToolCall
+from agenteval.security.url_validator import is_private_allowed, safe_urlopen, validate_endpoint_url
 
 
 class HTTPAdapter(AgentAdapter):
@@ -18,7 +19,10 @@ class HTTPAdapter(AgentAdapter):
         headers: dict[str, str] | None = None,
         timeout_seconds: float = 30.0,
         agent_id: str = "http-agent",
+        allow_private: bool | None = None,
     ) -> None:
+        self.allow_private = is_private_allowed() if allow_private is None else allow_private
+        validate_endpoint_url(endpoint_url, allow_private=self.allow_private)
         self.endpoint_url = endpoint_url
         self.headers = headers or {"Content-Type": "application/json"}
         self.timeout_seconds = timeout_seconds
@@ -56,7 +60,9 @@ class HTTPAdapter(AgentAdapter):
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+            with safe_urlopen(
+                req, timeout=self.timeout_seconds, allow_private=self.allow_private
+            ) as resp:
                 resp_bytes = resp.read()
                 data = json.loads(resp_bytes.decode("utf-8"))
         except Exception as e:

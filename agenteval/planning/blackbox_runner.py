@@ -18,6 +18,7 @@ from agenteval.planning.models import (
     TestPack,
 )
 from agenteval.planning.observable_scorer import ObservableScorer
+from agenteval.security.url_validator import is_private_allowed, safe_urlopen, validate_endpoint_url
 
 
 class JudgeMode(StrEnum):
@@ -43,7 +44,10 @@ class BlackboxRunner:
         judge_mode: JudgeMode | str = JudgeMode.HYBRID,
         judge_scorer: LLMJudgeScorer | None = None,
         force_offline_judge: bool | None = None,
+        allow_private: bool | None = None,
     ) -> None:
+        self.allow_private = is_private_allowed() if allow_private is None else allow_private
+        validate_endpoint_url(endpoint_url, allow_private=self.allow_private)
         self.endpoint_url = endpoint_url
         self.headers = headers or {"Content-Type": "application/json"}
         self.timeout_seconds = timeout_seconds
@@ -101,7 +105,9 @@ class BlackboxRunner:
         )
         start = time.perf_counter()
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout_seconds) as resp:
+            with safe_urlopen(
+                req, timeout=self.timeout_seconds, allow_private=self.allow_private
+            ) as resp:
                 status = resp.getcode()
                 raw_bytes = resp.read()
         except urllib.error.HTTPError as e:
