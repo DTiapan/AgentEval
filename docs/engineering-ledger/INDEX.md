@@ -3,7 +3,7 @@
 > Read this file before non-trivial work. Update at end of each substantive session.
 
 **Active phase:** Complete → Production Verified  
-**Last updated:** 2026-10-04 ([DR-046](decisions.md#dr-046--end-to-end-workflow-verification-zero-config-turnkey-demo-ssrf-loopback-permissiveness-and-golden-dataset-gap-expansion) End-to-End Workflow Verification: Zero-Config Turnkey Demo, SSRF Loopback Permissiveness, and Golden Dataset Gap Expansion)
+**Last updated:** 2026-10-05 (session 57 housekeeping)
 
 ## Current focus
 
@@ -16,6 +16,8 @@
 - [AP-001: Platform Architecture, Pluggable BYOA Harness & Trajectory Assurance Engine](attack-plans.md#ap-001-platform-architecture-pluggable-byoa-harness--trajectory-assurance-engine) (completed)
 
 ## Recent sessions
+
+- **2026-10-05 (session 57)**: Housekeeping. Removed untracked video skill trees, HyperFrames landing and preview motion, and visible em dashes in Assurance and replay. Preview error handling committed separately. Fintech adapter and hybrid judge unchanged.
 
 - **2026-10-04 (session 56)**: **B2′ scenario-first generation & dormant fintech UX ([DR-036](decisions.md#active-index))** — Default pool generation via `ScenarioCompiler` + `UserSimulator` (no meta-persona prompts); `ScenarioSpec` on `CandidateTest`; `AGENTEVAL_LEGACY_B2=1` restores B2 cross-product; Studio Advanced domain-pack toggles removed; design doc and golden PRD fixture added.
 

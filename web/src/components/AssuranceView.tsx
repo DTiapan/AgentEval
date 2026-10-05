@@ -610,7 +610,7 @@ export const AssuranceView: React.FC = () => {
                   : "text-rose-500"
               }`}
             >
-              {totalTests > 0 ? `${passRate}%` : "—"}
+              {totalTests > 0 ? `${passRate}%` : "n/a"}
             </span>
             <span className="text-xs text-muted-foreground">
               {latestRun?.passed ?? 0}/{totalTests}

@@ -8,25 +8,22 @@ const LINES = [
   { kind: "dim", text: "Ready to freeze · evidence-backed run on POST /v1/suites" },
 ] as const;
 
-/**
- * Hero product preview — crisp terminal chrome (animate skill: CSS entry, transform+opacity).
- */
+/** Static hero terminal. Lines are visible immediately. */
 export const LandingHeroTerminal: React.FC = () => {
   return (
-    <div className="hf-terminal-shell rounded-lg border border-border bg-card shadow-xs overflow-hidden">
+    <div className="rounded-lg border border-border bg-card shadow-xs overflow-hidden">
       <div className="flex items-center gap-2 border-b border-border bg-muted/40 px-3 py-2.5">
         <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/25" aria-hidden />
         <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/25" aria-hidden />
         <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/25" aria-hidden />
-        <span className="ml-1 font-mono text-[10px] text-muted-foreground">studio — preview</span>
+        <span className="ml-1 font-mono text-[10px] text-muted-foreground">studio: preview</span>
       </div>
-      <div className="relative bg-[oklch(0.12_0.01_280)] dark:bg-[oklch(0.14_0.012_280)] px-4 py-4 sm:px-5 sm:py-5 min-h-[220px]">
+      <div className="relative bg-[#0d1117] px-4 py-4 text-[#c9d1d9] sm:px-5 sm:py-5 min-h-[220px] dark:bg-[#010409]">
         <div className="space-y-2 font-mono text-[11px] sm:text-xs leading-relaxed">
-          {LINES.map((line, index) => (
+          {LINES.map((line) => (
             <div
               key={line.text}
-              className={`hf-terminal-line flex gap-2 ${line.kind === "cmd" ? "text-primary-foreground/95" : ""}`}
-              style={{ "--hf-line": index } as React.CSSProperties}
+              className={`flex gap-2 ${line.kind === "cmd" ? "text-primary-foreground/95" : ""}`}
             >
               {line.kind === "cmd" ? (
                 <span className="text-primary shrink-0 select-none">›</span>
@@ -48,20 +45,22 @@ export const LandingHeroTerminal: React.FC = () => {
               </span>
             </div>
           ))}
-          <div
-            className="hf-terminal-line hf-terminal-cursor-row flex items-center gap-2 pt-1"
-            style={{ "--hf-line": LINES.length } as React.CSSProperties}
-          >
+          <div className="flex items-center gap-2 pt-1">
             <span className="inline-flex gap-1.5" aria-hidden>
-              <span className="hf-verdict-chip hf-verdict-pass">PASS</span>
-              <span className="hf-verdict-chip hf-verdict-fail">FAIL</span>
-              <span className="hf-verdict-chip hf-verdict-unv">UNVERIFIABLE</span>
+              <span className="rounded-sm border border-emerald-500/40 bg-emerald-500/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-emerald-300">
+                PASS
+              </span>
+              <span className="rounded-sm border border-destructive/40 bg-destructive/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-destructive">
+                FAIL
+              </span>
+              <span className="rounded-sm border border-amber-500/40 bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-amber-300">
+                UNVERIFIABLE
+              </span>
             </span>
-            <span className="hf-terminal-cursor" aria-hidden />
           </div>
         </div>
         <div className="mt-4 h-1 w-full overflow-hidden rounded-full bg-white/10">
-          <div className="hf-terminal-progress h-full rounded-full bg-primary" />
+          <div className="h-full w-full rounded-full bg-primary" />
         </div>
       </div>
     </div>

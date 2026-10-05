@@ -107,7 +107,7 @@ export const StudioEngineActivityLog: React.FC<StudioEngineActivityLogProps> = (
                     {formatLogTime(new Date().toISOString())}
                   </span>
                   <span className="shrink-0 w-10">…</span>
-                  <span className="hf-pulse-soft">
+                  <span>
                     Waiting for engine response (scenario compile, LLM synthesis, ranking)…
                   </span>
                 </li>

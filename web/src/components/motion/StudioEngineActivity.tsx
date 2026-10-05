@@ -23,8 +23,8 @@ interface StudioEngineActivityProps {
 }
 
 /**
- * Loading choreography for suite preview / freeze.
- * Motion patterns adapted from HyperFrames CSS stagger + shimmer (hyperframes-animation).
+ * Status line for suite preview / freeze.
+ * Phase text rotates unless the user prefers reduced motion.
  */
 export const StudioEngineActivity: React.FC<StudioEngineActivityProps> = ({
   mode,
@@ -56,24 +56,16 @@ export const StudioEngineActivity: React.FC<StudioEngineActivityProps> = ({
       role="status"
       aria-live="polite"
       aria-busy="true"
-      className={`hf-engine-activity relative overflow-hidden rounded-md border border-primary/20 bg-primary/5 px-3 py-2 ${className}`}
+      className={`relative overflow-hidden rounded-md border border-primary/20 bg-primary/5 px-3 py-2 ${className}`}
     >
-      <div className="hf-shimmer-track pointer-events-none absolute inset-0" aria-hidden />
-      <div className="relative flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
-          <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary hf-pulse-soft" aria-hidden />
-          <p className="truncate text-[11px] text-foreground">
-            <span className="font-medium">
-              {mode === "freeze" ? "Freezing suite" : "Generating pack"}
-            </span>
-            <span className="text-muted-foreground font-mono"> · {label}…</span>
-          </p>
-        </div>
-        <div className="hf-stagger-dots flex shrink-0 items-center gap-1" aria-hidden>
-          {[0, 1, 2].map((i) => (
-            <span key={i} className="hf-stagger-dot" style={{ "--hf-i": i } as React.CSSProperties} />
-          ))}
-        </div>
+      <div className="relative flex items-center gap-2">
+        <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" aria-hidden />
+        <p className="truncate text-[11px] text-foreground">
+          <span className="font-medium">
+            {mode === "freeze" ? "Freezing suite" : "Generating pack"}
+          </span>
+          <span className="text-muted-foreground font-mono"> · {label}…</span>
+        </p>
       </div>
     </div>
   );

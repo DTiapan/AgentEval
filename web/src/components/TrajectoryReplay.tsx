@@ -112,7 +112,7 @@ export const TrajectoryReplay: React.FC<TrajectoryReplayProps> = ({
   const panels = panelContentForStep(currentStep);
   const failIndex = model.failStepIndex;
   const canJumpToFail = failIndex !== null && model.verdict === "FAIL";
-  const agentLabel = session.agentId || "—";
+  const agentLabel = session.agentId || "n/a";
   const shortTestId =
     model.testId.length > 40 ? `${model.testId.slice(0, 38)}…` : model.testId;
 

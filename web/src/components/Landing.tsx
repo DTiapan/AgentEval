@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { PRODUCT_DOMAIN } from "@/lib/product";
-import { LandingReveal } from "@/components/motion/LandingHeroMotion";
 import { LandingHeroTerminal } from "@/components/motion/LandingHeroTerminal";
 
 interface LandingProps {
@@ -94,48 +93,37 @@ export const Landing: React.FC<LandingProps> = ({ onStartFree, onOpenConsole }) 
         <section className="mx-auto max-w-6xl px-4 py-14 sm:px-6 sm:py-20">
           <div className="grid gap-10 lg:grid-cols-2 lg:items-center">
             <div>
-              <LandingReveal delayIndex={0}>
-                <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-[2.65rem] lg:leading-tight text-balance">
-                  Test AI agents before production.
-                </h1>
-              </LandingReveal>
-              <LandingReveal delayIndex={1}>
-                <p className="mt-4 text-base text-muted-foreground leading-relaxed max-w-xl">
-                  Deterministic evidence, frozen regression suites, and release gating for
-                  tool-calling agents. No vibes, no prod APM.
-                </p>
-              </LandingReveal>
-              <LandingReveal delayIndex={2}>
-                <div className="mt-8 flex flex-wrap gap-3">
-                  <Button onClick={onStartFree} className="gap-2">
-                    Start free
-                    <ArrowRight className="h-4 w-4" aria-hidden />
-                  </Button>
-                  <Button variant="outline" onClick={onOpenConsole}>
-                    Live demo console
-                  </Button>
-                </div>
-              </LandingReveal>
-              <LandingReveal delayIndex={3}>
-                <p className="mt-6 text-[11px] text-muted-foreground">
-                  Bring your PRD and agent HTTP endpoint. Evaluation packs and runs come from the
-                  engine, not preloaded demo data.
-                </p>
-              </LandingReveal>
+              <h1 className="text-3xl font-bold tracking-tight sm:text-4xl lg:text-[2.65rem] lg:leading-tight text-balance">
+                Test AI agents before production.
+              </h1>
+              <p className="mt-4 text-base text-muted-foreground leading-relaxed max-w-xl">
+                Deterministic evidence, frozen regression suites, and release gating for
+                tool-calling agents. No vibes, no prod APM.
+              </p>
+              <div className="mt-8 flex flex-wrap gap-3">
+                <Button onClick={onStartFree} className="gap-2">
+                  Start free
+                  <ArrowRight className="h-4 w-4" aria-hidden />
+                </Button>
+                <Button variant="outline" onClick={onOpenConsole}>
+                  Live demo console
+                </Button>
+              </div>
+              <p className="mt-6 text-[11px] text-muted-foreground">
+                Bring your PRD and agent HTTP endpoint. Evaluation packs and runs come from the
+                engine, not preloaded demo data.
+              </p>
             </div>
-            <LandingReveal delayIndex={4}>
-              <LandingHeroTerminal />
-            </LandingReveal>
+            <LandingHeroTerminal />
           </div>
         </section>
 
         <section className="border-y border-border bg-muted/30">
           <div className="mx-auto grid max-w-6xl gap-6 px-4 py-12 sm:px-6 md:grid-cols-3">
-            {FEATURES.map((f, index) => (
+            {FEATURES.map((f) => (
               <Card
                 key={f.title}
-                className="hf-feature-card border-border bg-card shadow-xs"
-                style={{ "--hf-delay": index + 1 } as React.CSSProperties}
+                className="border-border bg-card shadow-xs"
               >
                 <CardHeader className="pb-2">
                   <div className="mb-2 flex h-9 w-9 items-center justify-center rounded-md border border-border bg-muted/50 text-primary">

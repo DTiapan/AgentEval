@@ -31,7 +31,7 @@ export function panelContentForStep(step: ExecutionStep): StepPanelContent {
       ? `${step.action_tool}\n${JSON.stringify(step.action_args ?? {}, null, 2)}`
       : step.kind === "tool_call"
         ? "(no tool payload in sealed trace)"
-        : "—";
+        : "n/a";
 
   const telemetry =
     step.http_status != null
@@ -42,43 +42,43 @@ export function panelContentForStep(step: ExecutionStep): StepPanelContent {
     case "user_message":
       return {
         thought: "Sealed user prompt from test definition and run request.",
-        action: "—",
-        observation: step.observation || "—",
+        action: "n/a",
+        observation: step.observation || "n/a",
         emphasis: "observation",
       };
     case "agent_thought":
       return {
-        thought: step.thought || "—",
-        action: "—",
-        observation: telemetry || "—",
+        thought: step.thought || "n/a",
+        action: "n/a",
+        observation: telemetry || "n/a",
         emphasis: "thought",
       };
     case "tool_call":
       return {
         thought: step.thought || "Tool invocation from agent response payload.",
         action: actionPayload,
-        observation: step.observation || telemetry || "—",
+        observation: step.observation || telemetry || "n/a",
         emphasis: "action",
       };
     case "http_response":
       return {
         thought: "Observable HTTP response body captured by the runner.",
-        action: "—",
-        observation: step.observation || "—",
+        action: "n/a",
+        observation: step.observation || "n/a",
         emphasis: "observation",
       };
     case "invariant_check":
       return {
-        thought: step.thought || "—",
+        thought: step.thought || "n/a",
         action: "invariant_evaluator",
-        observation: step.observation || telemetry || "—",
+        observation: step.observation || telemetry || "n/a",
         emphasis: "thought",
       };
     default:
       return {
-        thought: step.thought || "—",
-        action: step.action_tool ? actionPayload : "—",
-        observation: step.observation || telemetry || "—",
+        thought: step.thought || "n/a",
+        action: step.action_tool ? actionPayload : "n/a",
+        observation: step.observation || telemetry || "n/a",
       };
   }
 }
