@@ -25,9 +25,30 @@ async function authFetch(input: RequestInfo | URL, init?: RequestInit) {
 }
 
 async function parseJson<T>(response: Response): Promise<T> {
-  const body = await response.json().catch(() => ({}));
+  const text = await response.text();
+  let body: unknown = {};
+  if (text.trim()) {
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      if (!response.ok) {
+        const snippet = text.replace(/\s+/g, " ").trim().slice(0, 240);
+        throw new Error(
+          `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}${snippet ? `: ${snippet}` : ""}`,
+        );
+      }
+      throw new Error(`Invalid JSON from server (HTTP ${response.status})`);
+    }
+  }
   if (!response.ok) {
-    throw new Error(formatApiErrorBody(body, response.statusText || "Request failed"));
+    const formatted = formatApiErrorBody(body, response.statusText || "Request failed");
+    const msg =
+      !formatted.trim() || formatted === "{}"
+        ? `HTTP ${response.status}${response.statusText ? ` ${response.statusText}` : ""}`
+        : formatted.startsWith("HTTP ")
+          ? formatted
+          : `HTTP ${response.status}: ${formatted}`;
+    throw new Error(msg);
   }
   return body as T;
 }

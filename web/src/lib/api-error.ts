@@ -33,8 +33,13 @@ export function formatApiErrorBody(body: unknown, fallback = "Request failed"): 
   const message = record.message;
   if (typeof message === "string" && message.trim()) return message;
 
+  const error = record.error;
+  if (typeof error === "string" && error.trim()) return error;
+
   try {
-    return JSON.stringify(body);
+    const serialized = JSON.stringify(body);
+    if (serialized === "{}" || serialized === "[]") return fallback;
+    return serialized;
   } catch {
     return fallback;
   }

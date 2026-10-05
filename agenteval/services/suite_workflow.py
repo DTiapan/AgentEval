@@ -39,7 +39,10 @@ from agenteval.planning.run_diff import diff_suite_runs
 from agenteval.planning.suite_store import SuiteStore
 from agenteval.planning.suite_sync import SuiteSynchronizer, SuiteSyncResult
 from agenteval.targets import TargetConnectionProfile
+from agenteval.logging import get_logger
 from agenteval.services.preview_session import PreviewSessionStore, binding_from_request
+
+logger = get_logger("agenteval.services.suite_workflow")
 from agenteval.services.workflow_activity import WorkflowActivityEntry, WorkflowActivityLog
 from agenteval.telemetry import start_span
 
@@ -274,10 +277,17 @@ class SuiteWorkflow:
             activity.ok(f"Capabilities: {len(card.capabilities)} · fingerprint {fingerprint}")
             if eff_url:
                 if probe:
-                    level = "ok" if probe.status == "OK" else "warn"
-                    getattr(activity, level)(
-                        f"Endpoint probe {probe.status} · {probe.latency_ms:.0f} ms · {eff_url}"
-                    )
+                    if probe.reachable:
+                        probe_line = (
+                            f"Endpoint reachable · HTTP {probe.http_status} · "
+                            f"{probe.latency_ms:.0f} ms · {eff_url}"
+                        )
+                        activity.ok(probe_line)
+                    else:
+                        detail = probe.error or "probe failed"
+                        activity.warn(
+                            f"Endpoint unreachable · {detail} · {probe.latency_ms:.0f} ms · {eff_url}"
+                        )
                 else:
                     activity.info(f"Endpoint probe skipped · {eff_url}")
             else:
@@ -334,12 +344,19 @@ class SuiteWorkflow:
                 endpoint_url=eff_url,
                 connection_profile=connection_profile,
             )
-            store = self._preview_session_store()
             try:
-                preview_id = store.save(binding, result.model_dump(mode="json"))
-            finally:
-                store.close()
-            return result.model_copy(update={"preview_id": preview_id})
+                store = self._preview_session_store()
+                try:
+                    preview_id = store.save(binding, result.model_dump(mode="json"))
+                finally:
+                    store.close()
+                return result.model_copy(update={"preview_id": preview_id})
+            except Exception as exc:
+                logger.warning("preview_session_save_failed", error=str(exc))
+                activity.warn(
+                    "Preview pack ready; session id unavailable (freeze may regenerate unless you retry preview)."
+                )
+                return result.model_copy(update={"activity_log": activity.entries})
 
     def init_from_prd_text(
         self,

@@ -406,7 +406,11 @@ export const Studio: React.FC = () => {
       });
       goToBuilderStep(3, { force: true });
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
+      let msg = err instanceof Error ? err.message : String(err);
+      if (!msg.trim() || msg === "{}") {
+        msg =
+          "Preview request failed (empty server response). Check engine API key, rate limits, or Cloud Run logs.";
+      }
       setPreviewActivityLog((prev) => [
         ...prev,
         {
